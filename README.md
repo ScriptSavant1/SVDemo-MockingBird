@@ -1,15 +1,15 @@
 # Mockingbird — Service Virtualisation Platform
 
 > **Replacing CA LISA + IBM Rational Test Workbench with open-source tooling.**  
-> NatWest / RBS Group | £0 licence cost | 10,000+ TPS per stub
+> your organisation | £0 licence cost | 10,000+ TPS per stub
 
 ---
 
 ## What is Mockingbird?
 
-When a software team at NatWest needs to test their application, they often depend on other APIs that may not be ready, unstable, or too expensive to call in bulk. A **service stub** (also called a "mock") is a fake version of that API — it returns realistic responses, behaves like the real thing, but is fully controlled and can handle millions of test requests per second.
+When a software team needs to test their application, they often depend on other APIs that may not be ready, unstable, or too expensive to call in bulk. A **service stub** (also called a "mock") is a fake version of that API — it returns realistic responses, behaves like the real thing, but is fully controlled and can handle millions of test requests per second.
 
-Today the SV (Service Virtualisation) team at NatWest creates these stubs **manually**, using paid tools (CA LISA, IBM Rational Test Workbench) that cost over £100,000 a year in licences.
+Today the SV (Service Virtualisation) team creates these stubs **manually**, using paid tools (CA LISA, IBM Rational Test Workbench) that cost over £100,000 a year in licences.
 
 **Mockingbird automates the entire process:**
 
@@ -684,7 +684,7 @@ These are set in `services/docker-compose.yml` for local development. In product
 | `VIEWER` | Read-only access to see projects and metrics |
 
 Phase 1 (current): admin creates all users manually via the API.  
-Phase 2: NatWest LDAP login — your network username works automatically.  
+Phase 2: LDAP login — your network username works automatically.  
 Phase 3 (Weeks 39+): Europa SSO for single sign-on.
 
 ---
@@ -737,9 +737,9 @@ See [PHASES.md](PHASES.md) for detailed sprint-by-sprint breakdown.
 
 ---
 
-## Pending Configuration (NatWest-specific)
+## Pending Configuration (organisation-specific)
 
-These items are needed before connecting to the NatWest internal network. They do not affect local development.
+These items are needed before connecting to the internal network. They do not affect local development.
 
 | Priority | Item | Needed For |
 |----------|------|-----------|
@@ -750,8 +750,8 @@ These items are needed before connecting to the NatWest internal network. They d
 | 🟡 Important | LDAP server hostname + base DN | Phase 3 Sprint 12 |
 | 🟡 Important | Splunk HEC endpoint + token | Log forwarding |
 | 🟡 Important | AppDynamics agent key + controller hostname | APM in stub containers |
-| 🟢 Useful | NatWest branding assets (logo, colours, PPT template) | Phase 5 reports |
-| 🟢 Useful | Internal NatWest CA certificate | HTTPS on stub EC2s |
+| 🟢 Useful | Branding assets (logo, colours, PPT template) | Phase 5 reports |
+| 🟢 Useful | Internal CA certificate | HTTPS on stub EC2s |
 
 ---
 
@@ -775,7 +775,7 @@ These items are needed before connecting to the NatWest internal network. They d
 
 ## Contributing
 
-This project is built by a single engineer at NatWest with Claude as an AI pair programmer.
+This project is built by a single engineer with Claude as an AI pair programmer.
 
 **Adding a new input format:**
 
@@ -797,6 +797,6 @@ The plugin design means no existing code changes — zero risk to existing parse
 
 ## Licence
 
-Internal NatWest / RBS Group project. Not for external distribution.
+Open-source project. All dependencies are open-source (MIT/Apache 2.0).
 
-All dependencies are open-source (MIT/Apache 2.0) — zero licence cost is a core requirement of this project.
+Zero licence cost is a core requirement of this project.

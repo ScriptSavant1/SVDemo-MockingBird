@@ -414,12 +414,12 @@ class TestSpringBootSoapTemplates:
 
     def test_ws_security_config_exists(self):
         f = _stub_engine_dir() / \
-            "src/main/java/com/natwest/mockingbird/stubs/WsSecurityConfig.java"
+            "src/main/java/com/mockingbird/stubs/WsSecurityConfig.java"
         assert f.exists(), f"WsSecurityConfig.java not found at {f}"
 
     def test_wsdl_config_exists(self):
         f = _stub_engine_dir() / \
-            "src/main/java/com/natwest/mockingbird/stubs/WsdlConfig.java"
+            "src/main/java/com/mockingbird/stubs/WsdlConfig.java"
         assert f.exists(), f"WsdlConfig.java not found at {f}"
 
     def test_wsdl_placeholder_exists(self):
@@ -428,21 +428,21 @@ class TestSpringBootSoapTemplates:
 
     def test_ws_security_config_conditional_on_property(self):
         f = _stub_engine_dir() / \
-            "src/main/java/com/natwest/mockingbird/stubs/WsSecurityConfig.java"
+            "src/main/java/com/mockingbird/stubs/WsSecurityConfig.java"
         content = f.read_text(encoding="utf-8")
         assert "ConditionalOnProperty" in content
         assert "ws-security.enabled" in content
 
     def test_wsdl_config_conditional_on_property(self):
         f = _stub_engine_dir() / \
-            "src/main/java/com/natwest/mockingbird/stubs/WsdlConfig.java"
+            "src/main/java/com/mockingbird/stubs/WsdlConfig.java"
         content = f.read_text(encoding="utf-8")
         assert "ConditionalOnProperty" in content
         assert "wsdl.enabled" in content
 
     def test_ws_security_config_no_hardcoded_credentials(self):
         f = _stub_engine_dir() / \
-            "src/main/java/com/natwest/mockingbird/stubs/WsSecurityConfig.java"
+            "src/main/java/com/mockingbird/stubs/WsSecurityConfig.java"
         content = f.read_text(encoding="utf-8")
         # Credentials must come from @Value injection, never be hardcoded strings
         assert "password123" not in content
@@ -497,7 +497,7 @@ class TestSpringBootSoapTemplates:
         )
         out = tmp_path / "stub"
         generate_springboot_project(parsed, out, "test-stub", "Test Stub")
-        java_dir = out / "src/main/java/com/natwest/mockingbird/stubs"
+        java_dir = out / "src/main/java/com/mockingbird/stubs"
         assert (java_dir / "WsSecurityConfig.java").exists()
         assert (java_dir / "WsdlConfig.java").exists()
         assert (out / "src/main/resources/wsdl/service.wsdl").exists()

@@ -9,14 +9,14 @@
 ## 1. Complete System Picture (Simple View)
 
 ```
-                           NATWEST USERS (all browsers)
+                           PORTAL USERS (all browsers)
                                        │
                                        │ HTTPS
                                        ▼
                     ┌──────────────────────────────────────┐
                     │    MOCKINGBIRD PORTAL                 │
                     │    (React website)                    │
-                    │    https://mockingbird.natwest.com   │
+                    │    https://mockingbird.internal      │
                     │    served via AWS CloudFront + S3     │
                     └──────────────────┬───────────────────┘
                                        │ API calls
@@ -142,8 +142,8 @@ built in registry    API to build image
                           │
                           ▼
                    EC2 user_data.sh runs:
-                     docker login registry.gitlab.natwest.internal --username deploy-token
-                     docker pull registry.gitlab.natwest.internal/mockingbird/{project-id}:v{n}
+                     docker login registry.gitlab.internal --username deploy-token
+                     docker pull registry.gitlab.internal/mockingbird/{project-id}:v{n}
                      docker run -d -p 8080:8080 \
                        --restart always \
                        --memory 12g \
@@ -212,7 +212,7 @@ What gets deployed to each EC2 (Docker container):
   │  ┌──────────────────────────────────────────────────┐    │
   │  │  Nginx (in same container or sidecar)            │    │
   │  │    Port 443 → TLS termination → 8080 (WireMock) │    │
-  │  │    SSL cert: NatWest internal CA                 │    │
+  │  │    SSL cert: internal CA                         │    │
   │  │    Optional: mTLS client cert verification       │    │
   │  └──────────────────────────────────────────────────┘    │
   │                                                         │
@@ -275,7 +275,7 @@ User configures this in the portal:
 
 ### PostgreSQL (NOT MS SQL) — Reasoning
 
-NatWest centrally manages MS SQL and Oracle. However, Mockingbird uses **PostgreSQL on AWS RDS** because:
+Your organisation may centrally manage MS SQL and Oracle. However, Mockingbird uses **PostgreSQL on AWS RDS** because:
 
 1. Zero licence cost (MS SQL requires Windows Server licence)
 2. Mockingbird's mission is £0 licence cost — using licensed SQL Server contradicts this
@@ -283,7 +283,7 @@ NatWest centrally manages MS SQL and Oracle. However, Mockingbird uses **Postgre
 4. SQLAlchemy (Python) has superior PostgreSQL support
 5. This is a NEW platform — establishing its own standard is acceptable
 
-If NatWest mandates MS SQL for all applications: switch to RDS for SQL Server (SQLAlchemy supports it via pyodbc with zero code changes).
+If your organisation mandates MS SQL for all applications: switch to RDS for SQL Server (SQLAlchemy supports it via pyodbc with zero code changes).
 
 ### Full Data Store Map
 
@@ -311,7 +311,7 @@ AWS SQS (eu-west-2)
   Queues: parse-queue, generate-queue, deploy-queue, report-queue
   DLQ: mockingbird-dlq (failed jobs, manual retry)
 
-HashiCorp Vault (existing NatWest instance)
+HashiCorp Vault (existing instance)
   Secrets: DB password, GitLab deploy tokens, LDAP bind credentials,
            EC2 SSH keys (on-prem), Vault accessed via hvac (Python)
            and spring-vault-core (Java stub engine)
@@ -321,12 +321,12 @@ HashiCorp Vault (existing NatWest instance)
 
 ## 7. Monitoring & Observability Strategy
 
-NatWest has: DX APM, AppDynamics, Splunk, Elasticsearch, CloudWatch
+Your organisation may have: DX APM, AppDynamics, Splunk, Elasticsearch, CloudWatch
 
 Mockingbird uses existing tools — no new monitoring infrastructure:
 
 ```
-LOGS → Splunk (existing NatWest Splunk)
+LOGS → Splunk (existing Splunk)
 ──────────────────────────────────────
 All ECS containers: structured JSON logs to stdout
 CloudWatch Logs Group: /mockingbird/{service-name}
@@ -346,7 +346,7 @@ APM (Application Performance) → AppDynamics or DX APM
 ────────────────────────────────────────────────────────
 AppDynamics Java agent: injected into Spring Boot stub containers
   → Transaction tracing, slow request detection, error tracking
-  → Feeds into existing NatWest AppDynamics dashboards
+  → Feeds into existing AppDynamics dashboards
 
 ALERTS → CloudWatch Alarms → SNS → Slack / email
 ──────────────────────────────────────────────────
@@ -368,16 +368,16 @@ PHASE 1 (Weeks 1–16): Local Credentials
   Use during: platform development and SV team internal testing
 
 PHASE 2 (Weeks 17–32): LDAP Integration
-  Connect to NatWest LDAP server
-  User logs in with NatWest network credentials (same as laptop login)
+  Connect to LDAP server
+  User logs in with network credentials (same as laptop login)
   LDAP query: filter by uid, get memberOf groups
   Role mapping:
-    CN=SV-Team,OU=Groups,DC=natwest,DC=com       → role: ADMIN
-    CN=SV-Users,OU=Groups,DC=natwest,DC=com      → role: SV_TEAM
-    CN={project-group},OU=Groups,DC=natwest,DC=com → role: PROJECT_OWNER
+    CN=SV-Team,OU=Groups,DC=company,DC=com       → role: ADMIN
+    CN=SV-Users,OU=Groups,DC=company,DC=com      → role: SV_TEAM
+    CN={project-group},OU=Groups,DC=company,DC=com → role: PROJECT_OWNER
     (any authenticated user with no group match)   → role: VIEWER
   
-  Python: ldap3 library (from NatWest PyPI mirror)
+  Python: ldap3 library (from PyPI mirror)
   Config: LDAP_SERVER, LDAP_BASE_DN, LDAP_BIND_USER from HashiCorp Vault
 
 PHASE 3 (Weeks 39+): SAML SSO (Europa users — additive)
@@ -385,7 +385,7 @@ PHASE 3 (Weeks 39+): SAML SSO (Europa users — additive)
   LDAP still works for non-Europa users
   python3-saml library
   Both auth methods active simultaneously
-  User lands on login page → chooses "NatWest Network Login" (LDAP) or "SSO Login" (SAML)
+  User lands on login page → chooses "Network Login" (LDAP) or "SSO Login" (SAML)
 ```
 
 ---
@@ -401,14 +401,14 @@ stages: [test, build, deploy]
 build-portal:
   image: node:20-alpine  # from Artifactory mirror
   script:
-    - npm install --registry https://npm.natwest.internal
+    - npm install --registry https://npm.artifactory.internal
     - npm run build
     - # Build Nginx container with built assets
 
 build-python-services:
   image: python:3.11-slim  # from Artifactory mirror
   script:
-    - pip install --index-url https://pypi.natwest.internal/simple -r requirements.txt
+    - pip install --index-url https://pypi.artifactory.internal/simple -r requirements.txt
     - pytest
     - # Build service Docker image via Kaniko
 
@@ -421,7 +421,7 @@ build-with-kaniko:
         --context "${CI_PROJECT_DIR}"
         --dockerfile "Dockerfile"
         --destination "${CI_REGISTRY_IMAGE}/portal:${CI_COMMIT_SHA}"
-  # CI_REGISTRY_IMAGE = registry.gitlab.natwest.internal/mockingbird/platform
+  # CI_REGISTRY_IMAGE = registry.gitlab.internal/mockingbird/platform
 ```
 
 ### Pipeline 2: Build Stub Docker Image (triggered by Mockingbird when user deploys)
@@ -439,7 +439,7 @@ build-stub-image:
     - /kaniko/executor
         --context "${CI_PROJECT_DIR}/stub-package"
         --dockerfile "${CI_PROJECT_DIR}/stub-package/Dockerfile"
-        --build-arg ARTIFACTORY_URL=https://artifactory.natwest.internal
+        --build-arg ARTIFACTORY_URL=https://artifactory.internal
         --destination "${CI_REGISTRY_IMAGE}/${PROJECT_ID}:${VERSION}"
 ```
 
@@ -450,7 +450,7 @@ import httpx
 async def trigger_stub_build(project_id: str, version: str) -> str:
     """Trigger GitLab pipeline to build stub Docker image"""
     response = await httpx.post(
-        f"https://gitlab.natwest.internal/api/v4/projects/{MOCKINGBIRD_GITLAB_PROJECT_ID}/trigger/pipeline",
+        f"https://gitlab.mockingbird.internal/api/v4/projects/{MOCKINGBIRD_GITLAB_PROJECT_ID}/trigger/pipeline",
         json={
             "token": vault.get_secret("gitlab/pipeline-trigger-token"),
             "ref": "main",
@@ -477,7 +477,7 @@ LIVE DASHBOARD (React + ECharts + WebSocket)
   Grafana embedded: operational dashboards
 
 PDF REPORT (WeasyPrint Python library)
-  Executive Summary: NatWest branded, charts, license savings, availability
+  Executive Summary: branded, charts, license savings, availability
   Project Report: per-endpoint metrics, deployment history
   Delivered: email attachment + portal download link
 
@@ -489,7 +489,7 @@ EXCEL REPORT (openpyxl Python library)
 POWERPOINT REPORT (python-pptx Python library)
   Pre-formatted slides: ready for management presentation
   Includes: charts as embedded images, key metrics as large numbers
-  NatWest slide template applied (colours, logo, footer)
+  Branded slide template applied (colours, logo, footer)
 
 All reports:
   Generated on demand OR scheduled (daily/weekly/monthly email)
@@ -509,7 +509,7 @@ All reports:
 | mTLS or server-side TLS only for stubs? | Phase 2 — Nginx config on EC2 |
 | Is PostgreSQL acceptable or is MS SQL mandatory? | Phase 1 — DB setup |
 | HashiCorp Vault endpoint + auth method (AppRole? k8s?) | Phase 3 — secrets integration |
-| NatWest branding assets (logo, colours, fonts) | Phase 5 — report templates |
+| Branding assets (logo, colours, fonts) | Phase 5 — report templates |
 | AppDynamics agent key for stub containers | Phase 2 — APM integration |
 | Splunk HEC endpoint + token | Phase 3 — log forwarding |
 | LDAP server hostname + bind credentials | Phase 2 — auth |

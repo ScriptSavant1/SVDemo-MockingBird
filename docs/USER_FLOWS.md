@@ -30,7 +30,7 @@ Opens Mockingbird portal URL in browser
   │
   ├─── Has bank AD account? 
   │         │
-  │    YES ─▶ Click "Login with NatWest SSO"
+  │    YES ─▶ Click "Login with SSO"
   │              │
   │              ▼
   │         SAML/OIDC redirect → Bank Active Directory

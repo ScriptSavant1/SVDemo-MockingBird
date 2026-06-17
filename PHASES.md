@@ -91,7 +91,7 @@ docker compose up
 | Sprint 9 | 17–18 | PostgreSQL database schema (projects, stubs, users, deployments, audit_log). FastAPI project-service (CRUD). auth-service (local username/password login, bcrypt). |
 | Sprint 10 | 19–20 | ingestion-service: file upload API. Format auto-detection. Validation. Stores uploaded file in S3. Returns validation result. |
 | Sprint 11 | 21–22 | SQS job queues: parse-queue → parser-worker (runs sv-gen logic as a service). generate-queue → generator-worker. Async job status tracking. |
-| Sprint 12 | 23–24 | LDAP authentication (NatWest network login). Redis session cache. |
+| Sprint 12 | 23–24 | LDAP authentication (network login). Redis session cache. |
 
 **End-of-phase demo:**
 - SV team member logs in at `http://mockingbird.internal` (no Postman needed)
@@ -149,8 +149,8 @@ Click "Deploy"
 | Sprint | Weeks | Deliverable |
 |--------|-------|-------------|
 | Sprint 17 | 33–34 | Prometheus scrapes each stub EC2 every 30 seconds → AWS Timestream (time-series storage). Grafana dashboard embedded in portal (live TPS, latency, uptime). |
-| Sprint 18 | 35–36 | PDF report (WeasyPrint, NatWest branded): project summary, TPS graph, uptime %, response time percentiles (p50/p95/p99). Emailed to management weekly. Excel report (openpyxl): raw data for analysts. |
-| Sprint 19 | 37–38 | PowerPoint report (python-pptx, NatWest template): executive slides. WebSocket live feed: real-time TPS counter on portal. |
+| Sprint 18 | 35–36 | PDF report (WeasyPrint, branded): project summary, TPS graph, uptime %, response time percentiles (p50/p95/p99). Emailed to management weekly. Excel report (openpyxl): raw data for analysts. |
+| Sprint 19 | 37–38 | PowerPoint report (python-pptx, branded template): executive slides. WebSocket live feed: real-time TPS counter on portal. |
 
 **Report formats:** PDF (management/CTO) + Excel (finance/analysts) + PowerPoint (presentations) + Live Dashboard (everyone).
 
@@ -175,10 +175,10 @@ Click "Deploy"
 | Sprint 20–21 | 39–42 | React 18 + TypeScript portal. Login page, project dashboard, file upload with real-time validation, Generate button, Deploy button. |
 | Sprint 22 | 43–44 | Live TPS dashboard (Apache ECharts, Canvas-based, handles 60fps updates). Download reports. Admin panel: manage users, view all projects. |
 | Sprint 23 | 45–46 | Dynamic stub editor: UI to add/edit conditions (200/400/404/500) without editing JSON files. |
-| Sprint 24 | 47–48 | SAML Europa SSO (NatWest SSO for Europa-domain users). Contextual help tooltips. First-time user wizard. |
+| Sprint 24 | 47–48 | SAML Europa SSO (SSO for Europa-domain users). Contextual help tooltips. First-time user wizard. |
 
 **End-of-phase demo:**
-- A developer from the Payment Gateway team logs in using their NatWest network credentials
+- A developer from the Payment Gateway team logs in using their network credentials
 - Uploads their Postman collection → "3 endpoints detected, 8 scenarios"
 - Clicks Generate → sees the stub code preview → clicks Deploy
 - 4 minutes later: their stub URL is shown. They configure their test environment to point to it.
@@ -204,7 +204,7 @@ Click "Deploy"
 - Team publishes a message to a Kafka topic → stub consumes it and publishes a response to the reply topic
 - Team types: "I need a stub for a credit card validation API. It should approve cards starting with 4 (Visa) and decline cards starting with 5 (Mastercard) with a 150ms delay." → stub generated and deployed in 5 minutes
 
-**Business value:** Covers 100% of NatWest integration patterns (REST, SOAP, Kafka, IBM MQ). AI generation means teams with no technical SV knowledge can create stubs from plain English.
+**Business value:** Covers 100% of integration patterns (REST, SOAP, Kafka, IBM MQ). AI generation means teams with no technical SV knowledge can create stubs from plain English.
 
 ---
 

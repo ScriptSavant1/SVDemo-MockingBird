@@ -1,4 +1,4 @@
-package com.natwest.mockingbird.stubs;
+package com.mockingbird.stubs;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.common.ClasspathFileSource;

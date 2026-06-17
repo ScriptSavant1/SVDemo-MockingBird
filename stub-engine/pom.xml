@@ -12,7 +12,7 @@
   </parent>
 
   <!-- Filled in by generator-worker per project -->
-  <groupId>com.natwest.mockingbird.stubs</groupId>
+  <groupId>com.mockingbird.stubs</groupId>
   <artifactId>{{project_id}}-stub</artifactId>
   <version>1.0.0</version>
   <name>{{project_name}} Stub Engine</name>
@@ -77,13 +77,13 @@
         <artifactId>spring-boot-maven-plugin</artifactId>
         <configuration>
           <!-- Fat JAR — all deps bundled, no classpath issues on EC2 -->
-          <mainClass>com.natwest.mockingbird.stubs.StubApplication</mainClass>
+          <mainClass>com.mockingbird.stubs.StubApplication</mainClass>
         </configuration>
       </plugin>
     </plugins>
   </build>
 
-  <!-- All JARs resolved from NatWest Artifactory (configured in settings.xml) -->
-  <!-- No public Maven Central access — all traffic via banksvcs.net/artifactory -->
+  <!-- All JARs resolved from Artifactory (configured in settings.xml) -->
+  <!-- No public Maven Central access — all traffic via artifactory.internal -->
 
 </project>

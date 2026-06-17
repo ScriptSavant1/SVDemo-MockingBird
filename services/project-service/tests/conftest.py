@@ -59,7 +59,7 @@ def db_session(db_engine) -> Generator[Session, None, None]:
 
 @pytest.fixture(scope="function")
 def admin_user(db_session: Session) -> User:
-    user = User(username="admin", email="admin@natwest.com", password_hash="hashed", role="ADMIN")
+    user = User(username="admin", email="admin@company.com", password_hash="hashed", role="ADMIN")
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)
@@ -68,7 +68,7 @@ def admin_user(db_session: Session) -> User:
 
 @pytest.fixture(scope="function")
 def sv_user(db_session: Session) -> User:
-    user = User(username="sv.engineer", email="sv@natwest.com", password_hash="hashed", role="SV_TEAM")
+    user = User(username="sv.engineer", email="sv@company.com", password_hash="hashed", role="SV_TEAM")
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)
@@ -77,7 +77,7 @@ def sv_user(db_session: Session) -> User:
 
 @pytest.fixture(scope="function")
 def viewer_user(db_session: Session) -> User:
-    user = User(username="viewer", email="viewer@natwest.com", password_hash="hashed", role="VIEWER")
+    user = User(username="viewer", email="viewer@company.com", password_hash="hashed", role="VIEWER")
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)

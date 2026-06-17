@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Maven settings for NatWest Artifactory — same pattern as settings_linux.xml sample -->
+<!-- Maven settings for Artifactory -->
 <!-- Credentials come from ARTIFACTORY_USR / ARTIFACTORY_PSWD env vars (fetched from Vault in CI) -->
 <settings xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xmlns="http://maven.apache.org/SETTINGS/1.0.0"
@@ -18,8 +18,8 @@
   <mirrors>
     <mirror>
       <id>dws-all-fallback-zambezi-mirror</id>
-      <name>NatWest Artifactory (all repos)</name>
-      <url>https://artifactory-server.app.banksvcs.net/artifactory/dws-all-repos</url>
+      <name>Artifactory (all repos)</name>
+      <url>https://artifactory.internal/artifactory/dws-all-repos</url>
       <mirrorOf>*,!zambezi-all-repos</mirrorOf>
     </mirror>
   </mirrors>
@@ -31,7 +31,7 @@
         <repository>
           <id>dws-all-repos</id>
           <name>dws-all-repos</name>
-          <url>https://artifactory-server.app.banksvcs.net/artifactory/dws-all-repos</url>
+          <url>https://artifactory.internal/artifactory/dws-all-repos</url>
           <layout>default</layout>
           <releases>
             <enabled>true</enabled>
@@ -49,7 +49,7 @@
         <pluginRepository>
           <id>dws-all-repos</id>
           <name>dws-all-repos</name>
-          <url>https://artifactory-server.app.banksvcs.net/artifactory/dws-all-repos</url>
+          <url>https://artifactory.internal/artifactory/dws-all-repos</url>
           <layout>default</layout>
           <releases>
             <enabled>true</enabled>

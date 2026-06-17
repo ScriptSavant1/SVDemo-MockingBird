@@ -2,7 +2,7 @@
 ### Prompt Engineering & Architecture Reference Document
 **Version:** 1.0  
 **Created from:** Full requirements discovery session  
-**Context:** NatWest / RBS Banking Environment  
+**Context:** Enterprise Banking Environment  
 **Author Context:** Performance Test Engineer transitioning to SV Platform Builder  
 
 ---
@@ -55,7 +55,7 @@
 ## 2. Business Context & Current State
 
 ### Organisation
-- **Bank:** NatWest / RBS Group
+- **Organisation:** your organisation
 - **Environment:** AWS EC2 (per-project instances) + internal on-premise network
 - **Network model:** Firewalls opened per project between source server and stub EC2
 
@@ -884,7 +884,7 @@ Deliverables:
 > Use this at the START of every new Claude conversation about this project.
 
 ```
-I am building an open-source Service Virtualisation platform for NatWest bank.
+I am building an open-source Service Virtualisation platform.
 The platform auto-generates WireMock/Hoverfly/Microcks stubs from API specs and 
 auto-deploys to AWS EC2 instances. It must support 15,000+ TPS.
 

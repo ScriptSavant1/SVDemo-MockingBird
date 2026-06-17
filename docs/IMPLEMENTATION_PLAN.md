@@ -42,7 +42,7 @@ Completed:
   ✅ WireMock JSON mapping generator (generator/wiremock.py)
   ✅ sv-gen CLI (cli.py) — --input --output --dry-run flags
   ✅ Full test suite: test_txt_level1.py, test_txt_level2.py, test_wiremock_generator.py
-  ✅ stub-engine/Dockerfile — uses confirmed NatWest Java 21 base image
+  ✅ stub-engine/Dockerfile — uses confirmed Java 21 base image
   ✅ stub-engine/settings.xml — confirmed Artifactory URL from sample files
   ✅ stub-engine/.gitlab-ci.yml — uses confirmed Kaniko + runner tag + Vault pattern
 
@@ -59,9 +59,9 @@ Remaining for Sprint 2:
   ⬜ OpenAPI 3.x parser  
   ⬜ Integration test: sv-gen --input examples/POST-payment-multi-scenario.txt --output ./test-out && docker compose up
 
-Confirmed technical facts from NatWest sample files:
-  - GitLab registry: registry.natwest.gitlab-dedicated.com
-  - Artifactory: https://artifactory-server.app.banksvcs.net/artifactory/dws-all-repos
+Confirmed technical facts from sample files:
+  - GitLab registry: registry.gitlab.internal
+  - Artifactory: https://artifactory.internal/artifactory/dws-all-repos
   - Vault (dev): https://vault-dev-pnf.web.deviaas.intenv01.net  namespace=secrets  mount=kv  auth=jwt/gitlab
   - Runner tag: nwg-rosa-sharedrunner-scan
   - CRITICAL: Artifactory NOT accessible from AWS EC2 — all Maven/pip builds in GitLab CI only
@@ -139,7 +139,7 @@ Deliverable: Working CLI. Can be demoed to SV team.
 
 ## Phase 2 — Dynamic Stubs + SOAP + Stateful (Weeks 9–16)
 
-**Goal:** Extend the generator to handle all NatWest stub types: dynamic data, SOAP, conditional logic, stateful scenarios.
+**Goal:** Extend the generator to handle all stub types: dynamic data, SOAP, conditional logic, stateful scenarios.
 
 ### Sprint 5–6 (Week 9–12): Dynamic Data + SOAP
 ```
@@ -178,7 +178,7 @@ Tasks:
   - Fault injection: timeout, 500 error, partial response, network reset
   - Data-driven from CSV: lookup customer by ID from file
 
-Deliverable: Full Phase 2 demo to SV team using real NatWest project examples
+Deliverable: Full Phase 2 demo to SV team using real project examples
 ```
 
 ---
@@ -288,7 +288,7 @@ Deliverable: Live TPS chart in portal showing real stub traffic
 ### Sprint 19 (Week 37–38): Report Generator
 ```
 Tasks:
-  - Executive Summary PDF: NatWest-branded, charts, license savings calc
+  - Executive Summary PDF: branded, charts, license savings calc
   - Project Report PDF: per-endpoint TPS, latency table, deployment history
   - Platform Audit report: all user actions from audit_log
   - Cost Report: EC2 hours × instance type rate vs CA/IBM equivalent
@@ -415,7 +415,7 @@ Phase 1 (CLI) ──────────────────────
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|-----------|
 | WireMock can't reach 10K TPS target | Medium | High | Benchmark early in Phase 1; Hoverfly is fallback |
-| NatWest firewall rules delay EC2 access | High | Medium | Agree CIDR ranges with infra team before Phase 4 |
+| Firewall rules delay EC2 access | High | Medium | Agree CIDR ranges with infra team before Phase 4 |
 | SOAP WSDL parsing edge cases (complex schemas) | Medium | Medium | Collect 10 real WSDLs in Phase 1 to test against |
 | GitLab runner access to AWS (ECR/Terraform) | Medium | High | IAM roles for GitLab runner established in Phase 1 |
 | Bank AD SAML integration complexity | Medium | Low | Fallback to local user accounts in Phase 3; SSO added later |
@@ -466,7 +466,7 @@ Before writing any production code, these can be demoed to stakeholders:
 | Milestone | Target Week | Deliverable |
 |-----------|------------|-------------|
 | M1: CLI MVP | Week 8 | `sv-gen` CLI works for all input formats |
-| M2: Dynamic + SOAP | Week 16 | 85% of NatWest stub types automated |
+| M2: Dynamic + SOAP | Week 16 | 85% of stub types automated |
 | M3: Platform API | Week 24 | REST API + DB + SQS fully working |
 | M4: Auto-deploy | Week 32 | One API call deploys to live EC2 |
 | M5: Reporting | Week 38 | Executive PDF report for CTO demo |

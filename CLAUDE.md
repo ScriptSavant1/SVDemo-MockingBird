@@ -8,7 +8,7 @@
 | Field | Value |
 |-------|-------|
 | Project Name | Mockingbird |
-| Organisation | NatWest / RBS Group |
+| Organisation | your organisation |
 | Owner | Performance Test Engineer — transitioning from SV consumer to SV platform builder |
 | Purpose | Replace CA LISA + IBM Rational Test Workbench with open-source, automated SV platform |
 | TPS Target | 10,000+ TPS per stub (Spring Boot Netty + Java 21 on c6i.2xlarge achieves 12K–18K) |
@@ -43,7 +43,7 @@ Project teams upload their API spec in any format. Mockingbird auto-detects the 
 | notification-service | Node.js 20 + Fastify | Email, Slack, MS Teams webhooks |
 | ai-service | Python 3.11 + FastAPI | Claude API — plain English → OpenAPI stub generation |
 
-All Python packages from NatWest PyPI mirror (Artifactory). All Node packages from NatWest npm mirror.
+All Python packages from your organisation PyPI mirror (Artifactory). All Node packages from your organisation npm mirror.
 
 ### Stub Engines (Per-Project EC2)
 
@@ -94,7 +94,7 @@ All Python packages from NatWest PyPI mirror (Artifactory). All Node packages fr
 | EC2 provisioning | Terraform inside deployer-worker ECS task (IAM role — no manual steps) |
 | Cross-account deploy | AWS STS AssumeRole → client's `MockingbirdDeployerRole` |
 | On-premise | SSH + Docker via Python Paramiko (Phase 4); Direct Connect exists |
-| CI/CD | GitLab CI/CD (self-hosted NatWest, AWS-hosted Kubernetes runners) |
+| CI/CD | GitLab CI/CD (self-hosted, AWS-hosted Kubernetes runners) |
 | Docker image builds | **Kaniko** (NOT Docker-in-Docker) — required for k8s runners |
 | IaC state | Terraform remote state in S3 + DynamoDB lock |
 
@@ -103,7 +103,7 @@ All Python packages from NatWest PyPI mirror (Artifactory). All Node packages fr
 | Phase | Method | Status |
 |-------|--------|--------|
 | 1 (Weeks 1–16) | Local admin-created credentials (bcrypt) | Build this first |
-| 2 (Weeks 17–32) | LDAP: `memberOf: CN=SV-Team,OU=Groups,DC=natwest,DC=com` | LDAP server details TBC |
+| 2 (Weeks 17–32) | LDAP: `memberOf: CN=SV-Team,OU=Groups,DC=company,DC=com` | LDAP server details TBC |
 | 3 (Weeks 39+) | SAML Europa SSO (additive — LDAP still works) | Europa-domain users only |
 
 LDAP role mapping: `CN=SV-Team` → ADMIN, `CN=SV-Users` → SV_TEAM, project groups → PROJECT_OWNER
@@ -112,8 +112,8 @@ LDAP role mapping: `CN=SV-Team` → ADMIN, `CN=SV-Users` → SV_TEAM, project gr
 
 | Concern | Tool | Integration |
 |---------|------|------------|
-| Application logs | Splunk (existing NatWest) | JSON logs → CloudWatch → Splunk HEC (endpoint TBC) |
-| APM / tracing | AppDynamics (existing NatWest) | Java agent in stub containers (agent key TBC) |
+| Application logs | Splunk (existing) | JSON logs → CloudWatch → Splunk HEC (endpoint TBC) |
+| APM / tracing | AppDynamics (existing) | Java agent in stub containers (agent key TBC) |
 | AWS alarms | CloudWatch | SQS depth, ECS crashes, RDS CPU |
 | Live dashboards | Grafana (embedded) | Reads Prometheus metrics → Timestream |
 | Stub metrics | Prometheus scrapes `/actuator/prometheus` every 30s | |
@@ -123,7 +123,7 @@ LDAP role mapping: `CN=SV-Team` → ADMIN, `CN=SV-Users` → SV_TEAM, project gr
 | Format | Library | Audience |
 |--------|---------|---------|
 | Live Dashboard | ECharts + WebSocket + Grafana | All users — real-time |
-| PDF | WeasyPrint | Management, CTO — NatWest branded |
+| PDF | WeasyPrint | Management, CTO — branded |
 | Excel | openpyxl | Finance, analysts |
 | PowerPoint | python-pptx | Management presentations |
 
@@ -192,8 +192,8 @@ DRAFT → READY → DEPLOYING → LIVE → SUSPENDED → (REDEPLOY) → LIVE
 | 🟡 I3 | Splunk HEC endpoint + token | Phase 3 |
 | 🟡 I4 | AppDynamics agent key + controller hostname | Phase 2 |
 | 🟡 I5 | LDAP server hostname + base DN | Phase 2 |
-| 🟢 U1 | NatWest branding assets (logo, colours, PPT template) | Phase 5 |
-| 🟢 U2 | NatWest internal CA certificate | Phase 2 HTTPS |
+| 🟢 U1 | Branding assets (logo, colours, PPT template) | Phase 5 |
+| 🟢 U2 | Internal CA certificate | Phase 2 HTTPS |
 
 ---
 

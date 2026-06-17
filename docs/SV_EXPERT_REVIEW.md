@@ -24,7 +24,7 @@ Problems:
   ✗  Limited to ~7,000–9,000 TPS realistic maximum (Jetty embedded server)
   ✗  SOAP support is basic — WireMock SOAP matching is fragile for complex WSDLs
   ✗  No Spring Boot Actuator — need separate Prometheus exporter sidecar
-  ✗  Hard to add NatWest-specific logic (auth headers, correlation IDs)
+  ✗  Hard to add organisation-specific logic (auth headers, correlation IDs)
 ```
 
 ### Spring Boot as Stub Engine — Why This Is Better
@@ -35,7 +35,7 @@ SPRING BOOT STUB ENGINE (new recommendation):
 Uses WireMock as a LIBRARY (embedded), not a standalone JAR
 
 Advantages:
-  ✓  All dependencies via pom.xml → pulled from NatWest Artifactory
+  ✓  All dependencies via pom.xml → pulled from Artifactory
   ✓  WireMock library available in Artifactory (com.github.tomakehurst:wiremock)
   ✓  Spring Boot Actuator: /actuator/health, /actuator/prometheus built-in
   ✓  Spring WebFlux (Netty): non-blocking, achieves 12,000–18,000 TPS
@@ -43,7 +43,7 @@ Advantages:
   ✓  Custom transformers as Spring beans (add bank-specific logic)
   ✓  Spring-WS: proper enterprise SOAP support
   ✓  Spring Kafka: Kafka stub integration without Microcks for simple cases
-  ✓  Corporate standard: Java + Spring is NatWest's known stack
+  ✓  Corporate standard: Java + Spring is a well-known enterprise stack
   ✓  Full logging via SLF4J + Logback (existing bank log patterns)
   ✓  Easy to add JWT/auth validation at stub level
   ✓  Dockerfile can be built via existing Java build infrastructure
@@ -383,7 +383,7 @@ Spring Boot Netty config in stub engine:
 @Endpoint
 public class AccountSoapStub {
     
-    @PayloadRoot(namespace = "http://natwest.com/accounts", localPart = "GetAccountRequest")
+    @PayloadRoot(namespace = "http://mockingbird.internal/accounts", localPart = "GetAccountRequest")
     @ResponsePayload
     public GetAccountResponse getAccount(@RequestPayload GetAccountRequest request) {
         // Return pre-configured response
@@ -534,8 +534,8 @@ build-stub-image:
   image: maven:3.9-eclipse-temurin-21    # from Artifactory mirror
   script:
     - mvn package -f ${PROJECT_ID}/pom.xml
-    - docker build -t ${ECR_REGISTRY}/mockingbird/${PROJECT_ID}:${VERSION} .
-    - docker push ${ECR_REGISTRY}/mockingbird/${PROJECT_ID}:${VERSION}
+    - docker build -t ${REGISTRY}/mockingbird/${PROJECT_ID}:${VERSION} .
+    - docker push ${REGISTRY}/mockingbird/${PROJECT_ID}:${VERSION}
   variables:
     MAVEN_OPTS: "-Dmaven.repo.local=${CI_PROJECT_DIR}/.m2/repository"
     MAVEN_SETTINGS: /etc/maven/settings.xml   # points to Artifactory
@@ -550,7 +550,7 @@ deploy-stub-ec2:
 ```
 
 **This means:**
-- Maven pulls all JARs from NatWest Artifactory (not Maven Central)
+- Maven pulls all JARs from Artifactory (not Maven Central)
 - Docker build is parallelisable (multiple GitLab runners)
 - Full audit trail in GitLab (who triggered, when, what version)
 - Build logs stored in GitLab (not in platform DB)
@@ -562,10 +562,10 @@ deploy-stub-ec2:
 WHAT MUST COME FROM ARTIFACTORY (not public internet):
 ─────────────────────────────────────────────────────
 Platform backend (Python):
-  pypi.natwest.internal → all Python packages (FastAPI, boto3, etc.)
+  pypi.artifactory.internal → all Python packages (FastAPI, boto3, etc.)
   
 Stub engine (Java):
-  artifactory.natwest.internal → all Maven JARs:
+  artifactory.internal → all Maven JARs:
     org.springframework.boot:spring-boot-*
     com.github.tomakehurst:wiremock-standalone
     org.springframework.ws:spring-ws-core
@@ -573,18 +573,18 @@ Stub engine (Java):
     com.github.javafaker:javafaker
     
 Docker base images:
-  artifactory.natwest.internal/docker → base images:
+  artifactory.internal/docker → base images:
     eclipse-temurin:21-jre-alpine    (Java runtime)
     nginx:alpine                     (portal)
     python:3.11-slim                 (platform services)
     
 NPM packages (portal):
-  npm.natwest.internal → all npm packages (React, etc.)
+  npm.artifactory.internal → all npm packages (React, etc.)
 ```
 
 ### 5.12 IBM MQ / JMS for Legacy (Phase 4 — Future)
 
-**Expert note:** 40% of NatWest banking systems use IBM MQ. Your guide mentions this as Phase 4 (Tier 3 protocol). When you get there:
+**Expert note:** Many banking systems use IBM MQ. Your guide mentions this as Phase 4 (Tier 3 protocol). When you get there:
 
 ```
 Spring Boot + spring-jms + IBM MQ client JARs (from Artifactory)
@@ -628,7 +628,7 @@ To finalise the architecture perfectly, I need these answers:
 | 2 | What Java version is available in Artifactory? (Java 11/17/21?) | Virtual threads need Java 21; big TPS difference |
 | 3 | Is there a Docker registry in Artifactory? Or use AWS ECR only? | Determines where Docker base images come from |
 | 4 | What GitLab version? Self-hosted or gitlab.com? | Determines CI job capabilities |
-| 5 | What type of SSO does NatWest use? (Azure AD SAML? LDAP? OAuth?) | Auth service design depends on this |
+| 5 | What type of SSO does your organisation use? (Azure AD SAML? LDAP? OAuth?) | Auth service design depends on this |
 
 ### IMPORTANT (needed before Phase 2–3)
 
@@ -647,7 +647,7 @@ To finalise the architecture perfectly, I need these answers:
 | # | Question | Why It Matters |
 |---|----------|---------------|
 | 13 | Are there existing GitLab runners with Docker-in-Docker access? | Needed for stub image builds |
-| 14 | Does NatWest have any existing pypi mirror in Artifactory? | Python platform backend dependencies |
+| 14 | Does your organisation have any existing PyPI mirror in Artifactory? | Python platform backend dependencies |
 | 15 | What AWS regions are in use? (eu-west-1 only? Multi-region?) | Terraform module design |
 | 16 | Is there a VPN between on-premise servers and AWS? Or Direct Connect? | On-premise deployment target |
 | 17 | Are there any specific data residency requirements? (UK only?) | Determines AWS region choices |

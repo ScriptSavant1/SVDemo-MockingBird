@@ -5,7 +5,7 @@
 
 Name: Customer SOAP Service
 Team: CoreBanking
-Contact: corebanking@natwest.com
+Contact: corebanking@company.com
 URL: /services/CustomerService
 
 --- SCENARIO: GetCustomer Success ---
@@ -17,7 +17,7 @@ Content-Type: text/xml; charset=utf-8
 <?xml version="1.0" encoding="UTF-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
-    <GetCustomerResponse xmlns="http://natwest.com/customerservice/v1">
+    <GetCustomerResponse xmlns="http://mockingbird.internal/customerservice/v1">
       <CustomerId>12345</CustomerId>
       <Name>John Smith</Name>
       <AccountStatus>ACTIVE</AccountStatus>

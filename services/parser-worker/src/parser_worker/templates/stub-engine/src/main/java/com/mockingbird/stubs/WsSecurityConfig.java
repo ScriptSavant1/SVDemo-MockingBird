@@ -1,4 +1,4 @@
-package com.natwest.mockingbird.stubs;
+package com.mockingbird.stubs;
 
 import org.apache.wss4j.dom.handler.WSHandlerConstants;
 import org.springframework.beans.factory.annotation.Value;

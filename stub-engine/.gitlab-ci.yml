@@ -3,9 +3,9 @@ stages:
   - test
   - verify-scanning-results
 
-# Pull in NatWest standard scanning templates (same pattern as sample .gitlab-ci.yml)
+# Pull in standard scanning templates
 include:
-  - project: natwestgroup/EngineeringArtifacts/EngineeringComponents/Templates/continuous-integration
+  - project: your-group/EngineeringArtifacts/EngineeringComponents/Templates/continuous-integration
     ref: 5.0.2
     file:
       - Container-Scanning.gitlab-ci.yml
@@ -21,11 +21,11 @@ variables:
   SECRET_PATH: mockingbird/ci/docker                  # Mockingbird Docker auth stored here in Vault
 
   # Kaniko (confirmed image from sample)
-  KANIKO_IMAGE_PATH: registry.natwest.gitlab-dedicated.com/natwestgroup/engineeringartifacts/engineeringcomponents/executors/build/kaniko/multi-arch/v1.24:v1.24.0-debug
+  KANIKO_IMAGE_PATH: registry.gitlab.internal/your-group/engineeringartifacts/engineeringcomponents/executors/build/kaniko/multi-arch/v1.24:v1.24.0-debug
 
   # Artifactory (confirmed URL from settings_linux.xml)
   # ARTIFACTORY_USR and ARTIFACTORY_PSWD are pulled from Vault at build time
-  ARTIFACTORY_URL: https://artifactory-server.app.banksvcs.net/artifactory/dws-all-repos
+  ARTIFACTORY_URL: https://artifactory.internal/artifactory/dws-all-repos
 
   IMAGE_REGISTRY: $CI_REGISTRY_IMAGE
   SNAPSHOT_IMAGE_TAG: "${IMAGE_REGISTRY}:${CI_PIPELINE_ID}-SNAPSHOT"

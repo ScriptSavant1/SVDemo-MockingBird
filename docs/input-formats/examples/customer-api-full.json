@@ -6,7 +6,7 @@
     "name": "Customer Profile API",
     "description": "Returns full customer profile. Demonstrates dynamic parameter echoing, multiple scenarios, and delay types.",
     "team": "Retail Banking Digital",
-    "contact": "retail-sv-team@natwest.com"
+    "contact": "retail-sv-team@company.com"
   },
 
   "request": {

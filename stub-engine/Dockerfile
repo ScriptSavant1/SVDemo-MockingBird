@@ -1,10 +1,10 @@
-# NatWest Java 21 base image (from GitLab Container Registry)
+# Java 21 base image (from GitLab Container Registry)
 # Accessible from both GitLab CI AND AWS EC2 (public HTTPS endpoint)
-FROM registry.natwest.gitlab-dedicated.com/natwestgroup/engineeringartifacts/engineeringcomponents/executors/build/natwest-java/java-21.0.7_6-ubi9-9.6-1751286687:latest AS builder
+FROM registry.gitlab.internal/your-group/engineeringartifacts/engineeringcomponents/executors/build/java/java-21.0.7_6-ubi9-9.6-1751286687:latest AS builder
 
 WORKDIR /build
 
-# Maven settings for Artifactory (only accessible from within NatWest network / GitLab CI)
+# Maven settings for Artifactory (only accessible from within the corporate network / GitLab CI)
 COPY settings.xml /root/.m2/settings.xml
 
 # Download dependencies (cached layer — only re-runs when pom.xml changes)
@@ -16,7 +16,7 @@ COPY src/ src/
 RUN mvn package -B -DskipTests -q
 
 # ── Runtime stage ────────────────────────────────────────────────────────────
-FROM registry.natwest.gitlab-dedicated.com/natwestgroup/engineeringartifacts/engineeringcomponents/executors/build/natwest-java/java-21.0.7_6-ubi9-9.6-1751286687:latest
+FROM registry.gitlab.internal/your-group/engineeringartifacts/engineeringcomponents/executors/build/java/java-21.0.7_6-ubi9-9.6-1751286687:latest
 
 WORKDIR /app
 

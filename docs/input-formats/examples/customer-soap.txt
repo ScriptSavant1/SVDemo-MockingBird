@@ -5,7 +5,7 @@ URL: /ws/CustomerService
 
 --- REQUEST HEADERS ---
 Content-Type: text/xml; charset=utf-8
-SOAPAction: "http://natwest.internal/CustomerService/GetCustomerDetails"
+SOAPAction: "http://mockingbird.internal/CustomerService/GetCustomerDetails"
 
 --- SCENARIO: Customer Found (200) ---
 Match-Type: body-contains
@@ -18,7 +18,7 @@ Content-Type: text/xml; charset=utf-8
 <?xml version="1.0" encoding="UTF-8"?>
 <soap:Envelope
   xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
-  xmlns:cust="http://natwest.internal/CustomerService">
+  xmlns:cust="http://mockingbird.internal/CustomerService">
   <soap:Header/>
   <soap:Body>
     <cust:GetCustomerDetailsResponse>
@@ -45,7 +45,7 @@ Content-Type: text/xml; charset=utf-8
 <?xml version="1.0" encoding="UTF-8"?>
 <soap:Envelope
   xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
-  xmlns:cust="http://natwest.internal/CustomerService">
+  xmlns:cust="http://mockingbird.internal/CustomerService">
   <soap:Header/>
   <soap:Body>
     <soap:Fault>
@@ -70,7 +70,7 @@ Content-Type: text/xml; charset=utf-8
 <?xml version="1.0" encoding="UTF-8"?>
 <soap:Envelope
   xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
-  xmlns:cust="http://natwest.internal/CustomerService">
+  xmlns:cust="http://mockingbird.internal/CustomerService">
   <soap:Header/>
   <soap:Body>
     <cust:GetCustomerDetailsResponse>

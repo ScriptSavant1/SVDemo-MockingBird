@@ -1,6 +1,6 @@
-# All packages from NatWest Artifactory PyPI mirror:
-# https://artifactory-server.app.banksvcs.net/artifactory/dws-all-repos
-# pip install --index-url https://artifactory-server.app.banksvcs.net/artifactory/api/pypi/dws-all-repos/simple -r requirements.txt
+# All packages from Artifactory PyPI mirror:
+# https://artifactory.internal/artifactory/dws-all-repos
+# pip install --index-url https://artifactory.internal/artifactory/api/pypi/dws-all-repos/simple -r requirements.txt
 
 pydantic>=2.0,<3.0
 click>=8.1,<9.0

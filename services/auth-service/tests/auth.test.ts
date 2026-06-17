@@ -23,7 +23,7 @@ const MOCK_USERS: Record<string, object> = {
   admin: {
     id: "00000000-0000-0000-0000-000000000001",
     username: "admin",
-    email: "admin@natwest.com",
+    email: "admin@company.com",
     password_hash: ADMIN_HASH,
     role: "ADMIN",
     is_active: true,
@@ -32,7 +32,7 @@ const MOCK_USERS: Record<string, object> = {
   "sv.engineer": {
     id: "00000000-0000-0000-0000-000000000002",
     username: "sv.engineer",
-    email: "sv@natwest.com",
+    email: "sv@company.com",
     password_hash: SV_HASH,
     role: "SV_TEAM",
     is_active: true,
@@ -41,7 +41,7 @@ const MOCK_USERS: Record<string, object> = {
   disabled: {
     id: "00000000-0000-0000-0000-000000000003",
     username: "disabled",
-    email: "disabled@natwest.com",
+    email: "disabled@company.com",
     password_hash: ADMIN_HASH,
     role: "VIEWER",
     is_active: false,
@@ -270,7 +270,7 @@ describe("POST /api/v1/users", () => {
       headers: { Authorization: `Bearer ${token}` },
       payload: {
         username: "new.engineer",
-        email: "new@natwest.com",
+        email: "new@company.com",
         password: "secure-password-123",
         role: "SV_TEAM",
       },
@@ -288,7 +288,7 @@ describe("POST /api/v1/users", () => {
       headers: { Authorization: `Bearer ${token}` },
       payload: {
         username: "another",
-        email: "another@natwest.com",
+        email: "another@company.com",
         password: "secure-password-123",
       },
     });
@@ -303,7 +303,7 @@ describe("POST /api/v1/users", () => {
       headers: { Authorization: `Bearer ${token}` },
       payload: {
         username: "admin",  // duplicate
-        email: "new2@natwest.com",
+        email: "new2@company.com",
         password: "secure-password-123",
       },
     });

@@ -9,7 +9,7 @@
 
 ## SECTION 1 — What Is Mockingbird (2-Minute Summary)
 
-Mockingbird is a **Service Virtualisation (SV) platform** built for **NatWest / RBS Group**.
+Mockingbird is a **Service Virtualisation (SV) platform**.
 
 **The problem it solves:**
 - The SV team manually creates fake API responses (called "stubs") using paid tools CA LISA and IBM Rational Test Workbench (£100,000+/year in licences)
@@ -65,13 +65,13 @@ Mockingbird is a **Service Virtualisation (SV) platform** built for **NatWest / 
 
 | Layer | Technology | Notes |
 |-------|-----------|-------|
-| Language | Python 3.11 | All packages from NatWest PyPI mirror (Artifactory) |
+| Language | Python 3.11 | All packages from your organisation PyPI mirror (Artifactory) |
 | API framework | FastAPI + Pydantic v2 | Auto-generates Swagger docs at /docs |
 | Auth service | Node.js 20 + Fastify | LDAP first, SAML Europa SSO later |
 | Job queue | AWS SQS | parse-queue, generate-queue, deploy-queue, report-queue, DLQ |
 | Domain events | AWS EventBridge | Cross-service events (stub.deployed, project.created) |
 | Container platform | AWS ECS Fargate | Serverless containers — no EC2 to manage for platform |
-| CI/CD | GitLab CI/CD (self-hosted NatWest) | AWS-hosted Kubernetes runners |
+| CI/CD | GitLab CI/CD (self-hosted) | AWS-hosted Kubernetes runners |
 | Docker builds | Kaniko (NOT Docker-in-Docker) | Required for k8s runners, rootless, bank-safe |
 | Container registry | GitLab Container Registry | NOT AWS ECR. URL to confirm. |
 | IaC | Terraform | Runs inside deployer-worker ECS task via IAM role |
@@ -117,7 +117,7 @@ server.compression.enabled: true        # gzip — reduces bandwidth 70-80%
 | Time-series metrics | AWS Timestream | TPS over time, latency percentiles, error rates per stub |
 | Secrets | **HashiCorp Vault (PRIMARY)** | DB password, GitLab tokens, LDAP creds, SSH keys |
 
-> **Why PostgreSQL not MS SQL:** NatWest uses MS SQL/Oracle centrally. But Mockingbird's mission is £0 licence cost — MS SQL requires a paid licence. PostgreSQL is free. If NatWest mandates MS SQL for all apps, SQLAlchemy supports it with zero code changes.
+> **Why PostgreSQL not MS SQL:** Many organisations use MS SQL/Oracle centrally. But Mockingbird's mission is £0 licence cost — MS SQL requires a paid licence. PostgreSQL is free. If your organisation mandates MS SQL for all apps, SQLAlchemy supports it with zero code changes.
 
 ### 3.5 Infrastructure
 
@@ -127,7 +127,7 @@ server.compression.enabled: true        # gzip — reduces bandwidth 70-80%
 | Platform containers | AWS ECS Fargate (no EC2 management) |
 | Stub servers | AWS EC2 per project (c6i.2xlarge for 10K+ TPS) |
 | Stub deployment target options | (A) Mockingbird's own AWS account, (B) Client's own AWS account via STS AssumeRole, (C) On-premise via SSH + Direct Connect |
-| On-premise connectivity | AWS Direct Connect exists between NatWest on-premise and AWS |
+| On-premise connectivity | AWS Direct Connect exists between on-premise and AWS |
 | DNS | AWS Route 53 |
 | CDN | AWS CloudFront → S3 (React portal) |
 | EC2 provisioning | Terraform runs inside ECS deployer-worker task (IAM role, no manual steps) |
@@ -136,8 +136,8 @@ server.compression.enabled: true        # gzip — reduces bandwidth 70-80%
 
 | Concern | Tool | How |
 |---------|------|-----|
-| Application logs | **Splunk** (existing NatWest) | Structured JSON → CloudWatch Logs → Splunk HEC subscription |
-| APM / tracing | **AppDynamics** (existing NatWest) | Java agent injected into Spring Boot stub containers |
+| Application logs | **Splunk** (existing) | Structured JSON → CloudWatch Logs → Splunk HEC subscription |
+| APM / tracing | **AppDynamics** (existing) | Java agent injected into Spring Boot stub containers |
 | AWS alarms | CloudWatch | SQS depth, ECS task health, RDS CPU |
 | Live TPS dashboards | Grafana (embedded in portal) | Reads Prometheus metrics from stub engines → Timestream |
 | Stub metrics collection | Prometheus scrapes Spring Boot Actuator `/actuator/prometheus` every 30s | |
@@ -147,7 +147,7 @@ server.compression.enabled: true        # gzip — reduces bandwidth 70-80%
 | Phase | Method | When |
 |-------|--------|------|
 | Phase 1 (Weeks 1–16) | Local admin-created credentials (bcrypt) | During development — no external dependency |
-| Phase 2 (Weeks 17–32) | **LDAP** — NatWest network login | `memberOf: CN=SV-Team,OU=Groups,DC=natwest,DC=com` → ADMIN role |
+| Phase 2 (Weeks 17–32) | **LDAP** — network login | `memberOf: CN=SV-Team,OU=Groups,DC=company,DC=com` → ADMIN role |
 | Phase 3 (Weeks 39+) | **SAML — Europa SSO** (additive, LDAP still works) | For Europa-domain users |
 
 **LDAP role mapping:**
@@ -163,20 +163,20 @@ CN={project} → PROJECT_OWNER
 | Format | Library | Audience |
 |--------|---------|---------|
 | Live Dashboard | React + ECharts + WebSocket + Grafana | Everyone — real-time TPS, latency |
-| PDF | WeasyPrint (Python) | Management, CTO — NatWest branded |
+| PDF | WeasyPrint (Python) | Management, CTO — branded |
 | Excel | openpyxl (Python) | Finance, analysts — raw data |
-| PowerPoint | python-pptx (Python) | Management presentations — NatWest template |
+| PowerPoint | python-pptx (Python) | Management presentations — branded template |
 
 ---
 
-## SECTION 4 — What We Know About NatWest's Setup
+## SECTION 4 — What We Know About the Organisation's Setup
 
 | Topic | Confirmed Answer |
 |-------|----------------|
 | Artifactory | YES — internal mirror for Maven, PyPI, npm, Docker. URL: TBC |
 | Java version | OpenJDK 21 ✅ (virtual threads available) |
 | Container registry | GitLab Container Registry (NOT ECR). Exact URL: TBC (user checking Monday) |
-| GitLab | Self-hosted NatWest. AWS-hosted Kubernetes runners |
+| GitLab | Self-hosted. AWS-hosted Kubernetes runners |
 | Docker builds in CI | Kaniko (k8s runners, no DinD) |
 | SSO | SSO only for Europa users. LDAP for all others. LDAP first |
 | Direct Connect | YES — AWS ↔ on-premise connectivity exists |
@@ -195,8 +195,8 @@ CN={project} → PROJECT_OWNER
 | SV team size | 5 people today → plan to ramp down as automation completes |
 | On-premise deployment | Maybe needed — architecture supports it (Phase 4) |
 | Report formats | PDF + Excel + PowerPoint + Live Dashboard (ALL four) |
-| NatWest branding | YES — all reports must use NatWest logo/colours/template |
-| LDAP group format | `memberOf: CN=SV-Team,OU=Groups,DC=natwest,DC=com` |
+| Branding | YES — all reports must use your organisation's logo/colours/template |
+| LDAP group format | `memberOf: CN=SV-Team,OU=Groups,DC=company,DC=com` |
 
 ---
 
@@ -207,8 +207,8 @@ CN={project} → PROJECT_OWNER
 | # | What We Need | Why It's Blocking |
 |---|-------------|------------------|
 | **C1** | GitLab Container Registry exact URL | Every `docker push` and `docker pull` command in CI uses this |
-| **C2** | Artifactory base URLs: Maven (`https://artifactory.natwest.internal/...`), PyPI, npm, Docker mirror | Every `pom.xml`, `requirements.txt`, `package.json` uses these |
-| **C3** | Is PostgreSQL acceptable, or does NatWest mandate MS SQL for ALL new applications? | Determines entire DB setup before any table is created |
+| **C2** | Artifactory base URLs: Maven (`https://artifactory.internal/...`), PyPI, npm, Docker mirror | Every `pom.xml`, `requirements.txt`, `package.json` uses these |
+| **C3** | Is PostgreSQL acceptable, or does your organisation mandate MS SQL for ALL new applications? | Determines entire DB setup before any table is created |
 
 ### 🟡 IMPORTANT — Needed Before Phase 2–3 (Weeks 9–24)
 
@@ -224,8 +224,8 @@ CN={project} → PROJECT_OWNER
 
 | # | What We Need | Why |
 |---|-------------|-----|
-| **U1** | NatWest branding assets: logo (PNG/SVG), brand colours (hex), fonts, PowerPoint template | PDF and PPT report generation |
-| **U2** | Internal NatWest CA certificate for HTTPS on stub servers | SSL setup without browser warnings |
+| **U1** | Branding assets: logo (PNG/SVG), brand colours (hex), fonts, PowerPoint template | PDF and PPT report generation |
+| **U2** | Internal CA certificate for HTTPS on stub servers | SSL setup without browser warnings |
 | **U3** | Confirm: are on-premise Linux servers expected as deployment targets? Which teams? | Phase 4 scope |
 | **U4** | Any existing WireMock JSON mappings that teams have already created manually? | Platform should be able to import them |
 | **U5** | LDAP bind credentials (service account username + password) | Stored in Vault, used by auth-service |
@@ -266,7 +266,7 @@ c:\Workspace\Mockingbird\
     │                                   Non-breaking change patterns, Kafka strategy
     │
     ├── DECISIONS_LOG.md             ← Every confirmed decision + what's still pending
-    │                                   Chronological record of all answers from NatWest team
+    │                                   Chronological record of all answers from project team
     │
     ├── FINAL_ARCHITECTURE.md        ← Consolidated final architecture (most up-to-date)
     │                                   EC2 provisioning flow, stub engine details, auth phases
@@ -380,7 +380,7 @@ OUTPUT: payments-stub/
 ```
 Start Phase 1, Sprint 1. Build the Python monorepo scaffold and input auto-detector.
 Use the master context from CLAUDE.md.
-All Python packages come from NatWest Artifactory (I will provide the URL).
+All Python packages come from Artifactory (I will provide the URL).
 ```
 
 ---
@@ -427,17 +427,17 @@ All Python packages come from NatWest Artifactory (I will provide the URL).
 | Decision | Choice | Reason |
 |----------|--------|--------|
 | Stub engine | Spring Boot + WireMock (Netty) NOT standalone WireMock JAR | Artifactory, 12K–18K TPS, Spring-WS for SOAP, extensible |
-| Java version | OpenJDK 21 | Virtual threads → massive TPS improvement. NatWest has it. |
-| Docker builds | Kaniko (NOT Docker-in-Docker) | k8s runners, no privileged containers — bank security |
-| Container registry | GitLab Container Registry | NatWest already uses GitLab |
+| Java version | OpenJDK 21 | Virtual threads → massive TPS improvement. |
+| Docker builds | Kaniko (NOT Docker-in-Docker) | k8s runners, no privileged containers — enterprise security |
+| Container registry | GitLab Container Registry | Already uses GitLab |
 | Database | PostgreSQL (NOT MS SQL) | Zero licence cost — aligns with Mockingbird's £0 cost mission |
-| Secrets | HashiCorp Vault | NatWest team already uses it aggressively |
+| Secrets | HashiCorp Vault | Team already uses it aggressively |
 | Job queue | AWS SQS | Fully managed, no ops overhead, native AWS |
 | EC2 provisioning | Terraform inside deployer-worker ECS task | No manual steps, no GitLab round-trip for infra |
 | Cross-account deploy | AWS STS AssumeRole | Standard AWS pattern, no VPN needed |
 | Stub persistence | Always in DB + S3 (separate from EC2) | Can terminate EC2, redeploy anytime, no re-upload |
-| Logs | Splunk via CloudWatch subscription | NatWest existing Splunk — no new tool |
-| APM | AppDynamics agent | NatWest existing AppDynamics — no new tool |
+| Logs | Splunk via CloudWatch subscription | Existing Splunk — no new tool |
+| APM | AppDynamics agent | Existing AppDynamics — no new tool |
 
 ---
 
@@ -447,7 +447,7 @@ These decisions are final. Do not re-discuss unless new information changes them
 
 1. **Spring Boot + WireMock as library** — not standalone WireMock JAR (Artifactory reason is non-negotiable)
 2. **Kaniko for Docker builds** — not DinD. k8s runners don't allow privileged containers in banks.
-3. **PostgreSQL over MS SQL** — unless NatWest explicitly mandates MS SQL for all apps (pending C3)
+3. **PostgreSQL over MS SQL** — unless your organisation explicitly mandates MS SQL for all apps (pending C3)
 4. **HashiCorp Vault** — not just AWS Secrets Manager. Team already uses Vault.
 5. **GitLab Container Registry** — not ECR (pending URL confirmation but decision is made)
 6. **Stub statefulness in DB** — stubs are ALWAYS in DB/S3, never only on EC2

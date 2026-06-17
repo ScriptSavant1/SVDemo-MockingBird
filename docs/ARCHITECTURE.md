@@ -39,7 +39,7 @@ Who interacts with Mockingbird and why:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                         NATWEST NETWORK                              │
+│                         CORPORATE NETWORK                            │
 │                                                                      │
 │  ┌─────────────┐      ┌─────────────────────────────────────────┐   │
 │  │  Project    │      │          MOCKINGBIRD PLATFORM           │   │
@@ -148,7 +148,7 @@ metrics-service ──emit──▶ tps.threshold.exceeded ──▶ notificatio
 ## 4. AWS Infrastructure Layout
 
 ```
-┌─────────────────────────── AWS ACCOUNT: NatWest Mockingbird ────────────────────────────┐
+┌─────────────────────────── AWS ACCOUNT: Mockingbird ────────────────────────────────────┐
 │                                                                                           │
 │  ┌─────────────── VPC: 10.0.0.0/16 ───────────────────────────────────────────────┐     │
 │  │                                                                                  │     │

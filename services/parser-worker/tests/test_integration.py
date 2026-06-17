@@ -4,7 +4,7 @@ These tests exercise the complete sv-gen pipeline end-to-end:
   input file → detect format → validate → parse → generate WireMock mappings
               → generate Spring Boot project → verify all output files exist and are correct.
 
-Docker/Maven build steps are NOT tested here — those require NatWest GitLab CI
+Docker/Maven build steps are NOT tested here — those require GitLab CI
 with Artifactory access. Tests cover everything up to 'docker build' input readiness.
 """
 from __future__ import annotations
@@ -248,7 +248,7 @@ class TestSpringBootProjectGeneration:
         _, _, parsed = detect_and_parse(f)
         out = tmp_path / "stub"
         generate_springboot_project(parsed, out, "payment-api", "Payment API")
-        java_dir = out / "src/main/java/com/natwest/mockingbird/stubs"
+        java_dir = out / "src/main/java/com/mockingbird/stubs"
         assert (java_dir / "StubApplication.java").exists()
         assert (java_dir / "WireMockConfig.java").exists()
 
@@ -358,7 +358,7 @@ class TestCLI:
         CliRunner().invoke(main, ["--input", str(f), "--output", str(out)], catch_exceptions=False)
         assert (out / "pom.xml").exists()
         assert (out / "Dockerfile").exists()
-        assert (out / "src/main/java/com/natwest/mockingbird/stubs/WireMockConfig.java").exists()
+        assert (out / "src/main/java/com/mockingbird/stubs/WireMockConfig.java").exists()
 
     def test_invalid_file_exits_nonzero(self, tmp_path):
         f = _write(tmp_path, "garbage.txt", "this is not a valid stub file\n")

@@ -9,7 +9,7 @@
 
 | Layer | Technology | Why Chosen |
 |-------|-----------|-----------|
-| Frontend | React 18 + TypeScript + Vite | Industry standard, NatWest-familiar, best ecosystem |
+| Frontend | React 18 + TypeScript + Vite | Industry standard, enterprise-familiar, best ecosystem |
 | UI Components | shadcn/ui + Tailwind CSS | Modern, accessible, no vendor lock-in, highly customisable |
 | Charts | Apache ECharts | Best performance for real-time TPS charts; handles 10K+ data points |
 | State (server) | TanStack Query v5 | Best-in-class, handles caching, revalidation, optimistic updates |
@@ -23,7 +23,7 @@
 | Stub engine: Async | Microcks | Only OSS tool for Kafka + gRPC + GraphQL stubs |
 | Container platform | AWS ECS Fargate | Serverless containers — no EC2 management for platform |
 | IaC | Terraform + Terragrunt | Standard in banking; GitLab-managed state |
-| CI/CD | GitLab CI/CD | Already in use at NatWest; native container registry |
+| CI/CD | GitLab CI/CD | Already in use; native container registry |
 | Time-series DB | AWS Timestream | Fully managed, serverless, native AWS (vs self-managed InfluxDB) |
 | Relational DB | AWS RDS PostgreSQL 15 | Multi-AZ, managed backups, familiar, trusted |
 | Cache | AWS ElastiCache Redis 7 | Managed Redis for sessions, caching, pub/sub (live TPS WebSocket) |
@@ -45,14 +45,14 @@
 #### React 18 + TypeScript + Vite
 
 **Chosen because:**
-- Dominant in NatWest ecosystem; large hiring pool
+- Dominant in enterprise ecosystem; large hiring pool
 - TypeScript strict mode catches bugs before runtime
 - Vite: 10–50x faster builds than webpack; native ESM; excellent HMR
 - React 18 concurrent features (Suspense, transitions) for smooth UX
 
 **Alternatives considered:**
 - Next.js → rejected: SSR adds complexity for internal portal; not needed
-- Vue 3 → rejected: smaller talent pool in NatWest; React is entrenched
+- Vue 3 → rejected: smaller talent pool in enterprise contexts; React is entrenched
 - Angular → rejected: heavy; slower development velocity; overkill
 
 #### shadcn/ui + Tailwind CSS
@@ -105,13 +105,13 @@
 **Used for:** auth-service, notification-service
 
 **Chosen because:**
-- Auth service: many JWT/SAML libraries are Node-native; NatWest already uses Node for auth tooling
+- Auth service: many JWT/SAML libraries are Node-native; Node is widely used for auth tooling
 - Notification service: I/O-bound (sending emails/webhooks) — Node excels here
 - Fastify: 2–3x faster than Express; schema-based validation built-in
 
 **Alternatives considered:**
 - Python for auth → viable but Node has more mature SAML/OIDC libraries
-- Go → viable for performance; rejected because lower familiarity at NatWest
+- Go → viable for performance; rejected because lower familiarity in the team
 
 ---
 
@@ -127,7 +127,7 @@
 **Used for:** REST (static, dynamic, stateful, fault injection), SOAP
 
 **Chosen because:**
-- All JARs pulled from NatWest Artifactory (pom.xml) — no public internet dependency
+- All JARs pulled from Artifactory (pom.xml) — no public internet dependency
 - WireMock runs as an embedded library (not standalone JAR) — fully customisable
 - Spring WebFlux + Netty: non-blocking I/O, achieves **12,000–18,000 TPS**
 - Java 21 virtual threads (`spring.threads.virtual.enabled=true`): further TPS boost
@@ -211,7 +211,7 @@ application.yaml:
 
 #### Engine 5: Spring Boot + Spring JMS (IBM MQ — Phase 4)
 
-**When to use:** IBM MQ / JMS stubs (40% of NatWest legacy systems)
+**When to use:** IBM MQ / JMS stubs (common in banking legacy systems)
 
 **Chosen because:**
 - IBM MQ client JARs available from IBM Fix Central → mirror to Artifactory
@@ -315,7 +315,7 @@ audit_svc       → audit_log (INSERT-only)
 #### AWS S3 (object storage)
 
 **Chosen because:**
-- Already used at NatWest; familiar
+- Already widely used; familiar
 - Replaces MinIO (MinIO = S3-compatible on-premise; on AWS, use real S3)
 - 99.999999999% durability
 - Presigned URLs for report sharing (time-limited, no public bucket needed)
@@ -341,7 +341,7 @@ audit_svc       → audit_log (INSERT-only)
 #### Terraform + Terragrunt
 
 **Terraform chosen because:**
-- Already standard at NatWest for AWS
+- Already standard for AWS in enterprise environments
 - GitLab native integration (`gitlab-terraform` image)
 - Remote state in S3 + DynamoDB lock (no Terraform Cloud needed)
 - `assume_role` provider block handles cross-account deployments natively
@@ -415,9 +415,9 @@ See `docs/DEPLOYMENT_ARCHITECTURE.md` for full cross-account and lifecycle detai
 | Following format instructions | Excellent | Good | Variable |
 | Cost (input/output per M tokens) | ~$3 / $15 | ~$5 / $15 | ~$3.50 / $10.50 |
 | Latency (p50) | ~2s | ~3s | ~2s |
-| Already in use at NatWest | Yes (Claude Code) | No | No |
+| Already in use | Yes (Claude Code) | No | No |
 
-**Key reason:** The platform already uses Claude Code (Anthropic). Reusing the same vendor simplifies procurement, billing, and security approvals at NatWest.
+**Key reason:** The platform already uses Claude Code (Anthropic). Reusing the same vendor simplifies procurement, billing, and security approvals.
 
 #### Claude claude-haiku-4-5 — Lightweight Tasks
 
@@ -442,7 +442,7 @@ See `docs/DEPLOYMENT_ARCHITECTURE.md` for full cross-account and lifecycle detai
 
 from anthropic import Anthropic
 
-client = Anthropic()  # ANTHROPIC_API_KEY from AWS Secrets Manager
+client = Anthropic()  # ANTHROPIC_API_KEY from HashiCorp Vault
 
 async def generate_openapi_from_description(description: str) -> dict:
     """Complex task: uses Sonnet 4.6"""

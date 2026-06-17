@@ -5,10 +5,10 @@ Output directory structure:
     ├── mappings/               WireMock JSON mapping files
     ├── pom.xml                 Maven build (all deps from Artifactory)
     ├── settings.xml            Artifactory mirror config
-    ├── Dockerfile              NatWest Java 21 base image
+    ├── Dockerfile              Java 21 base image
     ├── docker-compose.yml      For local testing
     └── src/main/
-        ├── java/com/natwest/mockingbird/stubs/
+        ├── java/com/mockingbird/stubs/
         │   ├── StubApplication.java
         │   └── WireMockConfig.java
         └── resources/
@@ -73,7 +73,7 @@ def generate_springboot_project(
     _write_pom(output_dir, project_id, project_name)
 
     # 4. Java source files
-    java_pkg = "src/main/java/com/natwest/mockingbird/stubs"
+    java_pkg = "src/main/java/com/mockingbird/stubs"
     (output_dir / java_pkg).mkdir(parents=True, exist_ok=True)
     _copy(f"{java_pkg}/StubApplication.java", output_dir)
     _copy(f"{java_pkg}/WireMockConfig.java", output_dir)

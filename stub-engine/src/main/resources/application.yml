@@ -46,10 +46,10 @@ logging:
       console: json
   level:
     root: INFO
-    com.natwest.mockingbird: INFO
+    com.mockingbird: INFO
     com.github.tomakehurst.wiremock: WARN
 
-# HashiCorp Vault (secrets — endpoint via Direct Connect from EC2 to NatWest on-prem)
+# HashiCorp Vault (secrets — endpoint via Direct Connect from EC2)
 # Vault credentials loaded at startup — never in env vars or config files
 spring.cloud.vault:
   enabled: ${VAULT_ENABLED:false}
