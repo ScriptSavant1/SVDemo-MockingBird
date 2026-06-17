@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Maven settings for Artifactory -->
-<!-- Credentials come from ARTIFACTORY_USR / ARTIFACTORY_PSWD env vars (fetched from Vault in CI) -->
+<!--
+  Maven settings — Artifactory mirror configuration.
+
+  ALL URLs and credentials come from environment variables.
+  Set ARTIFACTORY_MAVEN_URL, ARTIFACTORY_USR, ARTIFACTORY_PSWD
+  before running any mvn command.
+
+  In GitLab CI: these are injected automatically from Vault via the pipeline.
+  Locally:      export them from config/local.env before running mvn.
+-->
 <settings xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xmlns="http://maven.apache.org/SETTINGS/1.0.0"
           xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 http://maven.apache.org/xsd/settings-1.0.0.xsd">
@@ -9,7 +17,8 @@
 
   <servers>
     <server>
-      <id>dws-all-fallback-zambezi-mirror</id>
+      <id>artifactory-mirror</id>
+      <!-- Credentials fetched from Vault in CI; set manually for local builds -->
       <username>${env.ARTIFACTORY_USR}</username>
       <password>${env.ARTIFACTORY_PSWD}</password>
     </server>
@@ -17,10 +26,11 @@
 
   <mirrors>
     <mirror>
-      <id>dws-all-fallback-zambezi-mirror</id>
+      <id>artifactory-mirror</id>
       <name>Artifactory (all repos)</name>
-      <url>https://artifactory.internal/artifactory/dws-all-repos</url>
-      <mirrorOf>*,!zambezi-all-repos</mirrorOf>
+      <!-- ARTIFACTORY_MAVEN_URL is defined in config/local.env -->
+      <url>${env.ARTIFACTORY_MAVEN_URL}</url>
+      <mirrorOf>*</mirrorOf>
     </mirror>
   </mirrors>
 
@@ -29,9 +39,9 @@
       <id>artifactory</id>
       <repositories>
         <repository>
-          <id>dws-all-repos</id>
-          <name>dws-all-repos</name>
-          <url>https://artifactory.internal/artifactory/dws-all-repos</url>
+          <id>artifactory-central</id>
+          <name>Artifactory</name>
+          <url>${env.ARTIFACTORY_MAVEN_URL}</url>
           <layout>default</layout>
           <releases>
             <enabled>true</enabled>
@@ -47,9 +57,9 @@
       </repositories>
       <pluginRepositories>
         <pluginRepository>
-          <id>dws-all-repos</id>
-          <name>dws-all-repos</name>
-          <url>https://artifactory.internal/artifactory/dws-all-repos</url>
+          <id>artifactory-central</id>
+          <name>Artifactory</name>
+          <url>${env.ARTIFACTORY_MAVEN_URL}</url>
           <layout>default</layout>
           <releases>
             <enabled>true</enabled>

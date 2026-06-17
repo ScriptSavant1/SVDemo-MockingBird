@@ -26,9 +26,13 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
+# Central config — local.env holds real company values, NEVER commit it
+config/local.env
+
 # Secrets — never commit these
 *.env
 .env.*
+!config/example.env
 secrets.json
 vault-token
 

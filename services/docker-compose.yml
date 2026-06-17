@@ -1,17 +1,18 @@
 # Local development stack — NOT for production.
 #
-# Starts: PostgreSQL 15, Redis 7, auth-service, project-service.
-# In production, all services run on AWS ECS Fargate; secrets come from HashiCorp Vault.
+# BEFORE RUNNING:
+#   cp config/example.env config/local.env
+#   Edit config/local.env with your real values.
 #
-# Usage:
-#   docker compose up -d postgres redis
-#   docker compose up -d auth-service project-service
+# START:
+#   cd services
+#   docker compose --env-file ../config/local.env up -d
 #
-# Alembic migrations (run once after first 'up'):
-#   docker compose run --rm project-service alembic upgrade head
+# MIGRATIONS (first time only):
+#   docker compose --env-file ../config/local.env run --rm project-service alembic upgrade head
 #
-# The JWT_SECRET is intentionally a local-dev placeholder.
-# NEVER commit real credentials — production secrets live in Vault.
+# All ${VARIABLE} placeholders are resolved from config/local.env.
+# Fallback values after :- are safe for local dev only — not for production.
 
 version: "3.9"
 
@@ -25,7 +26,7 @@ services:
     environment:
       POSTGRES_DB: mockingbird
       POSTGRES_USER: mockingbird
-      POSTGRES_PASSWORD: dev-postgres-password
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-local-dev-change-this}
     ports:
       - "5432:5432"
     volumes:
@@ -54,6 +55,9 @@ services:
     build:
       context: ./auth-service
       dockerfile: Dockerfile
+      args:
+        # Reads ARTIFACTORY_NPM_URL from config/local.env → passed to npm config
+        NPM_REGISTRY: ${ARTIFACTORY_NPM_URL:-https://registry.npmjs.org}
     container_name: mockingbird-auth-service
     restart: unless-stopped
     depends_on:
@@ -62,9 +66,8 @@ services:
     environment:
       PORT: "3001"
       HOST: "0.0.0.0"
-      # Must match JWT_SECRET in project-service
-      JWT_SECRET: "dev-jwt-secret-change-in-production"
-      DATABASE_URL: "postgresql://mockingbird:dev-postgres-password@postgres:5432/mockingbird"
+      JWT_SECRET: ${JWT_SECRET:-local-dev-change-this}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://mockingbird:local-dev-change-this@postgres:5432/mockingbird}
     ports:
       - "3001:3001"
     healthcheck:
@@ -79,6 +82,9 @@ services:
     build:
       context: ./project-service
       dockerfile: Dockerfile
+      args:
+        # Reads ARTIFACTORY_PYPI_URL from config/local.env → passed to pip
+        PIP_INDEX_URL: ${ARTIFACTORY_PYPI_URL:-https://pypi.org/simple}
     container_name: mockingbird-project-service
     restart: unless-stopped
     depends_on:
@@ -87,12 +93,11 @@ services:
       auth-service:
         condition: service_healthy
     environment:
-      DATABASE_URL: "postgresql://mockingbird:dev-postgres-password@postgres:5432/mockingbird"
-      # Must match JWT_SECRET in auth-service
-      JWT_SECRET: "dev-jwt-secret-change-in-production"
-      JWT_ALGORITHM: "HS256"
+      DATABASE_URL: ${DATABASE_URL:-postgresql://mockingbird:local-dev-change-this@postgres:5432/mockingbird}
+      JWT_SECRET: ${JWT_SECRET:-local-dev-change-this}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       SERVICE_NAME: "project-service"
-      ENVIRONMENT: "local"
+      ENVIRONMENT: ${ENVIRONMENT:-local}
     ports:
       - "8001:8001"
     healthcheck:

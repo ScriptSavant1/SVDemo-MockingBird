@@ -3,64 +3,66 @@ stages:
   - test
   - verify-scanning-results
 
-# Pull in standard scanning templates
+# Pull in standard scanning templates.
+# GITLAB_CI_TEMPLATES_PROJECT is set in GitLab CI/CD Variables.
 include:
-  - project: your-group/EngineeringArtifacts/EngineeringComponents/Templates/continuous-integration
-    ref: 5.0.2
+  - project: $GITLAB_CI_TEMPLATES_PROJECT
+    ref: $GITLAB_CI_TEMPLATES_REF
     file:
       - Container-Scanning.gitlab-ci.yml
       - Secret-Detection.gitlab-ci.yml
 
+# ── Variables ─────────────────────────────────────────────────────────────────
+# All values below come from GitLab CI/CD Variables (project or group level).
+# Go to: GitLab → Project → Settings → CI/CD → Variables
+# Use config/example.env as your reference for what values to set.
+#
+# Required CI/CD Variables to configure in GitLab:
+#   VAULT_SERVER_URL          — HashiCorp Vault endpoint
+#   VAULT_NAMESPACE           — Vault namespace (e.g. secrets)
+#   VAULT_MOUNT_PATH          — KV mount path (e.g. kv)
+#   VAULT_AUTH_ROLE           — Vault role for this project
+#   VAULT_AUTH_PATH           — Vault JWT auth path (e.g. jwt/gitlab)
+#   VAULT_CI_DOCKER_SECRET_PATH  — Vault path for Docker auth config
+#   VAULT_CI_ARTIFACTORY_PATH — Vault path for Artifactory credentials
+#   KANIKO_IMAGE_PATH         — Fully qualified Kaniko executor image
+#   GITLAB_RUNNER_TAG         — Tag of the Kubernetes runner to use
+#   JAVA_BASE_IMAGE           — Base Java 21 image for stub engine builds
+#   ARTIFACTORY_MAVEN_URL     — Maven mirror URL
 variables:
-  # Vault configuration (same Vault as sample — Mockingbird uses its own role/path)
-  VAULT_SERVER_URL: https://vault-dev-pnf.web.deviaas.intenv01.net
-  VAULT_NAMESPACE: secrets
-  MOUNT_PATH: kv
-  VAULT_AUTH_ROLE: mockingbird                        # Mockingbird-specific Vault role (to be created)
-  VAULT_AUTH_PATH: jwt/gitlab
-  SECRET_PATH: mockingbird/ci/docker                  # Mockingbird Docker auth stored here in Vault
-
-  # Kaniko (confirmed image from sample)
-  KANIKO_IMAGE_PATH: registry.gitlab.internal/your-group/engineeringartifacts/engineeringcomponents/executors/build/kaniko/multi-arch/v1.24:v1.24.0-debug
-
-  # Artifactory (confirmed URL from settings_linux.xml)
-  # ARTIFACTORY_USR and ARTIFACTORY_PSWD are pulled from Vault at build time
-  ARTIFACTORY_URL: https://artifactory.internal/artifactory/dws-all-repos
-
   IMAGE_REGISTRY: $CI_REGISTRY_IMAGE
   SNAPSHOT_IMAGE_TAG: "${IMAGE_REGISTRY}:${CI_PIPELINE_ID}-SNAPSHOT"
-  RUNNER_TAG: nwg-rosa-sharedrunner-scan
 
-# Fetch Docker auth config from Vault using GitLab JWT OIDC
+# ── Vault secret retrieval (reusable anchor) ──────────────────────────────────
 .get-vault-secrets:
   id_tokens:
     VAULT_ID_TOKEN:
       aud: $VAULT_SERVER_URL
   secrets:
     DOCKER_AUTH_CONFIG:
-      vault: $SECRET_PATH/DOCKER_AUTH_CONFIG@$MOUNT_PATH
+      vault: $VAULT_CI_DOCKER_SECRET_PATH/DOCKER_AUTH_CONFIG@$VAULT_MOUNT_PATH
       token: $VAULT_ID_TOKEN
       file: false
     ARTIFACTORY_USR:
-      vault: mockingbird/ci/artifactory/USERNAME@$MOUNT_PATH
+      vault: $VAULT_CI_ARTIFACTORY_PATH/USERNAME@$VAULT_MOUNT_PATH
       token: $VAULT_ID_TOKEN
       file: false
     ARTIFACTORY_PSWD:
-      vault: mockingbird/ci/artifactory/PASSWORD@$MOUNT_PATH
+      vault: $VAULT_CI_ARTIFACTORY_PATH/PASSWORD@$VAULT_MOUNT_PATH
       token: $VAULT_ID_TOKEN
       file: false
 
+# ── Build stub engine Docker image ────────────────────────────────────────────
 build_stub_image:
   stage: build-image
   tags:
-    - $RUNNER_TAG
+    - $GITLAB_RUNNER_TAG
   image:
     name: $KANIKO_IMAGE_PATH
     entrypoint: [""]
   extends: .get-vault-secrets
   script:
     - |
-      # Determine image tag based on branch
       if [[ "$CI_COMMIT_BRANCH" == "main" || "$CI_COMMIT_BRANCH" == "$CI_DEFAULT_BRANCH" ]]; then
         publish_destinations="--destination ${IMAGE_REGISTRY}:latest --destination ${IMAGE_REGISTRY}:${CI_COMMIT_SHORT_SHA}"
         echo "CS_IMAGE_PATH=${IMAGE_REGISTRY}:latest" > dotenv.env
@@ -77,6 +79,7 @@ build_stub_image:
         --use-new-run
         --cleanup
         --cache=true
+        --build-arg JAVA_BASE_IMAGE="${JAVA_BASE_IMAGE}"
         --build-arg ARTIFACTORY_USR="${ARTIFACTORY_USR}"
         --build-arg ARTIFACTORY_PSWD="${ARTIFACTORY_PSWD}"
         --digest-file=push-metadata.txt
