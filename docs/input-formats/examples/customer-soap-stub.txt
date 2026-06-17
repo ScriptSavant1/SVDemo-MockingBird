@@ -1,0 +1,59 @@
+--- MOCKINGBIRD v1.0 SOAP ---
+
+# Customer Service SOAP stub
+# Covers: GetCustomer (200 OK), GetCustomer not found (500 Fault), default server fault
+
+Name: Customer SOAP Service
+Team: CoreBanking
+Contact: corebanking@natwest.com
+URL: /services/CustomerService
+
+--- SCENARIO: GetCustomer Success ---
+Match-Type: soap-action
+Match-Value: GetCustomer
+Status: 200
+Content-Type: text/xml; charset=utf-8
+
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <GetCustomerResponse xmlns="http://natwest.com/customerservice/v1">
+      <CustomerId>12345</CustomerId>
+      <Name>John Smith</Name>
+      <AccountStatus>ACTIVE</AccountStatus>
+    </GetCustomerResponse>
+  </soap:Body>
+</soap:Envelope>
+
+--- SCENARIO: GetCustomer Not Found ---
+Match-Type: soap-xpath
+Match-Value: //GetCustomer[CustomerId='UNKNOWN']
+Status: 500
+Content-Type: text/xml; charset=utf-8
+
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <soap:Fault>
+      <faultcode>soap:Client</faultcode>
+      <faultstring>Customer not found</faultstring>
+      <detail>
+        <ErrorCode>CUSTOMER_NOT_FOUND</ErrorCode>
+      </detail>
+    </soap:Fault>
+  </soap:Body>
+</soap:Envelope>
+
+--- SCENARIO DEFAULT ---
+Status: 500
+Content-Type: text/xml; charset=utf-8
+
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <soap:Fault>
+      <faultcode>soap:Server</faultcode>
+      <faultstring>Internal Server Error</faultstring>
+    </soap:Fault>
+  </soap:Body>
+</soap:Envelope>

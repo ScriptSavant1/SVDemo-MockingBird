@@ -1,0 +1,85 @@
+--- MOCKINGBIRD v1.0 ---
+
+# Dynamic Customer API — demonstrates all Handlebars template expressions.
+#
+# WireMock's ResponseTemplateTransformer is enabled automatically whenever
+# a response body contains {{ ... }}. No extra configuration required.
+#
+# Supported expressions:
+#   {{request.pathParam.NAME}}              echo a URL path parameter
+#   {{request.headers.Header-Name}}         echo a request header value
+#   {{jsonPath request.body '$.field'}}     extract a JSON field from the request body
+#   {{now}}                                 ISO-8601 timestamp (UTC)
+#   {{now format='yyyy-MM-dd'}}             formatted date
+#   {{now format='yyyy-MM-ddTHH:mm:ssZ'}}  formatted datetime with offset
+#   {{randomValue type='UUID'}}             random UUID
+#   {{randomValue type='NUMERIC' length=10}}  10-digit numeric string
+#   {{randomValue type='ALPHANUMERIC' length=8}}  8-char alphanumeric
+#
+# Delay formats:
+#   Delay: 500ms                   fixed 500 ms
+#   Delay: random:100ms-500ms      uniform random between 100 and 500 ms
+#   Delay: chunked:5,1000ms        dribble response in 5 chunks over 1000 ms
+#   Delay: lognormal:80ms,0.4      log-normal: median 80 ms, sigma 0.4
+
+Name: Customer Account API
+Method: GET
+URL: /api/v1/customers/{customerId}/accounts/{accountId}
+
+--- SCENARIO: Customer Not Found ---
+Match-Type: url-contains
+Match-Value: UNKNOWN
+Status: 404
+Content-Type: application/json
+
+{"error": "Customer not found", "code": "CUST_404", "correlationId": "{{randomValue type='UUID'}}"}
+
+--- SCENARIO: Slow Network Simulation ---
+Match-Type: url-contains
+Match-Value: SLOW
+Delay: random:500ms-2000ms
+Status: 200
+Content-Type: application/json
+
+{
+  "customerId": "{{request.pathParam.customerId}}",
+  "accountId": "{{request.pathParam.accountId}}",
+  "status": "active",
+  "warning": "Simulated slow network response",
+  "responseTime": "delayed",
+  "correlationId": "{{randomValue type='UUID'}}",
+  "timestamp": "{{now format='yyyy-MM-ddTHH:mm:ssZ'}}"
+}
+
+--- SCENARIO: Chunked Large Payload ---
+Match-Type: url-contains
+Match-Value: LARGE
+Delay: chunked:10,3000ms
+Status: 200
+Content-Type: application/json
+
+{
+  "customerId": "{{request.pathParam.customerId}}",
+  "accountId": "{{request.pathParam.accountId}}",
+  "balance": 99999.99,
+  "note": "Simulated large payload delivered in chunks over 3 seconds",
+  "correlationId": "{{randomValue type='UUID'}}"
+}
+
+--- SCENARIO DEFAULT ---
+Delay: lognormal:80ms,0.4
+Status: 200
+Content-Type: application/json
+
+{
+  "customerId": "{{request.pathParam.customerId}}",
+  "accountId": "{{request.pathParam.accountId}}",
+  "name": "John Smith",
+  "status": "active",
+  "balance": 12345.67,
+  "currency": "GBP",
+  "sortCode": "60-00-01",
+  "correlationId": "{{randomValue type='UUID'}}",
+  "reference": "REF-{{randomValue type='NUMERIC' length=8}}",
+  "retrievedAt": "{{now format='yyyy-MM-ddTHH:mm:ssZ'}}"
+}

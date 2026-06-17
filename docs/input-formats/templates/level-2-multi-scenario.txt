@@ -1,0 +1,89 @@
+--- MOCKINGBIRD v1.0 ---
+# LEVEL 2: Multi-Scenario Stub — One Request Type, Multiple Possible Responses
+# Use this when the same API endpoint should return different responses
+# depending on what is in the request (different IDs, different body content, etc.)
+#
+# HOW MATCHING WORKS:
+# Scenarios are checked TOP TO BOTTOM. The FIRST match wins.
+# Put your SPECIFIC cases first (e.g., error cases for known IDs).
+# Put the DEFAULT catch-all scenario LAST — it catches everything else.
+#
+# MATCH TYPES:
+#   url-contains     — URL path contains a specific string
+#   url-regex        — URL path matches a regex pattern
+#   body-contains    — Request body (as text) contains a specific string
+#   body-json-path   — JSON path in request body equals a value (use: $.field.name == "value")
+#   header-equals    — A request header equals a specific value (use: HeaderName == value)
+#   always           — Always matches. Use ONLY for SCENARIO DEFAULT at the bottom.
+#
+# HOW TO USE:
+# 1. Fill in the header section (Name, Method, URL)
+# 2. Add your specific error/edge case scenarios first
+# 3. End with --- SCENARIO DEFAULT --- to catch everything else
+# 4. Delete comment lines, save as .txt, and upload
+
+Name: <Your Stub Name — e.g., Payment Processing API>
+Method: <GET | POST | PUT | PATCH | DELETE>
+URL: </your/api/path — use {paramName} for path variables, e.g., /api/customers/{customerId}>
+
+--- REQUEST HEADERS ---
+Authorization: Bearer <token>
+Content-Type: application/json
+
+--- SCENARIO: <Name this scenario — e.g., Not Found Error> ---
+# This scenario is checked FIRST because it is SPECIFIC.
+# Rename "Not Found Error" to something that describes this case.
+Match-Type: url-contains
+Match-Value: <value to look for — e.g., /99999 or specific ID>
+Status: 404
+Delay: <optional — e.g., 50ms. Delete if not needed.>
+
+Content-Type: application/json
+
+{
+  "errorCode": "NOT_FOUND",
+  "message": "Resource not found"
+}
+
+--- SCENARIO: <Name this scenario — e.g., Server Error Simulation> ---
+# Add as many specific scenarios as you need.
+# Copy this whole block and paste below to add another scenario.
+Match-Type: <url-contains | url-regex | body-contains | body-json-path | header-equals>
+Match-Value: <the value to match>
+Status: 500
+Delay: 2000ms
+
+Content-Type: application/json
+
+{
+  "errorCode": "INTERNAL_SERVER_ERROR",
+  "message": "An unexpected error occurred"
+}
+
+--- SCENARIO: <Name this scenario — e.g., Bad Request> ---
+Match-Type: header-equals
+Match-Value: X-Test-Mode == bad-request
+Status: 400
+
+Content-Type: application/json
+
+{
+  "errorCode": "VALIDATION_ERROR",
+  "message": "Request validation failed",
+  "fields": [
+    { "field": "customerId", "error": "Must be numeric" }
+  ]
+}
+
+--- SCENARIO DEFAULT ---
+# This scenario ALWAYS matches. It is the normal success response.
+# It MUST be the LAST scenario in this file.
+# Everything that did not match a scenario above will get this response.
+Match-Type: always
+Status: 200
+
+Content-Type: application/json
+
+{
+  "replace": "this with your normal success response"
+}

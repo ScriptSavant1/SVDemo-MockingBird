@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.3.0</version>
+    <relativePath/>
+  </parent>
+
+  <!-- Filled in by generator-worker per project -->
+  <groupId>com.natwest.mockingbird.stubs</groupId>
+  <artifactId>{{project_id}}-stub</artifactId>
+  <version>1.0.0</version>
+  <name>{{project_name}} Stub Engine</name>
+  <description>Mockingbird auto-generated stub for {{project_name}}</description>
+
+  <properties>
+    <java.version>21</java.version>
+    <wiremock.version>3.5.2</wiremock.version>
+  </properties>
+
+  <dependencies>
+    <!-- Spring Boot lifecycle management, health checks, config -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter</artifactId>
+    </dependency>
+
+    <!-- WireMock as embedded HTTP stub server (NOT standalone JAR) -->
+    <!-- Includes its own Jetty server — Spring Boot manages the lifecycle -->
+    <dependency>
+      <groupId>org.wiremock</groupId>
+      <artifactId>wiremock</artifactId>
+      <version>${wiremock.version}</version>
+      <!-- Exclude embedded Jetty logging to use Spring Boot's Logback -->
+      <exclusions>
+        <exclusion>
+          <groupId>org.eclipse.jetty</groupId>
+          <artifactId>jetty-slf4j-impl</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+
+    <!-- Prometheus metrics via /actuator/prometheus (scraped every 30s by platform) -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-prometheus</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
+    <!-- Spring-WS core — SOAP endpoint routing and WSDL serving -->
+    <dependency>
+      <groupId>org.springframework.ws</groupId>
+      <artifactId>spring-ws-core</artifactId>
+    </dependency>
+
+    <!-- WS-Security — UsernameToken validation for SOAP stubs -->
+    <!-- Only activated when mockingbird.soap.ws-security.enabled=true -->
+    <dependency>
+      <groupId>org.springframework.ws</groupId>
+      <artifactId>spring-ws-security</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.wss4j</groupId>
+      <artifactId>wss4j-ws-security-dom</artifactId>
+      <version>3.0.3</version>
+    </dependency>
+
+    <!-- HashiCorp Vault for secrets (Vault endpoint via Direct Connect in AWS) -->
+    <dependency>
+      <groupId>org.springframework.vault</groupId>
+      <artifactId>spring-vault-core</artifactId>
+      <version>3.1.0</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <configuration>
+          <!-- Fat JAR — all deps bundled, no classpath issues on EC2 -->
+          <mainClass>com.natwest.mockingbird.stubs.StubApplication</mainClass>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <!-- All JARs resolved from NatWest Artifactory (configured in settings.xml) -->
+  <!-- No public Maven Central access — all traffic via banksvcs.net/artifactory -->
+
+</project>

@@ -1,0 +1,117 @@
+--- MOCKINGBIRD v1.0 ---
+Name: Payment Processing API
+Method: POST
+URL: /api/v1/payments/process
+
+--- REQUEST HEADERS ---
+Authorization: Bearer <token>
+Content-Type: application/json
+X-Correlation-ID: <any value>
+
+--- SCENARIO: Insufficient Funds (402) ---
+Match-Type: body-contains
+Match-Value: "accountNumber": "00000001"
+Status: 402
+Delay: 120ms
+
+Content-Type: application/json
+
+{
+  "transactionId": null,
+  "status": "FAILED",
+  "errorCode": "INSUFFICIENT_FUNDS",
+  "errorMessage": "Account does not have sufficient funds for this transaction",
+  "availableBalance": 0.00,
+  "requestedAmount": 500.00,
+  "currency": "GBP",
+  "timestamp": "2026-06-14T10:30:00Z"
+}
+
+--- SCENARIO: Invalid Account (404) ---
+Match-Type: body-contains
+Match-Value: "accountNumber": "99999999"
+Status: 404
+Delay: 80ms
+
+Content-Type: application/json
+
+{
+  "transactionId": null,
+  "status": "FAILED",
+  "errorCode": "ACCOUNT_NOT_FOUND",
+  "errorMessage": "No active account found with the provided account number",
+  "timestamp": "2026-06-14T10:30:00Z"
+}
+
+--- SCENARIO: Fraud Hold (403) ---
+Match-Type: body-contains
+Match-Value: "accountNumber": "12345000"
+Status: 403
+Delay: 200ms
+
+Content-Type: application/json
+
+{
+  "transactionId": null,
+  "status": "BLOCKED",
+  "errorCode": "FRAUD_HOLD",
+  "errorMessage": "This account has a fraud hold. Please contact customer services.",
+  "holdReference": "FRD-2026-001234",
+  "contactNumber": "0800 000 0000",
+  "timestamp": "2026-06-14T10:30:00Z"
+}
+
+--- SCENARIO: Slow Response Timeout Test (504) ---
+Match-Type: header-equals
+Match-Value: X-Test-Mode == timeout
+Status: 504
+Delay: 30000ms
+
+Content-Type: application/json
+
+{
+  "status": "TIMEOUT",
+  "errorCode": "UPSTREAM_TIMEOUT",
+  "message": "Upstream payment processor did not respond in time"
+}
+
+--- SCENARIO: Validation Error (400) ---
+Match-Type: body-json-path
+Match-Value: $.payment.amount <= 0
+Status: 400
+Delay: 50ms
+
+Content-Type: application/json
+
+{
+  "status": "FAILED",
+  "errorCode": "VALIDATION_ERROR",
+  "message": "Payment request validation failed",
+  "violations": [
+    {
+      "field": "payment.amount",
+      "message": "Amount must be greater than zero"
+    }
+  ]
+}
+
+--- SCENARIO DEFAULT ---
+Match-Type: always
+Status: 200
+Delay: 120ms
+
+Content-Type: application/json
+
+{
+  "transactionId": "TXN-2026-987654",
+  "status": "COMPLETED",
+  "paymentReference": "PAY-60000112345678",
+  "amount": 150.00,
+  "currency": "GBP",
+  "debitAccount": "12345678",
+  "creditAccount": "87654321",
+  "sortCode": "60-00-01",
+  "narrative": "Payment processed successfully",
+  "completedAt": "2026-06-14T10:30:01Z",
+  "valueDate": "2026-06-14"
+}

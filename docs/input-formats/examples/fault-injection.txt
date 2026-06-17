@@ -1,0 +1,29 @@
+--- MOCKINGBIRD v1.0 ---
+
+# Fault injection example.
+#
+# Three fault types (WireMock values):
+#
+#   Fault: connection-reset    → CONNECTION_RESET_BY_PEER
+#   Fault: empty-response      → EMPTY_RESPONSE
+#   Fault: malformed-response  → MALFORMED_RESPONSE_CHUNK
+#
+# Fault and Delay can be combined: the delay fires first, then the fault.
+# Status is still written to the mapping but WireMock ignores it when a
+# fault is active (except for MALFORMED_RESPONSE_CHUNK which sends 200 OK
+# before writing garbage bytes).
+#
+# Use faults to verify your calling service handles:
+#   - Sudden connection drops (circuit-breaker tests)
+#   - Silent peer close (timeout + retry tests)
+#   - Corrupt response (error-handling and resilience tests)
+
+Name: Payment Fault Stub
+Method: POST
+URL: /payments/domestic
+
+--- RESPONSE ---
+Status: 503
+Delay: 2000ms
+Fault: connection-reset
+Content-Type: application/json

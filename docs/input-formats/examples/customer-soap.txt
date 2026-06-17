@@ -1,0 +1,85 @@
+--- MOCKINGBIRD v1.0 ---
+Name: Customer SOAP Service — GetCustomerDetails
+Method: POST
+URL: /ws/CustomerService
+
+--- REQUEST HEADERS ---
+Content-Type: text/xml; charset=utf-8
+SOAPAction: "http://natwest.internal/CustomerService/GetCustomerDetails"
+
+--- SCENARIO: Customer Found (200) ---
+Match-Type: body-contains
+Match-Value: <cust:CustomerId>12345</cust:CustomerId>
+Status: 200
+Delay: 100ms
+
+Content-Type: text/xml; charset=utf-8
+
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope
+  xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+  xmlns:cust="http://natwest.internal/CustomerService">
+  <soap:Header/>
+  <soap:Body>
+    <cust:GetCustomerDetailsResponse>
+      <cust:Customer>
+        <cust:CustomerId>12345</cust:CustomerId>
+        <cust:FirstName>John</cust:FirstName>
+        <cust:LastName>Smith</cust:LastName>
+        <cust:AccountStatus>ACTIVE</cust:AccountStatus>
+        <cust:SortCode>60-00-01</cust:SortCode>
+        <cust:AccountNumber>12345678</cust:AccountNumber>
+        <cust:AvailableBalance currency="GBP">2500.00</cust:AvailableBalance>
+      </cust:Customer>
+    </cust:GetCustomerDetailsResponse>
+  </soap:Body>
+</soap:Envelope>
+
+--- SCENARIO: Customer Not Found (SOAP Fault) ---
+Match-Type: body-contains
+Match-Value: <cust:CustomerId>99999</cust:CustomerId>
+Status: 200
+
+Content-Type: text/xml; charset=utf-8
+
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope
+  xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+  xmlns:cust="http://natwest.internal/CustomerService">
+  <soap:Header/>
+  <soap:Body>
+    <soap:Fault>
+      <faultcode>soap:Client</faultcode>
+      <faultstring>Customer not found</faultstring>
+      <detail>
+        <cust:CustomerServiceFault>
+          <cust:ErrorCode>CUSTOMER_NOT_FOUND</cust:ErrorCode>
+          <cust:ErrorMessage>No customer found with ID 99999</cust:ErrorMessage>
+        </cust:CustomerServiceFault>
+      </detail>
+    </soap:Fault>
+  </soap:Body>
+</soap:Envelope>
+
+--- SCENARIO DEFAULT ---
+Match-Type: always
+Status: 200
+
+Content-Type: text/xml; charset=utf-8
+
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope
+  xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+  xmlns:cust="http://natwest.internal/CustomerService">
+  <soap:Header/>
+  <soap:Body>
+    <cust:GetCustomerDetailsResponse>
+      <cust:Customer>
+        <cust:CustomerId>DEFAULT</cust:CustomerId>
+        <cust:FirstName>Default</cust:FirstName>
+        <cust:LastName>Customer</cust:LastName>
+        <cust:AccountStatus>ACTIVE</cust:AccountStatus>
+      </cust:Customer>
+    </cust:GetCustomerDetailsResponse>
+  </soap:Body>
+</soap:Envelope>

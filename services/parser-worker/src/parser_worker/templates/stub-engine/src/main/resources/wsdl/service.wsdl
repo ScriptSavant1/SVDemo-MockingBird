@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Placeholder WSDL for Mockingbird stub engine.
+
+  Replace this file with your actual project WSDL before deploying.
+  The WSDL is served at: http://host:8080/ws/service.wsdl
+  (when mockingbird.soap.wsdl.enabled=true)
+
+  This placeholder describes a minimal "GetCustomer" service to verify
+  that WSDL serving is correctly configured.
+-->
+<wsdl:definitions
+    xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/"
+    xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/"
+    xmlns:tns="http://example.com/mockingbird/stub"
+    xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+    targetNamespace="http://example.com/mockingbird/stub"
+    name="StubService">
+
+  <wsdl:types>
+    <xsd:schema targetNamespace="http://example.com/mockingbird/stub">
+
+      <xsd:element name="GetCustomerRequest">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="customerId" type="xsd:string"/>
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+
+      <xsd:element name="GetCustomerResponse">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="customerId"  type="xsd:string"/>
+            <xsd:element name="name"        type="xsd:string"/>
+            <xsd:element name="status"      type="xsd:string"/>
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+
+    </xsd:schema>
+  </wsdl:types>
+
+  <wsdl:message name="GetCustomerRequest">
+    <wsdl:part name="parameters" element="tns:GetCustomerRequest"/>
+  </wsdl:message>
+
+  <wsdl:message name="GetCustomerResponse">
+    <wsdl:part name="parameters" element="tns:GetCustomerResponse"/>
+  </wsdl:message>
+
+  <wsdl:portType name="StubServicePortType">
+    <wsdl:operation name="GetCustomer">
+      <wsdl:input  message="tns:GetCustomerRequest"/>
+      <wsdl:output message="tns:GetCustomerResponse"/>
+    </wsdl:operation>
+  </wsdl:portType>
+
+  <wsdl:binding name="StubServiceSoapBinding" type="tns:StubServicePortType">
+    <soap:binding style="document" transport="http://schemas.xmlsoap.org/soap/http"/>
+    <wsdl:operation name="GetCustomer">
+      <soap:operation soapAction="GetCustomer"/>
+      <wsdl:input>
+        <soap:body use="literal"/>
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal"/>
+      </wsdl:output>
+    </wsdl:operation>
+  </wsdl:binding>
+
+  <wsdl:service name="StubService">
+    <wsdl:port name="StubServicePort" binding="tns:StubServiceSoapBinding">
+      <soap:address location="http://localhost:8080/ws"/>
+    </wsdl:port>
+  </wsdl:service>
+
+</wsdl:definitions>

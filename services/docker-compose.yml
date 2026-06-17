@@ -1,0 +1,107 @@
+# Local development stack — NOT for production.
+#
+# Starts: PostgreSQL 15, Redis 7, auth-service, project-service.
+# In production, all services run on AWS ECS Fargate; secrets come from HashiCorp Vault.
+#
+# Usage:
+#   docker compose up -d postgres redis
+#   docker compose up -d auth-service project-service
+#
+# Alembic migrations (run once after first 'up'):
+#   docker compose run --rm project-service alembic upgrade head
+#
+# The JWT_SECRET is intentionally a local-dev placeholder.
+# NEVER commit real credentials — production secrets live in Vault.
+
+version: "3.9"
+
+services:
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: mockingbird-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mockingbird
+      POSTGRES_USER: mockingbird
+      POSTGRES_PASSWORD: dev-postgres-password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mockingbird -d mockingbird"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: mockingbird-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── auth-service (Node.js 20 + Fastify) ─────────────────────────────────────
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: mockingbird-auth-service
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: "3001"
+      HOST: "0.0.0.0"
+      # Must match JWT_SECRET in project-service
+      JWT_SECRET: "dev-jwt-secret-change-in-production"
+      DATABASE_URL: "postgresql://mockingbird:dev-postgres-password@postgres:5432/mockingbird"
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  # ── project-service (Python 3.11 + FastAPI) ──────────────────────────────────
+  project-service:
+    build:
+      context: ./project-service
+      dockerfile: Dockerfile
+    container_name: mockingbird-project-service
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://mockingbird:dev-postgres-password@postgres:5432/mockingbird"
+      # Must match JWT_SECRET in auth-service
+      JWT_SECRET: "dev-jwt-secret-change-in-production"
+      JWT_ALGORITHM: "HS256"
+      SERVICE_NAME: "project-service"
+      ENVIRONMENT: "local"
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health')\" || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  postgres_data:
+    name: mockingbird_postgres_data

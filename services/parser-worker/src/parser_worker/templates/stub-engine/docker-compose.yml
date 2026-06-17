@@ -1,0 +1,27 @@
+services:
+  stub:
+    image: ${STUB_IMAGE:-mockingbird-stub:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"   # Stub traffic (clients call this)
+      - "8081:8081"   # Actuator / Prometheus metrics
+    environment:
+      STUB_PROJECT_ID: ${STUB_PROJECT_ID:-local-test}
+      STUB_PROJECT_NAME: ${STUB_PROJECT_NAME:-Local Test Stub}
+      STUB_ENVIRONMENT: ${STUB_ENVIRONMENT:-local}
+      JAVA_OPTS: >-
+        -Xmx4g
+        -XX:+UseG1GC
+        -XX:MaxGCPauseMillis=10
+        -XX:+UseStringDeduplication
+      # Vault disabled for local development (stubs loaded from JAR resources)
+      VAULT_ENABLED: "false"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped

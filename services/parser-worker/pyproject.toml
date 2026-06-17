@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mockingbird-parser-worker"
+version = "0.1.0"
+description = "Mockingbird input parser and WireMock stub generator"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.0,<3.0",
+    "click>=8.1,<9.0",
+    "jinja2>=3.1,<4.0",
+    "pyyaml>=6.0,<7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+]
+
+[project.scripts]
+sv-gen = "parser_worker.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"parser_worker" = ["templates/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=src/parser_worker --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["src/parser_worker"]

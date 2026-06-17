@@ -1,0 +1,28 @@
+--- MOCKINGBIRD v1.0 ---
+Name: Customer Lookup API
+Method: GET
+URL: /api/v1/customers/12345
+
+--- REQUEST HEADERS ---
+Authorization: Bearer <token>
+Accept: application/json
+
+--- RESPONSE ---
+Status: 200
+Delay: 75ms
+
+Content-Type: application/json
+
+{
+  "customerId": "12345",
+  "firstName": "John",
+  "lastName": "Smith",
+  "dateOfBirth": "1985-03-14",
+  "email": "john.smith@example.com",
+  "accountStatus": "ACTIVE",
+  "sortCode": "60-00-01",
+  "accountNumber": "12345678",
+  "availableBalance": 2500.00,
+  "currency": "GBP",
+  "lastUpdated": "2026-06-14T09:00:00Z"
+}

@@ -1,0 +1,150 @@
+{
+  "_mockingbird": "1.0",
+  "_format": "level-3-full",
+
+  "stub": {
+    "name": "Customer Profile API",
+    "description": "Returns full customer profile. Demonstrates dynamic parameter echoing, multiple scenarios, and delay types.",
+    "team": "Retail Banking Digital",
+    "contact": "retail-sv-team@natwest.com"
+  },
+
+  "request": {
+    "method": "GET",
+    "url": "/api/v1/customers/{customerId}",
+    "headers": {
+      "required": ["Authorization", "Accept"],
+      "optional": ["X-Correlation-ID", "X-Test-Mode"]
+    }
+  },
+
+  "scenarios": [
+    {
+      "_scenario": "1 — Suspended Account (403)",
+      "match": {
+        "type": "url-contains",
+        "value": "/suspended"
+      },
+      "response": {
+        "status": 403,
+        "delay": { "type": "fixed", "ms": 60 },
+        "headers": { "Content-Type": "application/json" },
+        "body": {
+          "customerId": "{{request.pathParam.customerId}}",
+          "status": "SUSPENDED",
+          "errorCode": "ACCOUNT_SUSPENDED",
+          "errorMessage": "This account has been suspended. Ref: SUSP-2026-001.",
+          "contactNumber": "0800 000 0000"
+        }
+      }
+    },
+
+    {
+      "_scenario": "2 — Customer Not Found (404)",
+      "match": {
+        "type": "url-regex",
+        "value": "/api/v1/customers/9{5}"
+      },
+      "response": {
+        "status": 404,
+        "delay": { "type": "fixed", "ms": 45 },
+        "headers": { "Content-Type": "application/json" },
+        "body": {
+          "errorCode": "CUSTOMER_NOT_FOUND",
+          "errorMessage": "No customer found with ID {{request.pathParam.customerId}}",
+          "timestamp": "{{now}}"
+        }
+      }
+    },
+
+    {
+      "_scenario": "3 — Simulate slow upstream (via test header)",
+      "_note": "Test teams can trigger slow response by sending header X-Test-Mode: slow",
+      "match": {
+        "type": "header-equals",
+        "value": "X-Test-Mode == slow"
+      },
+      "response": {
+        "status": 200,
+        "delay": {
+          "type": "progressive",
+          "start_ms": 500,
+          "increment_ms": 500,
+          "max_ms": 10000
+        },
+        "headers": { "Content-Type": "application/json" },
+        "body": {
+          "customerId": "{{request.pathParam.customerId}}",
+          "name": "Slow Response Customer",
+          "status": "ACTIVE",
+          "_note": "Progressive delay simulates degrading upstream service"
+        }
+      }
+    },
+
+    {
+      "_scenario": "4 — Simulate connection fault (via test header)",
+      "_note": "Triggers a TCP connection reset to test client timeout handling",
+      "match": {
+        "type": "header-equals",
+        "value": "X-Test-Mode == fault"
+      },
+      "response": {
+        "status": 200,
+        "fault": "CONNECTION_RESET"
+      }
+    },
+
+    {
+      "_scenario": "DEFAULT — Success with dynamic customer ID echoed back",
+      "_note": "{{request.pathParam.customerId}} echoes the ID from the URL into the response",
+      "match": {
+        "type": "always"
+      },
+      "response": {
+        "status": 200,
+        "delay": { "type": "random", "min_ms": 40, "max_ms": 120 },
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Response-ID": "{{uuid}}",
+          "X-Correlation-ID": "{{request.header.X-Correlation-ID}}"
+        },
+        "body": {
+          "customerId": "{{request.pathParam.customerId}}",
+          "firstName": "John",
+          "lastName": "Smith",
+          "dateOfBirth": "1985-03-14",
+          "email": "john.smith@example.com",
+          "phoneNumber": "+44 7700 900123",
+          "accountStatus": "ACTIVE",
+          "accounts": [
+            {
+              "accountNumber": "12345678",
+              "sortCode": "60-00-01",
+              "accountType": "CURRENT",
+              "availableBalance": 2500.00,
+              "currency": "GBP"
+            },
+            {
+              "accountNumber": "87654321",
+              "sortCode": "60-00-01",
+              "accountType": "SAVINGS",
+              "availableBalance": 15000.00,
+              "currency": "GBP"
+            }
+          ],
+          "address": {
+            "line1": "1 Strand",
+            "city": "London",
+            "postcode": "WC2N 5EH",
+            "country": "GB"
+          },
+          "kycStatus": "VERIFIED",
+          "lastLoginAt": "2026-06-13T14:22:00Z",
+          "retrievedAt": "{{now}}",
+          "requestId": "{{uuid}}"
+        }
+      }
+    }
+  ]
+}

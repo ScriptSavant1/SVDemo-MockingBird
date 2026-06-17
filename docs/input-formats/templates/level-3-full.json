@@ -1,0 +1,146 @@
+{
+  "_mockingbird": "1.0",
+  "_format": "level-3-full",
+  "_instructions": [
+    "This is the full Mockingbird JSON format. Use it when you need:",
+    "  - Dynamic responses (echo request values back in the response body)",
+    "  - Precise delay control (random, progressive, chunked)",
+    "  - Fault injection for resilience testing",
+    "  - SOAP/XML stubs",
+    "  - Complex matching (JSON path, XPath, regex)",
+    "",
+    "Fields starting with _ are optional metadata/comments.",
+    "Remove this _instructions block before uploading (or leave it — Mockingbird ignores _ fields)."
+  ],
+
+  "stub": {
+    "name": "FILL IN: Your Stub Name",
+    "description": "FILL IN: What this stub simulates",
+    "team": "FILL IN: Your team name",
+    "contact": "FILL IN: your.email@natwest.com"
+  },
+
+  "request": {
+    "_comment": "Define what requests this stub will intercept.",
+    "method": "GET",
+    "url": "/FILL-IN/your/api/path/{paramName}",
+    "_url_note": "Use {paramName} for path variables. Use url-pattern for regex matching.",
+    "headers": {
+      "required": ["Authorization", "Accept"],
+      "_optional_note": "Add optional headers below if needed",
+      "optional": []
+    }
+  },
+
+  "scenarios": [
+    {
+      "_scenario": "SCENARIO 1 — Specific error case (checked first)",
+      "_note": "Put specific cases BEFORE the default. First match wins.",
+      "match": {
+        "type": "url-contains",
+        "_type_options": [
+          "url-contains       — URL contains a string",
+          "url-regex          — URL matches a regex",
+          "body-contains      — Request body (text) contains a string",
+          "body-json-path     — JSONPath expression equals value (use: $.field == 'value')",
+          "header-equals      — Header equals value (use: HeaderName == value)",
+          "always             — Always matches (use only for the last/default scenario)"
+        ],
+        "value": "FILL IN: e.g., /99999 or the string to match"
+      },
+      "response": {
+        "status": 404,
+        "delay": {
+          "_comment": "Delete 'delay' block if no delay needed",
+          "type": "fixed",
+          "_type_options": ["fixed", "random", "progressive", "chunked"],
+          "ms": 50
+        },
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "errorCode": "NOT_FOUND",
+          "message": "Resource not found"
+        }
+      }
+    },
+
+    {
+      "_scenario": "SCENARIO 2 — Server error for resilience testing",
+      "match": {
+        "type": "url-contains",
+        "value": "FILL IN: e.g., /error or specific ID"
+      },
+      "response": {
+        "status": 503,
+        "delay": {
+          "type": "random",
+          "min_ms": 5000,
+          "max_ms": 10000
+        },
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "errorCode": "SERVICE_UNAVAILABLE",
+          "message": "Service temporarily unavailable"
+        }
+      }
+    },
+
+    {
+      "_scenario": "SCENARIO 3 — Dynamic response (echoes request values back)",
+      "_note": "Use {{placeholders}} to extract values from the request and include in the response",
+      "_placeholder_reference": {
+        "{{request.pathParam.NAME}}": "Named path variable from URL — e.g., {customerId} in /customers/{customerId}",
+        "{{request.path[N]}}": "Nth URL path segment (0-indexed)",
+        "{{request.queryParam.NAME}}": "URL query parameter value",
+        "{{request.body.FIELD}}": "Field from JSON request body",
+        "{{request.header.NAME}}": "Request header value",
+        "{{now}}": "Current UTC timestamp in ISO 8601 format",
+        "{{now format='yyyy-MM-dd'}}": "Current date formatted",
+        "{{uuid}}": "A newly generated random UUID",
+        "{{randomInt lower=1 upper=1000}}": "Random integer between lower and upper"
+      },
+      "match": {
+        "type": "url-regex",
+        "value": "FILL IN: regex to match — e.g., /api/v1/customers/[0-9]+"
+      },
+      "response": {
+        "status": 200,
+        "delay": {
+          "type": "fixed",
+          "ms": 75
+        },
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Request-ID": "{{uuid}}"
+        },
+        "body": {
+          "_note": "Replace all placeholder values with real data or use {{placeholders}} for dynamic values",
+          "customerId": "{{request.pathParam.customerId}}",
+          "name": "FILL IN: John Smith",
+          "status": "ACTIVE",
+          "retrievedAt": "{{now}}"
+        }
+      }
+    },
+
+    {
+      "_scenario": "DEFAULT — catches everything else (MUST be last)",
+      "match": {
+        "type": "always"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "FILL IN": "Replace this with your default success response"
+        }
+      }
+    }
+  ]
+}

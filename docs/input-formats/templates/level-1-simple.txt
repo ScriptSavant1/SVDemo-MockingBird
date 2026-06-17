@@ -1,0 +1,34 @@
+--- MOCKINGBIRD v1.0 ---
+# LEVEL 1: Simple Stub — Single Request, Single Response
+# Use this when you need exactly ONE response for ONE type of request.
+# No conditions, no dynamic values. Simplest possible format.
+#
+# HOW TO USE:
+# 1. Replace everything in <angle brackets> with your actual values
+# 2. Delete these comment lines (lines starting with #) — they are optional
+# 3. Save the file as .txt (e.g., my-api-stub.txt)
+# 4. Upload to the Mockingbird portal
+#
+# Lines starting with # are comments and are ignored by Mockingbird.
+
+Name: <Your Stub Name — e.g., Customer Lookup API>
+Method: <GET | POST | PUT | PATCH | DELETE>
+URL: </your/api/path — must start with />
+
+--- REQUEST HEADERS ---
+# Add headers that MUST be present in requests to this stub.
+# The stub will reject requests that are missing required headers.
+# Delete this section if your API has no required headers.
+Authorization: Bearer <token>
+Accept: application/json
+
+--- RESPONSE ---
+Status: <HTTP status code — e.g., 200>
+Delay: <optional — e.g., 100ms. Delete this line if no delay needed.>
+
+Content-Type: application/json
+
+<paste your response body below this line>
+{
+  "replace": "this with your actual response"
+}

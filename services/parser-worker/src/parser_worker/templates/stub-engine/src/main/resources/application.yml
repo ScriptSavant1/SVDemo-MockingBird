@@ -1,0 +1,76 @@
+spring:
+  application:
+    name: mockingbird-stub
+  # Virtual threads for high concurrency (Java 21 — improves throughput under I/O wait)
+  threads:
+    virtual:
+      enabled: true
+
+# WireMock stub server port (all client traffic goes here)
+stub:
+  port: 8080
+  response-templating:
+    enabled: true
+
+# Spring Boot Actuator — separate port from stub traffic
+# Prometheus scrapes /actuator/prometheus every 30 seconds (from metrics-service)
+server:
+  port: 8081
+
+management:
+  server:
+    port: 8081
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+    prometheus:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      # These tags appear on all Prometheus metrics — used by Grafana dashboards
+      project_id: ${STUB_PROJECT_ID:unknown}
+      project_name: ${STUB_PROJECT_NAME:unknown}
+      environment: ${STUB_ENVIRONMENT:dev}
+
+# Logging — structured JSON for Splunk (CloudWatch → Splunk HEC)
+logging:
+  structured:
+    format:
+      console: json
+  level:
+    root: INFO
+    com.natwest.mockingbird: INFO
+    com.github.tomakehurst.wiremock: WARN
+
+# SOAP stub configuration — active only for projects serving SOAP/XML endpoints
+mockingbird:
+  soap:
+    ws-security:
+      # Validate WS-Security UsernameToken in inbound SOAP requests.
+      # Credentials injected by Spring Vault at startup — never in env vars.
+      enabled: ${SOAP_WS_SECURITY_ENABLED:false}
+      username: ${SOAP_WS_SECURITY_USERNAME:stub-user}
+      password: ${SOAP_WS_SECURITY_PASSWORD:}
+    wsdl:
+      # Serve the project WSDL at /ws/service.wsdl
+      # Place WSDL at: src/main/resources/wsdl/service.wsdl
+      enabled: ${SOAP_WSDL_ENABLED:false}
+
+# HashiCorp Vault (secrets — endpoint via Direct Connect from EC2 to NatWest on-prem)
+# Vault credentials loaded at startup — never in env vars or config files
+spring.cloud.vault:
+  enabled: ${VAULT_ENABLED:false}
+  uri: ${VAULT_URI:https://vault-dev-pnf.web.deviaas.intenv01.net}
+  namespace: secrets
+  authentication: AWS_IAM
+  kv:
+    enabled: true
+    backend: kv
+    default-context: mockingbird/stubs/${STUB_PROJECT_ID:unknown}

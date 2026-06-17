@@ -1,0 +1,75 @@
+--- MOCKINGBIRD v1.0 SOAP ---
+
+# SOAP stub with namespace-aware XPath body matching.
+#
+# Match-XPath-NS: declares XML namespace prefixes used in Match-Value XPath expressions.
+# Multiple Match-XPath-NS: lines are supported — one per namespace prefix.
+#
+# WireMock emits:
+#   "bodyPatterns": [{
+#     "matchesXPath": "//cust:GetCustomerRequest/cust:customerId[text()='12345']",
+#     "xPathNamespaces": {
+#       "soap": "http://schemas.xmlsoap.org/soap/envelope/",
+#       "cust": "http://example.com/customer"
+#     }
+#   }]
+#
+# WS-Security (enable via env var SOAP_WS_SECURITY_ENABLED=true):
+#   Credentials are stored in HashiCorp Vault, never in this file.
+#   Path: mockingbird/stubs/{project_id}/soap-ws-security
+#
+# WSDL serving (enable via env var SOAP_WSDL_ENABLED=true):
+#   Place WSDL at: src/main/resources/wsdl/service.wsdl
+#   Available at:  http://host:8080/ws/service.wsdl
+
+Name: Customer SOAP Service
+URL: /ws/customer
+
+--- SCENARIO: Get Customer by ID ---
+Match-Type: soap-xpath
+Match-Value: //cust:GetCustomerRequest/cust:customerId[text()!='']
+Match-XPath-NS: soap=http://schemas.xmlsoap.org/soap/envelope/
+Match-XPath-NS: cust=http://example.com/customer
+Status: 200
+Content-Type: text/xml; charset=utf-8
+
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:cust="http://example.com/customer">
+  <soap:Body>
+    <cust:GetCustomerResponse>
+      <cust:customerId>12345</cust:customerId>
+      <cust:name>John Smith</cust:name>
+      <cust:status>ACTIVE</cust:status>
+    </cust:GetCustomerResponse>
+  </soap:Body>
+</soap:Envelope>
+
+--- SCENARIO: Find by Action Header ---
+Match-Type: soap-action
+Match-Value: GetCustomerByName
+Status: 200
+Content-Type: text/xml; charset=utf-8
+
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:cust="http://example.com/customer">
+  <soap:Body>
+    <cust:GetCustomerResponse>
+      <cust:customerId>99999</cust:customerId>
+      <cust:name>Jane Doe</cust:name>
+      <cust:status>ACTIVE</cust:status>
+    </cust:GetCustomerResponse>
+  </soap:Body>
+</soap:Envelope>
+
+--- SCENARIO DEFAULT ---
+Status: 500
+Content-Type: text/xml; charset=utf-8
+
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <soap:Fault>
+      <faultcode>soap:Server</faultcode>
+      <faultstring>Customer not found or invalid request</faultstring>
+    </soap:Fault>
+  </soap:Body>
+</soap:Envelope>

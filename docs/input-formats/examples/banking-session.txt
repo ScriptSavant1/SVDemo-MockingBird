@@ -1,0 +1,93 @@
+--- MOCKINGBIRD v1.0 STATEFUL ---
+
+# Banking Session — stateful multi-step flow.
+#
+# WireMock tracks state per Scenario name. All steps in this file share
+# the same scenario name "Banking Session".
+#
+# State machine:
+#   Started ──[Login]──► Authenticated
+#   Authenticated ──[Get Account]──► Authenticated
+#   Authenticated ──[Initiate Transfer]──► TransferPending
+#   TransferPending ──[Confirm Transfer]──► Authenticated
+#   Authenticated ──[Logout]──► Started
+#
+# At runtime:
+#   1. WireMock starts with state "Started"
+#   2. POST /auth/login   → token returned, state → Authenticated
+#   3. GET  /api/v1/account → account data returned, state stays Authenticated
+#   4. POST /api/v1/transfers → transfer initiated, state → TransferPending
+#   5. PUT  /api/v1/transfers/confirm → confirmed, state → Authenticated
+#   6. DELETE /auth/logout → 204, state → Started
+#
+# Any call to a step whose State-In does not match current state returns 404
+# (WireMock finds no matching stub).
+
+Scenario: Banking Session
+Description: Full banking authentication and transfer flow
+
+--- STEP: Login ---
+State-In: Started
+State-Out: Authenticated
+Method: POST
+URL: /auth/login
+Status: 200
+Content-Type: application/json
+
+{
+  "token": "{{randomValue type='UUID'}}",
+  "userId": "USR-001",
+  "expiresAt": "{{now format='yyyy-MM-ddTHH:mm:ssZ'}}"
+}
+
+--- STEP: Get Account ---
+State-In: Authenticated
+State-Out: Authenticated
+Method: GET
+URL: /api/v1/account
+Status: 200
+Content-Type: application/json
+
+{
+  "accountId": "ACC-001",
+  "sortCode": "60-00-01",
+  "accountNumber": "12345678",
+  "balance": 15000.00,
+  "currency": "GBP",
+  "retrievedAt": "{{now format='yyyy-MM-ddTHH:mm:ssZ'}}"
+}
+
+--- STEP: Initiate Transfer ---
+State-In: Authenticated
+State-Out: TransferPending
+Method: POST
+URL: /api/v1/transfers
+Status: 201
+Content-Type: application/json
+
+{
+  "transferId": "TXN-{{randomValue type='NUMERIC' length=8}}",
+  "status": "pending",
+  "createdAt": "{{now format='yyyy-MM-ddTHH:mm:ssZ'}}"
+}
+
+--- STEP: Confirm Transfer ---
+State-In: TransferPending
+State-Out: Authenticated
+Method: PUT
+URL: /api/v1/transfers/confirm
+Status: 200
+Content-Type: application/json
+
+{
+  "transferId": "TXN-{{randomValue type='NUMERIC' length=8}}",
+  "status": "confirmed",
+  "completedAt": "{{now format='yyyy-MM-ddTHH:mm:ssZ'}}"
+}
+
+--- STEP: Logout ---
+State-In: Authenticated
+State-Out: Started
+Method: DELETE
+URL: /auth/logout
+Status: 204

@@ -1,0 +1,56 @@
+# Python virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# Python build artefacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/settings.json
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets — never commit these
+*.env
+.env.*
+secrets.json
+vault-token
+
+# Terraform state (managed remotely via S3 + DynamoDB lock)
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/.terraform.lock.hcl
+
+# Generated stub projects (output of sv-gen)
+stub-output/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# TypeScript build output
+dist/
+*.tsbuildinfo
+
+# Java / Maven
+target/
+*.class
+*.jar
