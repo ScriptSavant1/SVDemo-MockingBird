@@ -8,7 +8,10 @@
 import Fastify, { FastifyInstance } from "fastify";
 import databasePlugin from "./plugins/database.js";
 import jwtPlugin from "./plugins/jwt.js";
+import ldapPlugin from "./plugins/ldap.js";
+import redisPlugin from "./plugins/redis.js";
 import authRoutes from "./routes/auth.js";
+import ldapRoutes from "./routes/ldap.js";
 import userRoutes from "./routes/users.js";
 
 declare module "fastify" {
@@ -24,7 +27,10 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
 
   await app.register(databasePlugin);
   await app.register(jwtPlugin);
+  await app.register(redisPlugin);   // no-op if REDIS_URL absent
+  await app.register(ldapPlugin);    // no-op if LDAP_SERVER absent
   await app.register(authRoutes);
+  await app.register(ldapRoutes);
   await app.register(userRoutes);
 
   return app;

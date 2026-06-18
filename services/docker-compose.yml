@@ -63,11 +63,20 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       PORT: "3001"
       HOST: "0.0.0.0"
       JWT_SECRET: ${JWT_SECRET:-local-dev-change-this}
       DATABASE_URL: ${DATABASE_URL:-postgresql://mockingbird:local-dev-change-this@postgres:5432/mockingbird}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      LDAP_SERVER: ${LDAP_SERVER:-}
+      LDAP_BASE_DN: ${LDAP_BASE_DN:-}
+      LDAP_BIND_DN: ${LDAP_BIND_DN:-}
+      LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD:-}
+      LDAP_SV_TEAM_GROUP: ${LDAP_SV_TEAM_GROUP:-CN=SV-Team}
+      LDAP_SV_USERS_GROUP: ${LDAP_SV_USERS_GROUP:-CN=SV-Users}
     ports:
       - "3001:3001"
     healthcheck:

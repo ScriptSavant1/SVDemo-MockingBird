@@ -1,15 +1,17 @@
 /**
- * Auth routes — login, logout (stub), current user.
+ * Auth routes — login, logout, current user.
  *
  * Phase 1: local bcrypt credentials.
- * Phase 2 (Sprint 12): LDAP added alongside bcrypt.
+ * Sprint 12: jti claim added to JWT; logout endpoint invalidates Redis session.
  */
+import { randomUUID } from "crypto";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import bcrypt from "bcrypt";
 import type { LoginBody, JwtPayload, ProblemDetail } from "../types/index.js";
 
 const PROBLEM_NOT_FOUND = "https://mockingbird.internal/errors/not-found";
 const PROBLEM_UNAUTHORIZED = "https://mockingbird.internal/errors/unauthorized";
+const JWT_TTL_SECONDS = 8 * 60 * 60; // must match @fastify/jwt expiresIn: "8h"
 
 export default async function authRoutes(app: FastifyInstance) {
 
@@ -69,12 +71,18 @@ export default async function authRoutes(app: FastifyInstance) {
         } satisfies ProblemDetail);
       }
 
+      const jti = randomUUID();
       const payload: JwtPayload = {
         sub: user.id,
         username: user.username,
         role: user.role as JwtPayload["role"],
+        jti,
       };
       const token = app.jwt.sign(payload);
+
+      if (app.redis) {
+        await app.redis.set(`session:${jti}`, JSON.stringify(payload), "EX", JWT_TTL_SECONDS);
+      }
 
       return reply.status(200).send({
         access_token: token,
@@ -86,6 +94,19 @@ export default async function authRoutes(app: FastifyInstance) {
           role: user.role,
         },
       });
+    }
+  );
+
+  // POST /api/v1/auth/logout — invalidates session in Redis (Sprint 12)
+  app.post(
+    "/api/v1/auth/logout",
+    { preHandler: [app.authenticate] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const payload = request.user as JwtPayload;
+      if (app.redis && payload.jti) {
+        await app.redis.del(`session:${payload.jti}`);
+      }
+      return reply.status(200).send({ message: "Logged out successfully" });
     }
   );
 

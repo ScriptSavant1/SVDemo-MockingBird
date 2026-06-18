@@ -19,12 +19,19 @@ export interface JwtPayload {
   sub: string;        // user UUID
   username: string;
   role: UserRole;
+  jti?: string;       // JWT ID — Redis session key for forced logout
   iat?: number;
   exp?: number;
 }
 
 /** Request body for POST /api/v1/auth/login */
 export interface LoginBody {
+  username: string;
+  password: string;
+}
+
+/** Request body for POST /api/v1/auth/ldap/login */
+export interface LdapLoginBody {
   username: string;
   password: string;
 }

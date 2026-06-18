@@ -1,9 +1,9 @@
 # MOCKINGBIRD — PROJECT RESUME DOCUMENT
 ## Read This First When Starting a New Session
 
-**Last Updated:** 2026-06-18 (Session 7)  
-**Status:** Phase 2 COMPLETE. Phase 3 Sprints 9–11 COMPLETE. Total: 483 tests (388 parser-worker + 56 project-service + 18 auth-service + 18 ingestion-service + 3 generator-worker).  
-**Next Action:** Phase 3 Sprint 12 — LDAP authentication + Redis session cache
+**Last Updated:** 2026-06-18 (Session 8)  
+**Status:** Phase 2 COMPLETE. Phase 3 Sprints 9–12 COMPLETE. Total: 497 tests (388 parser-worker + 56 project-service + 32 auth-service + 18 ingestion-service + 3 generator-worker).  
+**Next Action:** Phase 4 Sprint 13 — deployer-worker (Terraform EC2 + GitLab CI pipeline per project)
 
 ---
 
@@ -54,10 +54,10 @@ Mockingbird is a **Service Virtualisation (SV) platform**.
 | Phase 3 Sprint 9 | ✅ Complete — project-service FastAPI+PostgreSQL (44 tests), auth-service Fastify+bcrypt+JWT (18 tests), Dockerfiles, Alembic migration, docker-compose |
 | Phase 3 Sprint 10 | ✅ Complete — ingestion-service FastAPI+S3+parser-worker (18 tests). Upload, detect, validate, store. Presigned URL download. |
 | Phase 3 Sprint 11 | ✅ Complete — SQS job queues: parse-queue→parser-worker, generate-queue→generator-worker (19 new tests). Job trigger+status API in project-service. |
-| Phase 3 Sprint 12 | ❌ Not started — LDAP authentication + Redis session cache |
+| Phase 3 Sprint 12 | ✅ Complete — LDAP auth (ldapts), Redis session cache (ioredis), forced logout, 14 new tests (32 auth total) |
 | Phase 4–7 | ❌ Not started |
 
-**Phase 1 + Phase 2 fully complete. Phase 3 Sprints 9–10 complete. 464 tests passing. `sv-gen` CLI fully packaged.**
+**Phase 1 + Phase 2 fully complete. Phase 3 Sprints 9–12 complete. 497 tests passing. `sv-gen` CLI fully packaged.**
 
 ---
 
@@ -293,7 +293,7 @@ c:\Workspace\Mockingbird\
 
 ## SECTION 7 — How to Resume (Exact Steps)
 
-### Current Status (as of 2026-06-17)
+### Current Status (as of 2026-06-18)
 
 | Phase | Sprint | Status |
 |-------|--------|--------|
@@ -304,9 +304,9 @@ c:\Workspace\Mockingbird\
 | Phase 2 Sprint 7 | Namespace-aware XPath, WS-Security, WSDL serving, 47 tests | ✅ COMPLETE |
 | Phase 2 Sprint 8 | Fault injection — all 3 WireMock fault types, all 4 TXT parsers, 61 tests | ✅ COMPLETE |
 | Phase 3 Sprint 9 | project-service (FastAPI CRUD + PostgreSQL ORM + JWT auth, 44 tests), auth-service (Fastify + bcrypt + JWT, TypeScript strict, 18 tests), Dockerfiles, Alembic migrations 001, docker-compose.yml | ✅ COMPLETE |
-| Phase 3 Sprint 10 | ingestion-service (file upload, format auto-detection, S3) | ❌ Not started |
-| Phase 3 Sprint 11 | SQS job queues (parse-queue → parser-worker as service) | ❌ Not started |
-| Phase 3 Sprint 12 | LDAP auth + Redis session cache | ❌ Not started |
+| Phase 3 Sprint 10 | ingestion-service (file upload, format auto-detection, S3), 18 tests | ✅ COMPLETE |
+| Phase 3 Sprint 11 | SQS job queues (parse-queue → parser-worker, generate-queue → generator-worker), 19 tests | ✅ COMPLETE |
+| Phase 3 Sprint 12 | LDAP auth (ldapts), Redis session cache (ioredis), forced logout, 14 tests | ✅ COMPLETE |
 | Phase 4–7 | Auto-deploy, metrics, portal, Kafka + AI | ❌ Not started |
 
 ### Platform Architecture Decision (CONFIRMED)
@@ -326,7 +326,7 @@ Year 2 if scale demands it: services are already containerised — moving to ECS
 
 ```
 Read START_HERE.md and CLAUDE.md. Resume Mockingbird.
-Phase 1 + Phase 2 + Phase 3 Sprint 9 fully complete (446 tests total). Start Phase 3 Sprint 10 — ingestion-service (file upload, format auto-detection, S3 storage).
+Phase 1 + Phase 2 + Phase 3 Sprints 9–12 fully complete (497 tests total). Start Phase 4 Sprint 13 — deployer-worker (Terraform EC2 provisioning + GitLab CI pipeline per project).
 ```
 
 **That is all. No other inputs needed. Claude will continue immediately.**
