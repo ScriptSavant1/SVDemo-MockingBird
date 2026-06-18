@@ -6,6 +6,7 @@ import { ProjectPage } from "@/pages/ProjectPage";
 import { DeploymentPage } from "@/pages/DeploymentPage";
 import { UploadPage } from "@/pages/UploadPage";
 import { JobStatusPage } from "@/pages/JobStatusPage";
+import { AiGeneratePage } from "@/pages/AiGeneratePage";
 
 export const router = createBrowserRouter([
   {
@@ -18,6 +19,7 @@ export const router = createBrowserRouter([
       { path: "/", element: <DashboardPage /> },
       { path: "/projects/:projectId", element: <ProjectPage /> },
       { path: "/projects/:projectId/upload", element: <UploadPage /> },
+      { path: "/projects/:projectId/ai-generate", element: <AiGeneratePage /> },
       { path: "/projects/:projectId/stubs/:stubId", element: <DeploymentPage /> },
       { path: "/jobs/:jobId", element: <JobStatusPage /> },
     ],

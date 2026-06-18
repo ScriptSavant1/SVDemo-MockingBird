@@ -46,9 +46,14 @@ export function ProjectPage() {
           <h1 className="mt-2 text-2xl font-bold text-gray-900">{project?.name ?? "Project"}</h1>
           <p className="text-sm text-gray-500">{project?.description}</p>
         </div>
-        <Link to={`/projects/${projectId}/upload`}>
-          <Button variant="secondary" size="sm">Upload Spec</Button>
-        </Link>
+        <div className="flex gap-2">
+          <Link to={`/projects/${projectId}/ai-generate`}>
+            <Button variant="secondary" size="sm">Generate with AI</Button>
+          </Link>
+          <Link to={`/projects/${projectId}/upload`}>
+            <Button variant="secondary" size="sm">Upload Spec</Button>
+          </Link>
+        </div>
       </div>
 
       <Card>

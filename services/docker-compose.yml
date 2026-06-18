@@ -267,6 +267,38 @@ services:
       start_period: 10s
       retries: 3
 
+  # ── ai-service (Python 3.11 + FastAPI — Claude API stub generation) ─────────
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+      args:
+        PIP_INDEX_URL: ${ARTIFACTORY_PYPI_URL:-https://pypi.org/simple}
+    container_name: mockingbird-ai-service
+    restart: unless-stopped
+    depends_on:
+      auth-service:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${AI_SERVICE_DATABASE_URL:-sqlite:///./mockingbird_ai.db}
+      JWT_SECRET: ${JWT_SECRET:-local-dev-change-this}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GENERATION_MODEL: ${AI_GENERATION_MODEL:-claude-sonnet-4-6}
+      CLASSIFICATION_MODEL: ${AI_CLASSIFICATION_MODEL:-claude-haiku-4-5-20251001}
+      MAX_TOKENS: ${AI_MAX_TOKENS:-8192}
+      RATE_LIMIT_PER_HOUR: ${AI_RATE_LIMIT_PER_HOUR:-10}
+      SERVICE_NAME: "ai-service"
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+    ports:
+      - "8004:8004"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8004/health')\" || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
   # ── deployer-worker (Python 3.11 — SQS consumer, Terraform + GitLab CI) ────
   deployer-worker:
     build:
