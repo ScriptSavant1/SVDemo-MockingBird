@@ -1,9 +1,9 @@
 # MOCKINGBIRD — PROJECT RESUME DOCUMENT
 ## Read This First When Starting a New Session
 
-**Last Updated:** 2026-06-17 (Session 5)  
-**Status:** Phase 2 COMPLETE (384 tests). Phase 3 Sprint 9 COMPLETE — project-service (FastAPI + PostgreSQL, 44 tests), auth-service (Fastify + bcrypt + JWT, 18 tests), Dockerfiles, Alembic migrations, docker-compose.  
-**Next Action:** Phase 3 Sprint 10 — ingestion-service (file upload, format auto-detection, S3 storage)
+**Last Updated:** 2026-06-18 (Session 7)  
+**Status:** Phase 2 COMPLETE. Phase 3 Sprints 9–10 COMPLETE. Total: 464 tests (384 parser-worker + 44 project-service + 18 auth-service + 18 ingestion-service).  
+**Next Action:** Phase 3 Sprint 11 — SQS job queues (parse-queue → parser-worker as service, generate-queue → generator-worker, async job status tracking)
 
 ---
 
@@ -52,10 +52,11 @@ Mockingbird is a **Service Virtualisation (SV) platform**.
 | Phase 2 Sprint 7 | ✅ Complete — namespace-aware XPath, WS-Security (ConditionalOnProperty), WSDL serving, 47 tests |
 | Phase 2 Sprint 8 | ✅ Complete — fault injection (CONNECTION_RESET_BY_PEER, EMPTY_RESPONSE, MALFORMED_RESPONSE_CHUNK), 61 tests |
 | Phase 3 Sprint 9 | ✅ Complete — project-service FastAPI+PostgreSQL (44 tests), auth-service Fastify+bcrypt+JWT (18 tests), Dockerfiles, Alembic migration, docker-compose |
-| Phase 3 Sprints 10–12 | ❌ Not started — ingestion-service, SQS workers, LDAP |
+| Phase 3 Sprint 10 | ✅ Complete — ingestion-service FastAPI+S3+parser-worker (18 tests). Upload, detect, validate, store. Presigned URL download. |
+| Phase 3 Sprints 11–12 | ❌ Not started — SQS workers, LDAP |
 | Phase 4–7 | ❌ Not started |
 
-**Phase 1 + Phase 2 fully complete. Phase 3 Sprint 9 complete. 446 tests passing. `sv-gen` CLI fully packaged.**
+**Phase 1 + Phase 2 fully complete. Phase 3 Sprints 9–10 complete. 464 tests passing. `sv-gen` CLI fully packaged.**
 
 ---
 

@@ -147,7 +147,8 @@ export default async function userRoutes(app: FastifyInstance) {
       }>(
         "SELECT id, username, email, role, is_active, created_at FROM users ORDER BY created_at"
       );
-      return reply.send(result.rows.map((r) => ({
+      type UserRow = { id: string; username: string; email: string; role: string; is_active: boolean; created_at: Date };
+      return reply.send((result.rows as UserRow[]).map((r) => ({
         id: r.id,
         username: r.username,
         email: r.email,
