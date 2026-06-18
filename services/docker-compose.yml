@@ -138,6 +138,47 @@ services:
       start_period: 20s
       retries: 3
 
+  # ── parser-worker (Python 3.11 — SQS consumer) ─────────────────────────────
+  parser-worker:
+    build:
+      context: ./parser-worker
+      dockerfile: Dockerfile
+      args:
+        PIP_INDEX_URL: ${ARTIFACTORY_PYPI_URL:-https://pypi.org/simple}
+    container_name: mockingbird-parser-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://mockingbird:local-dev-change-this@postgres:5432/mockingbird}
+      SQS_PARSE_QUEUE_URL: ${SQS_PARSE_QUEUE_URL:-}
+      SQS_GENERATE_QUEUE_URL: ${SQS_GENERATE_QUEUE_URL:-}
+      S3_BUCKET: ${S3_BUCKET:-mockingbird-stubs}
+      AWS_REGION: ${AWS_REGION:-eu-west-2}
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+    command: ["sv-parse-worker"]
+
+  # ── generator-worker (Python 3.11 — SQS consumer) ──────────────────────────
+  generator-worker:
+    build:
+      context: .
+      dockerfile: generator-worker/Dockerfile
+      args:
+        PIP_INDEX_URL: ${ARTIFACTORY_PYPI_URL:-https://pypi.org/simple}
+    container_name: mockingbird-generator-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://mockingbird:local-dev-change-this@postgres:5432/mockingbird}
+      SQS_GENERATE_QUEUE_URL: ${SQS_GENERATE_QUEUE_URL:-}
+      S3_BUCKET: ${S3_BUCKET:-mockingbird-stubs}
+      AWS_REGION: ${AWS_REGION:-eu-west-2}
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+    command: ["sv-generate-worker"]
+
 volumes:
   postgres_data:
     name: mockingbird_postgres_data

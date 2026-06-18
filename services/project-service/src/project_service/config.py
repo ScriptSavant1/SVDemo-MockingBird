@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     jwt_secret: str = "dev-secret-change-in-production"
     jwt_algorithm: str = "HS256"
 
+    # SQS queue URLs — injected from environment / Vault
+    sqs_parse_queue_url: str = ""
+    sqs_generate_queue_url: str = ""
+    aws_region: str = "eu-west-2"
+    s3_bucket: str = "mockingbird-stubs"
+
     # Service identity
     service_name: str = "project-service"
     environment: str = "local"

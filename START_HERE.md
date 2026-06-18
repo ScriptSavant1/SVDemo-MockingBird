@@ -2,8 +2,8 @@
 ## Read This First When Starting a New Session
 
 **Last Updated:** 2026-06-18 (Session 7)  
-**Status:** Phase 2 COMPLETE. Phase 3 Sprints 9–10 COMPLETE. Total: 464 tests (384 parser-worker + 44 project-service + 18 auth-service + 18 ingestion-service).  
-**Next Action:** Phase 3 Sprint 11 — SQS job queues (parse-queue → parser-worker as service, generate-queue → generator-worker, async job status tracking)
+**Status:** Phase 2 COMPLETE. Phase 3 Sprints 9–11 COMPLETE. Total: 483 tests (388 parser-worker + 56 project-service + 18 auth-service + 18 ingestion-service + 3 generator-worker).  
+**Next Action:** Phase 3 Sprint 12 — LDAP authentication + Redis session cache
 
 ---
 
@@ -53,7 +53,8 @@ Mockingbird is a **Service Virtualisation (SV) platform**.
 | Phase 2 Sprint 8 | ✅ Complete — fault injection (CONNECTION_RESET_BY_PEER, EMPTY_RESPONSE, MALFORMED_RESPONSE_CHUNK), 61 tests |
 | Phase 3 Sprint 9 | ✅ Complete — project-service FastAPI+PostgreSQL (44 tests), auth-service Fastify+bcrypt+JWT (18 tests), Dockerfiles, Alembic migration, docker-compose |
 | Phase 3 Sprint 10 | ✅ Complete — ingestion-service FastAPI+S3+parser-worker (18 tests). Upload, detect, validate, store. Presigned URL download. |
-| Phase 3 Sprints 11–12 | ❌ Not started — SQS workers, LDAP |
+| Phase 3 Sprint 11 | ✅ Complete — SQS job queues: parse-queue→parser-worker, generate-queue→generator-worker (19 new tests). Job trigger+status API in project-service. |
+| Phase 3 Sprint 12 | ❌ Not started — LDAP authentication + Redis session cache |
 | Phase 4–7 | ❌ Not started |
 
 **Phase 1 + Phase 2 fully complete. Phase 3 Sprints 9–10 complete. 464 tests passing. `sv-gen` CLI fully packaged.**

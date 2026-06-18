@@ -110,6 +110,35 @@ class StubOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# ── Jobs ───────────────────────────────────────────────────────────────────────
+
+VALID_JOB_TYPES = {"PARSE", "GENERATE", "DEPLOY", "REPORT"}
+VALID_JOB_STATUSES = {"QUEUED", "RUNNING", "DONE", "FAILED"}
+
+
+class JobOut(BaseModel):
+    id: uuid.UUID
+    type: str
+    status: str
+    project_id: Optional[uuid.UUID]
+    stub_id: Optional[uuid.UUID]
+    sqs_message_id: Optional[str]
+    payload: dict
+    result: Optional[dict]
+    error_message: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class GenerateTriggerOut(BaseModel):
+    job_id: uuid.UUID
+    status: str = "QUEUED"
+    type: str = "PARSE"
+    message: str = "Parse job queued. Poll /api/v1/jobs/{job_id} for status updates."
+
+
 # ── Health ─────────────────────────────────────────────────────────────────────
 
 class HealthOut(BaseModel):
