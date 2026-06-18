@@ -17,6 +17,11 @@ export const projectsApi = {
   listDeployments: (projectId: string) =>
     api.get<Deployment[]>(`/api/v1/projects/${projectId}/deployments`),
 
+  generate: (projectId: string, stubId: string) =>
+    api.post<{ job_id: string; status: string; type: string }>(
+      `/api/v1/projects/${projectId}/stubs/${stubId}/generate`,
+    ),
+
   deploy: (projectId: string, stubId: string) =>
     api.post<{ deployment_id: string; job_id: string }>(
       `/api/v1/projects/${projectId}/stubs/${stubId}/deploy`,

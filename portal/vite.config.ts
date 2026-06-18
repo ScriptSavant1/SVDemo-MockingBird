@@ -17,6 +17,15 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api\/v1\/auth/, "/auth"),
       },
+      // ingestion-service routes (file upload + source download) — must precede generic /api/v1
+      "^/api/v1/projects/[^/]+/stubs/upload$": {
+        target: "http://localhost:8003",
+        changeOrigin: true,
+      },
+      "^/api/v1/projects/[^/]+/stubs/[^/]+/source$": {
+        target: "http://localhost:8003",
+        changeOrigin: true,
+      },
       "/api/v1": {
         target: "http://localhost:8001",
         changeOrigin: true,

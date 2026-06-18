@@ -52,3 +52,25 @@ export interface ApiError {
   status: number;
   detail: string;
 }
+
+export interface IngestionResult {
+  valid: boolean;
+  format_detected: string | null;
+  stub_id: string | null;
+  errors: string[];
+  warnings: string[];
+  stub_count: number;
+  scenario_count: number;
+}
+
+export interface JobOut {
+  id: string;
+  type: string;
+  status: JobStatus;
+  project_id: string | null;
+  stub_id: string | null;
+  result: Record<string, unknown> | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}

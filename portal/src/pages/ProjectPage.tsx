@@ -40,10 +40,15 @@ export function ProjectPage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <Link to="/" className="text-sm text-[#00A9E0] hover:underline">← All projects</Link>
-        <h1 className="mt-2 text-2xl font-bold text-gray-900">{project?.name ?? "Project"}</h1>
-        <p className="text-sm text-gray-500">{project?.description}</p>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <Link to="/" className="text-sm text-[#00A9E0] hover:underline">← All projects</Link>
+          <h1 className="mt-2 text-2xl font-bold text-gray-900">{project?.name ?? "Project"}</h1>
+          <p className="text-sm text-gray-500">{project?.description}</p>
+        </div>
+        <Link to={`/projects/${projectId}/upload`}>
+          <Button variant="secondary" size="sm">Upload Spec</Button>
+        </Link>
       </div>
 
       <Card>
