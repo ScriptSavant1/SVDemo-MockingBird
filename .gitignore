@@ -58,3 +58,4 @@ dist/
 target/
 *.class
 *.jar
+services/ingestion-service/ingestion.db
