@@ -188,6 +188,37 @@ services:
       ENVIRONMENT: ${ENVIRONMENT:-local}
     command: ["sv-generate-worker"]
 
+  # ── metrics-service (Python 3.11 FastAPI — Prometheus scraper + Timestream + WebSocket) ──
+  metrics-service:
+    build:
+      context: ./metrics-service
+      dockerfile: Dockerfile
+      args:
+        PIP_INDEX_URL: ${ARTIFACTORY_PYPI_URL:-https://pypi.org/simple}
+    container_name: mockingbird-metrics-service
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://mockingbird:local-dev-change-this@postgres:5432/mockingbird}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      AWS_REGION: ${AWS_REGION:-eu-west-2}
+      TIMESTREAM_DATABASE: ${TIMESTREAM_DATABASE:-mockingbird}
+      TIMESTREAM_TABLE: ${TIMESTREAM_TABLE:-stub_metrics}
+      SCRAPE_INTERVAL_SECONDS: ${SCRAPE_INTERVAL_SECONDS:-30}
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+    ports:
+      - "8005:8005"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8005/health')\" || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
   # ── deployer-worker (Python 3.11 — SQS consumer, Terraform + GitLab CI) ────
   deployer-worker:
     build:

@@ -126,7 +126,7 @@ def trigger_deploy(
 
     if settings.sqs_deploy_queue_url:
         sqs = get_sqs_client()
-        msg_id = enqueue_deploy_job(sqs, job.id, stub_id, project_id, generated_key)
+        msg_id = enqueue_deploy_job(sqs, job.id, stub_id, project_id, deployment.id, generated_key)
         job.sqs_message_id = msg_id
 
     db.commit()
@@ -266,7 +266,7 @@ def redeploy(
 
     if settings.sqs_deploy_queue_url:
         sqs = get_sqs_client()
-        msg_id = enqueue_deploy_job(sqs, job.id, deployment.stub_id, project_id, generated_key)
+        msg_id = enqueue_deploy_job(sqs, job.id, deployment.stub_id, project_id, deployment_id, generated_key)
         job.sqs_message_id = msg_id
 
     db.commit()

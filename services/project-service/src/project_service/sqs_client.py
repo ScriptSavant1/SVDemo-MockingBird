@@ -28,6 +28,7 @@ def enqueue_deploy_job(
     job_id: uuid.UUID,
     stub_id: uuid.UUID,
     project_id: uuid.UUID,
+    deployment_id: uuid.UUID,
     generated_s3_key: str,
     target_type: str = "AWS",
 ) -> str:
@@ -39,6 +40,7 @@ def enqueue_deploy_job(
             "generated_s3_key": generated_s3_key,
             "stub_id": str(stub_id),
             "project_id": str(project_id),
+            "deployment_id": str(deployment_id),
             "target_type": target_type,
         },
         "created_at": _now_iso(),
