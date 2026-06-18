@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     # SQS queue URLs — injected from environment / Vault
     sqs_parse_queue_url: str = ""
     sqs_generate_queue_url: str = ""
+    sqs_deploy_queue_url: str = ""
     aws_region: str = "eu-west-2"
     s3_bucket: str = "mockingbird-stubs"
 

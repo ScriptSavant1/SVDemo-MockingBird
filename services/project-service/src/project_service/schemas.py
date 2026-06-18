@@ -139,6 +139,48 @@ class GenerateTriggerOut(BaseModel):
     message: str = "Parse job queued. Poll /api/v1/jobs/{job_id} for status updates."
 
 
+# ── Deployments ────────────────────────────────────────────────────────────────
+
+VALID_TARGET_TYPES = {"AWS", "CROSS_ACCOUNT", "ON_PREM"}
+VALID_DEPLOYMENT_STATUSES = {"PENDING", "BUILDING", "PROVISIONING", "LIVE", "SUSPENDED", "FAILED"}
+
+
+class DeploymentOut(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    stub_id: Optional[uuid.UUID]
+    job_id: Optional[uuid.UUID]
+    target_type: str
+    status: str
+    ec2_instance_id: Optional[str]
+    ec2_ip_address: Optional[str]
+    ec2_instance_type: Optional[str]
+    gitlab_pipeline_id: Optional[str]
+    docker_image_tag: Optional[str]
+    stub_url: Optional[str]
+    api_key: Optional[str]
+    error_message: Optional[str]
+    deployed_at: Optional[datetime]
+    terminated_at: Optional[datetime]
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DeployTriggerOut(BaseModel):
+    deployment_id: uuid.UUID
+    job_id: uuid.UUID
+    status: str = "PENDING"
+    message: str = "Deploy job queued. Poll /api/v1/jobs/{job_id} for status updates."
+
+
+class SuspendTriggerOut(BaseModel):
+    deployment_id: uuid.UUID
+    status: str = "SUSPENDED"
+    message: str = "Suspend job queued. EC2 will be terminated; stubs are preserved."
+
+
 # ── Health ─────────────────────────────────────────────────────────────────────
 
 class HealthOut(BaseModel):

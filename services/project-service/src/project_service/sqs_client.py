@@ -23,6 +23,34 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def enqueue_deploy_job(
+    client: Any,
+    job_id: uuid.UUID,
+    stub_id: uuid.UUID,
+    project_id: uuid.UUID,
+    generated_s3_key: str,
+    target_type: str = "AWS",
+) -> str:
+    """Send a DEPLOY job message to the deploy queue. Returns the SQS MessageId."""
+    body = {
+        "job_id": str(job_id),
+        "type": "DEPLOY",
+        "payload": {
+            "generated_s3_key": generated_s3_key,
+            "stub_id": str(stub_id),
+            "project_id": str(project_id),
+            "target_type": target_type,
+        },
+        "created_at": _now_iso(),
+        "project_id": str(project_id),
+    }
+    response = client.send_message(
+        QueueUrl=settings.sqs_deploy_queue_url,
+        MessageBody=json.dumps(body),
+    )
+    return response["MessageId"]
+
+
 def enqueue_parse_job(
     client: Any,
     job_id: uuid.UUID,

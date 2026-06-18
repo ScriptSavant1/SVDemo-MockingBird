@@ -188,6 +188,38 @@ services:
       ENVIRONMENT: ${ENVIRONMENT:-local}
     command: ["sv-generate-worker"]
 
+  # ── deployer-worker (Python 3.11 — SQS consumer, Terraform + GitLab CI) ────
+  deployer-worker:
+    build:
+      context: ..
+      dockerfile: services/deployer-worker/Dockerfile
+      args:
+        PIP_INDEX_URL: ${ARTIFACTORY_PYPI_URL:-https://pypi.org/simple}
+        TERRAFORM_VERSION: "1.8.5"
+    container_name: mockingbird-deployer-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://mockingbird:local-dev-change-this@postgres:5432/mockingbird}
+      SQS_DEPLOY_QUEUE_URL: ${SQS_DEPLOY_QUEUE_URL:-}
+      S3_BUCKET: ${S3_BUCKET:-mockingbird-stubs}
+      TERRAFORM_STATE_BUCKET: ${TERRAFORM_STATE_BUCKET:-mockingbird-terraform-state}
+      TERRAFORM_LOCKS_TABLE: ${TERRAFORM_LOCKS_TABLE:-mockingbird-terraform-locks}
+      AWS_REGION: ${AWS_REGION:-eu-west-2}
+      GITLAB_URL: ${GITLAB_URL:-https://gitlab.internal}
+      GITLAB_TOKEN: ${GITLAB_TOKEN:-}
+      GITLAB_STUB_BUILDER_PROJECT_ID: ${GITLAB_STUB_BUILDER_PROJECT_ID:-}
+      GITLAB_REGISTRY: ${GITLAB_REGISTRY:-}
+      EC2_SUBNET_ID: ${EC2_SUBNET_ID:-}
+      EC2_SECURITY_GROUP_ID: ${EC2_SECURITY_GROUP_ID:-}
+      EC2_KEY_PAIR_NAME: ${EC2_KEY_PAIR_NAME:-mockingbird-key}
+      EC2_IAM_INSTANCE_PROFILE: ${EC2_IAM_INSTANCE_PROFILE:-MockingbirdStubInstanceProfile}
+      JAVA_BASE_IMAGE: ${JAVA_BASE_IMAGE:-eclipse-temurin:21-jre-alpine}
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+    command: ["sv-deploy-worker"]
+
 volumes:
   postgres_data:
     name: mockingbird_postgres_data

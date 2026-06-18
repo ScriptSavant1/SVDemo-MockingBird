@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mockingbird-deployer-worker"
+version = "0.1.0"
+description = "Mockingbird deployer-worker — SQS consumer for EC2 provisioning via Terraform + GitLab CI"
+requires-python = ">=3.11"
+dependencies = [
+    "boto3>=1.34",
+    "requests>=2.31",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "sqlalchemy>=2.0",
+    "psycopg2-binary>=2.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "moto[sqs,s3]>=5.0",
+    "responses>=0.25",
+]
+
+[project.scripts]
+sv-deploy-worker = "deployer_worker.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=deployer_worker --cov-report=term-missing"

@@ -87,13 +87,22 @@ class Deployment(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
+    # Added Sprint 13 (migration 002)
+    stub_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("stubs.id"), nullable=True)
+    job_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("jobs.id"), nullable=True)
     # Target: AWS  CROSS_ACCOUNT  ON_PREM
     target_type: Mapped[str] = mapped_column(String(20), nullable=False, default="AWS")
     ec2_instance_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     ec2_ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
+    ec2_instance_type: Mapped[Optional[str]] = mapped_column(String(30), nullable=True, default="c6i.2xlarge")
     gitlab_pipeline_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    # States: PENDING  BUILDING  DEPLOYING  LIVE  TERMINATED  FAILED
+    docker_image_tag: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    terraform_state_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    api_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    stub_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # States: PENDING  BUILDING  PROVISIONING  LIVE  SUSPENDED  FAILED
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     deployed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     terminated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
