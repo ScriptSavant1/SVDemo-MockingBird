@@ -219,6 +219,31 @@ services:
       start_period: 20s
       retries: 3
 
+  # ── reporter-worker (Python 3.11 — SQS REPORT consumer, PDF+Excel+PPT) ────
+  reporter-worker:
+    build:
+      context: ./reporter-service
+      dockerfile: Dockerfile
+      args:
+        PIP_INDEX_URL: ${ARTIFACTORY_PYPI_URL:-https://pypi.org/simple}
+    container_name: mockingbird-reporter-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://mockingbird:local-dev-change-this@postgres:5432/mockingbird}
+      SQS_REPORT_QUEUE_URL: ${SQS_REPORT_QUEUE_URL:-}
+      S3_BUCKET: ${S3_BUCKET:-mockingbird-stubs}
+      AWS_REGION: ${AWS_REGION:-eu-west-2}
+      TIMESTREAM_DATABASE: ${TIMESTREAM_DATABASE:-mockingbird}
+      TIMESTREAM_TABLE: ${TIMESTREAM_TABLE:-stub_metrics}
+      BRAND_PRIMARY_COLOUR: ${BRAND_PRIMARY_COLOUR:-#003875}
+      BRAND_SECONDARY_COLOUR: ${BRAND_SECONDARY_COLOUR:-#00A9E0}
+      BRAND_COMPANY_NAME: ${BRAND_COMPANY_NAME:-Your Organisation}
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+    command: ["sv-report-worker"]
+
   # ── deployer-worker (Python 3.11 — SQS consumer, Terraform + GitLab CI) ────
   deployer-worker:
     build:

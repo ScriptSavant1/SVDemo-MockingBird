@@ -6,10 +6,12 @@ NEVER hard-code secrets here.
 """
 from __future__ import annotations
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
     # Database — injected from Vault in production
     database_url: str = "sqlite:///./mockingbird.db"
 
@@ -21,16 +23,13 @@ class Settings(BaseSettings):
     sqs_parse_queue_url: str = ""
     sqs_generate_queue_url: str = ""
     sqs_deploy_queue_url: str = ""
+    sqs_report_queue_url: str = ""
     aws_region: str = "eu-west-2"
     s3_bucket: str = "mockingbird-stubs"
 
     # Service identity
     service_name: str = "project-service"
     environment: str = "local"
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
 
 
 settings = Settings()

@@ -53,6 +53,31 @@ def enqueue_deploy_job(
     return response["MessageId"]
 
 
+def enqueue_report_job(
+    client: Any,
+    job_id: uuid.UUID,
+    deployment_id: uuid.UUID,
+    project_id: uuid.UUID,
+    report_period_hours: int = 24,
+) -> str:
+    """Send a REPORT job message to the report queue. Returns the SQS MessageId."""
+    body = {
+        "job_id": str(job_id),
+        "type": "REPORT",
+        "payload": {
+            "deployment_id": str(deployment_id),
+            "report_period_hours": report_period_hours,
+        },
+        "created_at": _now_iso(),
+        "project_id": str(project_id),
+    }
+    response = client.send_message(
+        QueueUrl=settings.sqs_report_queue_url,
+        MessageBody=json.dumps(body),
+    )
+    return response["MessageId"]
+
+
 def enqueue_parse_job(
     client: Any,
     job_id: uuid.UUID,

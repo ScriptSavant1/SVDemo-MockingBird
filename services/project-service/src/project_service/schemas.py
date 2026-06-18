@@ -181,6 +181,13 @@ class SuspendTriggerOut(BaseModel):
     message: str = "Suspend job queued. EC2 will be terminated; stubs are preserved."
 
 
+class ReportTriggerOut(BaseModel):
+    deployment_id: uuid.UUID
+    job_id: uuid.UUID
+    status: str = "QUEUED"
+    message: str = "Report job queued. Poll /api/v1/jobs/{job_id} for status updates."
+
+
 # ── Health ─────────────────────────────────────────────────────────────────────
 
 class HealthOut(BaseModel):

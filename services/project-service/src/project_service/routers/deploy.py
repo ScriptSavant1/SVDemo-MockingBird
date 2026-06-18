@@ -29,8 +29,8 @@ from ..config import settings
 from ..database import get_db
 from ..dependencies import CurrentUser, get_current_user, require_sv_team_or_admin
 from ..models import Deployment, Job, Project, Stub
-from ..schemas import DeploymentOut, DeployTriggerOut, SuspendTriggerOut
-from ..sqs_client import enqueue_deploy_job, get_sqs_client
+from ..schemas import DeploymentOut, DeployTriggerOut, ReportTriggerOut, SuspendTriggerOut
+from ..sqs_client import enqueue_deploy_job, enqueue_report_job, get_sqs_client
 
 router = APIRouter(prefix="/api/v1", tags=["deployments"])
 
@@ -272,3 +272,45 @@ def redeploy(
     db.commit()
 
     return DeployTriggerOut(deployment_id=deployment_id, job_id=job.id)
+
+
+@router.post(
+    "/projects/{project_id}/deployments/{deployment_id}/report",
+    response_model=ReportTriggerOut,
+    status_code=202,
+    summary="Queue a REPORT job for a deployment (PDF + Excel + PowerPoint)",
+)
+def trigger_report(
+    project_id: uuid.UUID,
+    deployment_id: uuid.UUID,
+    report_period_hours: int = 24,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(get_current_user),
+) -> ReportTriggerOut:
+    deployment = db.get(Deployment, deployment_id)
+    if deployment is None or deployment.project_id != project_id:
+        raise HTTPException(status_code=404, detail={**_NOT_FOUND, "detail": f"Deployment {deployment_id} not found"})
+    if deployment.status not in ("LIVE", "SUSPENDED"):
+        raise HTTPException(
+            status_code=409,
+            detail={**_CONFLICT, "detail": f"Reports can only be generated for LIVE or SUSPENDED deployments"},
+        )
+
+    job = Job(
+        type="REPORT",
+        project_id=project_id,
+        stub_id=deployment.stub_id,
+        status="QUEUED",
+        payload={"deployment_id": str(deployment_id), "report_period_hours": report_period_hours},
+    )
+    db.add(job)
+    db.flush()
+
+    if settings.sqs_report_queue_url:
+        sqs = get_sqs_client()
+        msg_id = enqueue_report_job(sqs, job.id, deployment_id, project_id, report_period_hours)
+        job.sqs_message_id = msg_id
+
+    db.commit()
+
+    return ReportTriggerOut(deployment_id=deployment_id, job_id=job.id)
