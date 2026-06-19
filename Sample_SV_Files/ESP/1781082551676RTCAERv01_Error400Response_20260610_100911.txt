@@ -1,0 +1,4 @@
+ResponseHeader={StatusCode="%%StatusCode%%" ReasonPhrase="Invalid Request" MessageType="http.text.message.type" httpDetails={Version="1.1"
+httpHeaders={content-type="application/json" X-Interaction-Id="%%X-Interaction-Id%%"}}}
+Response..{"code":"InvalidRequest","message":"Invalid request parameters","errors":[{"errorCode":"VRTCACER4110","message":"identifiers should not be greater than
+10","fieldName":"identifiers"}]}

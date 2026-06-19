@@ -1,0 +1,21 @@
+12-Jun-2026 13:32:21
+
+
+ResponseHeader:
+
+={StatusCode="200" ReasonPhrase="OK" MessageType="http.text.message.type"
+httpDetails={Version="1.1" httpHeaders={Content-Type="application/json"}}}
+
+Response:
+{
+  "id" : "351029884",
+  "created" : "2023-08-22T13:13:30Z",
+  "updated" : "2023-08-22T13:13:30Z",
+  "user_id" : "302106719",
+  "username" : "doe",
+  "email" : "joe.doe@doe",
+  "role" : "ADVISER",
+  "status" : "ACTIVE",
+  "onboarding_status" : "ONBOARDED",
+  "log_in_attempts" : "0"
+}

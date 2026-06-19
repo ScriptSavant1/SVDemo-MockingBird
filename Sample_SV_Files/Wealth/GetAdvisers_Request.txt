@@ -1,0 +1,11 @@
+12-Jun-2026 13:35:45
+
+
+RequestHeader:
+
+={Method="GET" URL="/oxford-risk/advisers" httpDetails={Version="1.1" httpHeaders={Accept-Encoding="gzip,deflate"
+Host="10.56.125.160:52576" Connection="Keep-Alive" User-Agent="Apache-HttpClient/4.5.5 (Java/16.0.1)"}
+MessageType="http.text.message.type" rcvdTimestamp="13:35:45.044 2026/06/12"}
+URL-->/oxford-risk/advisers
+
+Request:

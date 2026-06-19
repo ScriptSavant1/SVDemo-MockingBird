@@ -58,4 +58,13 @@ dist/
 target/
 *.class
 *.jar
+# Local SQLite databases (generated at runtime, never commit)
 services/ingestion-service/ingestion.db
+services/project-service/mockingbird.db
+services/auth-service/auth-local.db
+services/auth-service/auth-local.db-shm
+services/auth-service/auth-local.db-wal
+
+# SQLite WAL files (any service)
+*.db-shm
+*.db-wal

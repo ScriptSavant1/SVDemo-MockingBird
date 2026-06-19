@@ -1,0 +1,21 @@
+12-Jun-2026 13:35:45
+
+
+ResponseHeader:
+
+={StatusCode="200" ReasonPhrase="OK" MessageType="http.text.message.type"
+httpDetails={Version="1.1" httpHeaders={content-type="application/json"}}}
+
+Response:
+{
+  "id" : "83",
+  "created" : "2023-06-07T06:52:32Z",
+  "updated" : "2023-06-07T06:52:32Z",
+  "user_id" : 32,
+  "username" : "0tcd607oxk@natwest.com",
+  "email" : "0tcd607oxk@natwest.com",
+  "role" : "ADVISER",
+  "status" : "ACTIVE",
+  "onboarding_status" : "ONBOARDED",
+  "log_in_attempts" : "5"
+}

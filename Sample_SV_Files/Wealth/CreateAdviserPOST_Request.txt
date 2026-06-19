@@ -1,0 +1,15 @@
+12-Jun-2026 13:32:21
+
+
+RequestHeader:
+
+={Method="POST" URL="/oxford-risk/advisers" httpDetails={Version="1.1"
+httpHeaders={Accept-Encoding="gzip,deflate" Content-Type="application/json" Content-Length="52" Host="10.56.125.160:52576"
+Connection="Keep-Alive" User-Agent="Apache-HttpClient/4.5.5 (Java/16.0.1)"}
+MessageType="http.text.message.type" rcvdTimestamp="13:32:20.937 2026/06/12"}
+
+Request:
+{
+  "email" : "joe.doe@doe",
+  "last_name" : "doe"
+}

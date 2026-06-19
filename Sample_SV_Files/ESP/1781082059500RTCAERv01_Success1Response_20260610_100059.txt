@@ -1,0 +1,6 @@
+ResponseHeader={StatusCode="200" ReasonPhrase="OK" MessageType="http.text.message.type" httpDetails={Version="1.1" httpHeaders={content-type="application/json"
+x-interaction-id="%X-Interaction-Id%%"}}}
+Response..[{"accountEnquiryResponse":[{"generalAccountInfo":{"identifierType":"BBAN","identifierValue":"12542012113221","subPrdTypeCatCd":"","accountStatus":"Open",
+"accountShortName":"EuroAccount","accountTypeCode":"Q1","accountOpenDate":"2011-01-01","accountCloseDate":"","accountCurrency":"","responsibilityCode":"R",
+"purposeOfAccountIndicator":"KNC","segmentDepartmentCode":"","badDebtCode":"R","cashlineStopCode":"R","accountStopCode":"N",
+"parentInfo":{"accountSortCode":"132546","accountNumber":"85142341","accountTypeCode":"Q9"}}}}]

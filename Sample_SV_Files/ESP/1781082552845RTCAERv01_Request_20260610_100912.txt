@@ -1,0 +1,5 @@
+={Method="POST" URL="/v2/account-management/account-enquiry-router/enquire?aggregate=SUP+FLAGS" httpDetails={Version="1.1" httpHeaders={Content-Type="application/json"
+x-interaction-id="AR7214523" dws-correlation-id="" channel="" User-Agent="Java/1.8.0_352" Host="devecpvm011679.server.banksvcs.net:61217" Accept="text/html, image/gif,
+image/jpeg, *; q=.2, */* q=.2" Connection="keep-alive" Content-Length="197"}} MessageType="http.text.message.type" rcvdTimestamp="10:09:11.975
+2026/06/10"}[{"identifiers":[{"identifierType":"BBAN","identifierValue":"14742114113241","accountHostingSystem":"RTC"},
+{"identifierType":"BBAN","identifierValue":"11123S628S2356","accountHostingSystem":"RTC"}]}
