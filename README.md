@@ -41,12 +41,19 @@ A developer uploads their API spec (a text file or Postman export)
 | `sv-gen` CLI — parse any API spec, generate a stub | ✅ **Ready to use** |
 | Advanced stubs — dynamic data, delays, stateful flows, fault injection | ✅ **Ready** |
 | SOAP + WS-Security + WSDL support | ✅ **Ready** |
-| Platform backend — project-service, auth-service | ✅ Written, Phase 3 in progress |
-| Auto-deploy to AWS EC2 with Terraform | ❌ Phase 4 — not yet built |
-| React self-service portal | ❌ Phase 6 — not yet built |
-| Kafka / IBM MQ stubs | ❌ Phase 7 — not yet built |
+| Kafka stubs (Spring Boot + Spring Kafka) | ✅ **Ready** |
+| AsyncAPI / Avro stubs (Microcks uber image) | ✅ **Ready** |
+| IBM MQ stubs (Spring Boot + Spring JMS) | ✅ **Ready** |
+| AI stub generation — plain English → stub spec (Claude API) | ✅ **Ready** |
+| Platform backend — auth-service, project-service, ingestion-service | ✅ **Written and tested** |
+| Metrics, reporting (PDF/Excel/PowerPoint), notifications | ✅ **Written and tested** |
+| Auto-deploy to AWS EC2 with Terraform | ✅ Written — AWS infra not yet provisioned |
+| React self-service portal | ✅ **Written and tested** |
 
-**446 tests passing.** The CLI tool (`sv-gen`) is fully functional today.
+**~793 tests passing across all services.** The CLI tool (`sv-gen`) is fully functional today with no external dependencies.
+
+> **Getting started:** jump straight to [Part 1](#part-1--using-the-sv-gen-cli-ready-today) below.  
+> **Full local setup guide (all services):** [docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md)
 
 ---
 
@@ -207,7 +214,7 @@ sv-gen --help
 
 ## Input File Formats
 
-Mockingbird accepts five different input formats — it auto-detects the format from the file content.
+Mockingbird accepts multiple input formats — it auto-detects the format from the file content.
 
 ### Format 1: Level 1 — Simple (single scenario)
 
@@ -320,6 +327,70 @@ sv-gen --input payment-api.yaml --output ./payment-stub
 sv-gen --input customer-api.json --output ./customer-stub
 ```
 
+### Format 7: Kafka (Spring Boot + Spring Kafka)
+
+For teams running Kafka-based APIs. Create a `.kafka.json` file with `_mockingbird_kafka: "1.0"`:
+
+```json
+{
+  "_mockingbird_kafka": "1.0",
+  "stubs": [
+    {
+      "name": "payment-event",
+      "topic": "payment.events",
+      "response_body": "{\"status\": \"PROCESSED\"}",
+      "response_headers": {"content-type": "application/json"}
+    }
+  ]
+}
+```
+
+```bash
+sv-gen --input payment.kafka.json --output ./kafka-stub
+```
+
+Output: a Spring Boot + Spring Kafka project. Set `KAFKA_BOOTSTRAP_SERVERS` at runtime.
+
+### Format 8: AsyncAPI (Microcks — Avro supported)
+
+For AsyncAPI 2.x or 3.x specs (YAML or JSON). Detected by the `asyncapi:` top-level key.
+
+```bash
+sv-gen --input orders.asyncapi.yaml --output ./microcks-stub
+```
+
+Output: `docker-compose.microcks.yml` + `asyncapi.yaml`. Run with `docker compose -f docker-compose.microcks.yml up`.  
+Microcks UI: `http://localhost:8080`
+
+### Format 9: IBM MQ (Spring Boot + Spring JMS)
+
+For teams using IBM MQ. Create a `.mq.json` file with `_mockingbird_mq: "1.0"`:
+
+```json
+{
+  "_mockingbird_mq": "1.0",
+  "stubs": [
+    {
+      "name": "payment-reply",
+      "type": "consumer-reply",
+      "consume_queue": "PAYMENT.REQUEST.QUEUE",
+      "produce_queue": "PAYMENT.REPLY.QUEUE",
+      "response_body": "{\"status\": \"PROCESSED\"}"
+    }
+  ]
+}
+```
+
+Two stub types:
+- **`consumer-reply`** — listens on `consume_queue`, automatically puts a reply on `produce_queue`
+- **`producer`** — triggered via `POST /api/stubs/{name}/trigger`, puts a message on `produce_queue`
+
+```bash
+sv-gen --input payment.mq.json --output ./mq-stub
+```
+
+Output: a Spring Boot + `mq-jms-spring-boot-starter` project. Set `MQ_HOST`, `MQ_PORT`, `MQ_QUEUE_MANAGER`, `MQ_CHANNEL`, `MQ_USER`, `MQ_PASSWORD` at runtime.
+
 ---
 
 ## Available Response Features
@@ -369,9 +440,11 @@ This simulates: "connection times out after 5 seconds."
 
 ---
 
-## Part 2 — Running the Platform Services (Phase 3, In Progress)
+## Part 2 — Running the Platform Services
 
-The platform services (auth-service, project-service) provide a shared backend for teams to manage stubs centrally. They are fully written and tested but require Phase 4 (auto-deploy) to be complete before they are useful for end users.
+The platform services provide a shared backend for teams to manage stubs centrally. All services are fully written and tested.
+
+> **Full instructions with all services, async stubs, and troubleshooting:** [docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md)
 
 ### Prerequisites for platform services
 
@@ -468,6 +541,7 @@ SVDemo-MockingBird/
 ├── PHASES.md                          ← Full 7-phase roadmap
 │
 ├── docs/
+│   ├── LOCAL_DEVELOPMENT.md           ← HOW TO RUN + TEST everything locally
 │   ├── ARCHITECTURE.md                ← System + AWS architecture diagrams
 │   ├── DECISIONS_LOG.md               ← Every confirmed decision
 │   ├── DEPLOYMENT_ARCHITECTURE.md     ← EC2 provisioning + project lifecycle
@@ -482,27 +556,26 @@ SVDemo-MockingBird/
 ├── services/
 │   ├── docker-compose.yml             ← Runs all platform services locally
 │   │
-│   ├── parser-worker/                 ← sv-gen CLI + parsers (Phase 1+2 COMPLETE)
+│   ├── parser-worker/                 ← sv-gen CLI + all parsers + generators
 │   │   ├── pyproject.toml             ← pip install -e ".[dev]"
 │   │   ├── src/parser_worker/
 │   │   │   ├── cli.py                 ← sv-gen entry point
 │   │   │   ├── detector.py            ← Auto-detects input format
-│   │   │   ├── models.py              ← ParsedFile, ParsedStub, Scenario data models
 │   │   │   ├── parsers/               ← One file per format
-│   │   │   │   ├── txt_level1.py      ← Level 1 simple TXT
-│   │   │   │   ├── txt_level2.py      ← Level 2 multi-scenario TXT
-│   │   │   │   ├── soap_txt.py        ← SOAP TXT format
-│   │   │   │   ├── stateful_txt.py    ← Stateful multi-step TXT
-│   │   │   │   ├── json_level3.py     ← JSON Level 3 format
-│   │   │   │   ├── postman.py         ← Postman v2.1 collections
-│   │   │   │   └── openapi.py         ← OpenAPI 3.x + Swagger 2.x
+│   │   │   │   ├── txt_level1.py / txt_level2.py / stateful_txt.py / soap_txt.py
+│   │   │   │   ├── json_level3.py / postman.py / openapi.py
+│   │   │   │   ├── kafka_json.py      ← Sprint 22 — Kafka format
+│   │   │   │   ├── asyncapi.py        ← Sprint 23 — AsyncAPI 2.x/3.x
+│   │   │   │   └── mq_json.py         ← Sprint 24 — IBM MQ format
 │   │   │   ├── generator/
-│   │   │   │   ├── wiremock.py        ← Generates WireMock JSON mappings
-│   │   │   │   └── springboot.py      ← Generates Spring Boot project
-│   │   │   └── templates/             ← Spring Boot project template files
-│   │   └── tests/                     ← 384 tests (pytest)
+│   │   │   │   ├── wiremock.py / springboot.py
+│   │   │   │   ├── kafka_springboot.py← Sprint 22
+│   │   │   │   ├── microcks.py        ← Sprint 23
+│   │   │   │   └── mq_springboot.py   ← Sprint 24
+│   │   │   └── templates/             ← Per-engine Java project templates
+│   │   └── tests/                     ← ~480 tests (pytest)
 │   │
-│   ├── auth-service/                  ← Login + JWT (Phase 3, written)
+│   ├── auth-service/                  ← Login + JWT (Node.js 20 + Fastify)
 │   │   ├── package.json               ← Node.js 20 + Fastify v4
 │   │   ├── tsconfig.json
 │   │   ├── Dockerfile
@@ -549,29 +622,23 @@ SVDemo-MockingBird/
 
 ## Running the Tests
 
-### parser-worker (384 tests — Phase 1 + Phase 2)
+> See [docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md) for a full test reference including async stub engines.
+
+### parser-worker (~480 tests — all input formats + all stub generators)
 
 ```bash
 cd services/parser-worker
 
-# Activate virtual environment if not already active
-# Windows: venv\Scripts\activate
+# Windows: venv\Scripts\Activate.ps1
 # Mac/Linux: source venv/bin/activate
 
-# Run all tests
-pytest
-
-# Run a specific test file
-pytest tests/test_txt_level1.py
-
-# Run with coverage report
-pytest --cov=src/parser_worker --cov-report=term-missing
-
-# Run a specific test by name
-pytest -k "test_parse_delay"
+pytest                                          # all tests
+pytest tests/test_txt_level1.py                # specific file
+pytest -k "kafka"                               # keyword filter
+pytest --cov=src/parser_worker --cov-report=term-missing   # with coverage
 ```
 
-### project-service (44 tests — Phase 3)
+### project-service (44 tests)
 
 ```bash
 cd services/project-service
@@ -588,7 +655,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-### auth-service (18 tests — Phase 3)
+### auth-service (18 tests)
 
 ```bash
 cd services/auth-service
@@ -723,17 +790,19 @@ Full Swagger UI is available at `http://localhost:8001/docs` when project-servic
 
 ## Roadmap
 
-| Phase | Timeline | What Gets Built |
-|-------|----------|----------------|
-| ✅ Phase 1 | Weeks 1–8 | `sv-gen` CLI, all input format parsers |
-| ✅ Phase 2 | Weeks 9–16 | Dynamic data, stateful flows, SOAP, fault injection |
-| 🔄 Phase 3 | Weeks 17–24 | Platform backend: auth, projects DB, file upload, SQS queues, LDAP |
-| ❌ Phase 4 | Weeks 25–32 | Auto-deploy: one click → EC2 running in 4 minutes via Terraform |
-| ❌ Phase 5 | Weeks 33–38 | Metrics + PDF/Excel/PowerPoint reports |
-| ❌ Phase 6 | Weeks 39–48 | React self-service portal (any team can create stubs themselves) |
-| ❌ Phase 7 | Weeks 49–56 | Kafka stubs, IBM MQ stubs, AI stub generation (plain English → stub) |
+| Phase | Timeline | What Gets Built | Status |
+|-------|----------|----------------|--------|
+| Phase 1 | Weeks 1–8 | `sv-gen` CLI, all REST input format parsers | ✅ Complete |
+| Phase 2 | Weeks 9–16 | Dynamic data, stateful flows, SOAP, fault injection | ✅ Complete |
+| Phase 3 | Weeks 17–24 | Platform backend: auth-service, project-service, ingestion-service, SQS workers | ✅ Complete |
+| Phase 4 | Weeks 25–32 | Auto-deploy: one click → EC2 running in 4 minutes via Terraform + GitLab CI | ✅ Written — AWS infra pending |
+| Phase 5 | Weeks 33–38 | Metrics (Prometheus + Timestream + WebSocket) + PDF/Excel/PowerPoint reports | ✅ Complete |
+| Phase 6 | Weeks 39–48 | React 18 self-service portal | ✅ Complete |
+| Phase 7 | Weeks 49–56 | Kafka stubs, AsyncAPI/Microcks stubs, IBM MQ stubs, AI generation, notifications | ✅ Complete |
 
-See [PHASES.md](PHASES.md) for detailed sprint-by-sprint breakdown.
+**All 7 phases are written and tested.** What remains is connecting to organisation infrastructure (GitLab, Artifactory, Vault, AWS, LDAP) — see [docs/LOCAL_DEVELOPMENT.md#what-is-pending](docs/LOCAL_DEVELOPMENT.md#what-is-pending).
+
+See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for sprint-by-sprint breakdown.
 
 ---
 
