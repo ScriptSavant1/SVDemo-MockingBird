@@ -57,7 +57,6 @@ Write-Host "Four windows opened. Services will be ready in about 10 seconds." -F
 Write-Host ""
 Write-Host "Then open: http://localhost:3000" -ForegroundColor Yellow
 Write-Host ""
-Write-Host "First time only — create the admin account:" -ForegroundColor Yellow
-Write-Host "  curl.exe -X POST http://localhost:3001/api/v1/auth/setup ``" -ForegroundColor White
-Write-Host "    -H `"Content-Type: application/json`" ``" -ForegroundColor White
-Write-Host "    -d '{`"username`":`"admin`",`"email`":`"svtest@demo.com`",`"password`":`"Test1234!`"}'" -ForegroundColor White
+Write-Host "First time only - create the admin account (run in a new terminal):" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "  See docs\LOCAL_DEVELOPMENT.md for the setup curl command." -ForegroundColor White
