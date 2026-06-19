@@ -10,6 +10,7 @@ interface LayoutProps {
 export function Layout({ children }: LayoutProps) {
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
+  const isAdmin = user?.role === "ADMIN";
 
   async function handleLogout() {
     try {
@@ -24,12 +25,23 @@ export function Layout({ children }: LayoutProps) {
     <div className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-[#003875]">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
-          <Link to="/" className="flex items-center gap-2 text-white">
-            <span className="text-xl font-bold tracking-tight">Mockingbird</span>
-            <span className="hidden text-xs font-normal text-blue-200 sm:block">
-              Service Virtualisation Platform
-            </span>
-          </Link>
+          <div className="flex items-center gap-6">
+            <Link to="/" className="flex items-center gap-2 text-white">
+              <span className="text-xl font-bold tracking-tight">Mockingbird</span>
+              <span className="hidden text-xs font-normal text-blue-200 sm:block">
+                Service Virtualisation Platform
+              </span>
+            </Link>
+            {isAdmin && (
+              <Link
+                to="/admin"
+                className="text-sm text-blue-200 hover:text-white transition-colors"
+                data-testid="admin-nav-link"
+              >
+                Admin
+              </Link>
+            )}
+          </div>
           <div className="flex items-center gap-4">
             {user && (
               <span className="text-sm text-blue-200">

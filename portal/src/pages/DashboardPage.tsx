@@ -1,12 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { projectsApi } from "@/api/projects";
+import { useAuthStore } from "@/store/auth";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/StatusBadge";
 import { formatDate } from "@/utils/formatters";
 import type { Project } from "@/api/types";
 
 export function DashboardPage() {
+  const role = useAuthStore((s) => s.user?.role);
+  const canCreate = role === "ADMIN" || role === "SV_TEAM";
+
   const { data: projects = [], isPending, isError } = useQuery({
     queryKey: ["projects"],
     queryFn: projectsApi.list,
@@ -20,19 +25,33 @@ export function DashboardPage() {
     return <div className="rounded bg-red-50 px-4 py-3 text-sm text-red-700">Failed to load projects.</div>;
   }
 
+  const visible = (projects as Project[]).filter((p) => p.status !== "ARCHIVED");
+
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Projects</h1>
+        {canCreate && (
+          <Link to="/projects/new">
+            <Button data-testid="new-project-button">New Project</Button>
+          </Link>
+        )}
       </div>
 
-      {projects.length === 0 ? (
+      {visible.length === 0 ? (
         <Card>
-          <p className="text-center text-gray-500 py-8">No projects yet.</p>
+          <p className="text-center text-gray-500 py-8">
+            No projects yet.{" "}
+            {canCreate && (
+              <Link to="/projects/new" className="text-[#00A9E0] hover:underline">
+                Create your first project.
+              </Link>
+            )}
+          </p>
         </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {projects.map((p: Project) => (
+          {visible.map((p: Project) => (
             <Link key={p.id} to={`/projects/${p.id}`}>
               <Card className="hover:border-[#003875] hover:shadow-md transition-all cursor-pointer">
                 <CardHeader>

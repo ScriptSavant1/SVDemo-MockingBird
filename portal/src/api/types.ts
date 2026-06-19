@@ -1,14 +1,26 @@
-export type ProjectStatus = "DRAFT" | "ACTIVE" | "ARCHIVED";
+export type ProjectStatus =
+  | "DRAFT"
+  | "READY"
+  | "DEPLOYING"
+  | "LIVE"
+  | "SUSPENDED"
+  | "ARCHIVED";
 export type StubStatus = "DRAFT" | "READY" | "DEPLOYING" | "LIVE" | "SUSPENDED" | "FAILED";
 export type DeploymentStatus = "PENDING" | "BUILDING" | "PROVISIONING" | "LIVE" | "SUSPENDED" | "FAILED";
 export type JobStatus = "QUEUED" | "RUNNING" | "DONE" | "FAILED";
+export type UserRole = "ADMIN" | "SV_TEAM" | "PROJECT_OWNER" | "VIEWER";
 
 export interface Project {
   id: string;
   name: string;
-  description: string;
+  team: string;
+  environment: string;
+  expected_tps: number;
+  description: string | null;
   status: ProjectStatus;
-  owner_id: string;
+  stub_url: string | null;
+  api_key: string | null;
+  created_by: string;
   created_at: string;
   updated_at: string;
 }
@@ -100,4 +112,38 @@ export interface DownloadUrlOut {
   url: string;
   format: string;
   expires_in_seconds: number;
+}
+
+export interface User {
+  id: string;
+  username: string;
+  email: string;
+  role: UserRole;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface UserPage {
+  items: User[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  project_id: string | null;
+  user_id: string | null;
+  username: string | null;
+  action: string;
+  detail: Record<string, unknown> | null;
+  ip_address: string | null;
+  created_at: string;
+}
+
+export interface AuditLogPage {
+  items: AuditLogEntry[];
+  total: number;
+  limit: number;
+  offset: number;
 }

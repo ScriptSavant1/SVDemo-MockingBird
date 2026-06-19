@@ -3,13 +3,29 @@ import type { DownloadUrlOut, Project, ReportJob, Stub, Deployment } from "./typ
 
 export interface CreateProjectBody {
   name: string;
-  description: string;
+  team: string;
+  environment: string;
+  expected_tps: number;
+  description?: string;
+}
+
+export interface UpdateProjectBody {
+  name?: string;
+  team?: string;
+  environment?: string;
+  expected_tps?: number;
+  description?: string;
+  status?: string;
 }
 
 export const projectsApi = {
   list: () => api.get<Project[]>("/api/v1/projects"),
   get: (id: string) => api.get<Project>(`/api/v1/projects/${id}`),
   create: (body: CreateProjectBody) => api.post<Project>("/api/v1/projects", body),
+  update: (id: string, body: UpdateProjectBody) =>
+    api.put<Project>(`/api/v1/projects/${id}`, body),
+  archive: (id: string) =>
+    api.put<Project>(`/api/v1/projects/${id}`, { status: "ARCHIVED" }),
 
   listStubs: (projectId: string) =>
     api.get<Stub[]>(`/api/v1/projects/${projectId}/stubs`),

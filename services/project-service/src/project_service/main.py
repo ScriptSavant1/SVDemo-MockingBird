@@ -9,7 +9,7 @@ from fastapi import FastAPI
 
 from .config import settings
 from .database import create_tables
-from .routers import deploy, jobs, projects, stubs
+from .routers import admin, deploy, jobs, projects, stubs
 from .schemas import HealthOut
 
 logging.basicConfig(
@@ -41,6 +41,7 @@ def create_app() -> FastAPI:
     app.include_router(stubs.router)
     app.include_router(jobs.router)
     app.include_router(deploy.router)
+    app.include_router(admin.router)
 
     @app.get("/health", response_model=HealthOut, tags=["health"])
     def health() -> HealthOut:

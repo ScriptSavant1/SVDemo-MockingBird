@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 # ── Problem JSON (RFC 7807) ────────────────────────────────────────────────────
@@ -23,6 +23,9 @@ class ProblemDetail(BaseModel):
 
 # ── Users ──────────────────────────────────────────────────────────────────────
 
+VALID_ROLES = {"ADMIN", "SV_TEAM", "PROJECT_OWNER", "VIEWER"}
+
+
 class UserOut(BaseModel):
     id: uuid.UUID
     username: str
@@ -34,10 +37,67 @@ class UserOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class UserCreate(BaseModel):
+    username: str = Field(..., min_length=3, max_length=100)
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=128)
+    role: str = Field(default="VIEWER")
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: str) -> str:
+        if v not in VALID_ROLES:
+            raise ValueError(f"role must be one of {sorted(VALID_ROLES)}")
+        return v
+
+
+class UserPatch(BaseModel):
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in VALID_ROLES:
+            raise ValueError(f"role must be one of {sorted(VALID_ROLES)}")
+        return v
+
+
+class ResetPasswordIn(BaseModel):
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
+class UserPage(BaseModel):
+    items: list[UserOut]
+    total: int
+    limit: int
+    offset: int
+
+
+# ── Audit Log ──────────────────────────────────────────────────────────────────
+
+class AuditLogOut(BaseModel):
+    id: uuid.UUID
+    project_id: Optional[uuid.UUID]
+    user_id: Optional[uuid.UUID]
+    username: Optional[str]
+    action: str
+    detail: Optional[dict]
+    ip_address: Optional[str]
+    created_at: datetime
+
+
+class AuditLogPage(BaseModel):
+    items: list[AuditLogOut]
+    total: int
+    limit: int
+    offset: int
+
+
 # ── Projects ───────────────────────────────────────────────────────────────────
 
 VALID_ENVIRONMENTS = {"TEST", "STAGING", "PROD"}
-VALID_STATUSES = {"DRAFT", "READY", "DEPLOYING", "LIVE", "SUSPENDED"}
+VALID_STATUSES = {"DRAFT", "READY", "DEPLOYING", "LIVE", "SUSPENDED", "ARCHIVED"}
 
 
 class ProjectCreate(BaseModel):
