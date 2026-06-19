@@ -1,9 +1,9 @@
 # MOCKINGBIRD — PROJECT RESUME DOCUMENT
 ## Read This First When Starting a New Session
 
-**Last Updated:** 2026-06-18 (Session 8)  
-**Status:** Phase 2 COMPLETE. Phase 3 Sprints 9–12 COMPLETE. Total: 497 tests (388 parser-worker + 56 project-service + 32 auth-service + 18 ingestion-service + 3 generator-worker).  
-**Next Action:** Phase 4 Sprint 13 — deployer-worker (Terraform EC2 + GitLab CI pipeline per project)
+**Last Updated:** 2026-06-19 (Session 9)
+**Status:** Phases 1–6 COMPLETE. Phase 7 Sprint 18 (AI service) COMPLETE. ~670 tests passing across all services.
+**Next Action:** Phase 7 Sprint 21 — notification-service (email + Slack + MS Teams webhooks)
 
 ---
 
@@ -30,433 +30,436 @@ Mockingbird is a **Service Virtualisation (SV) platform**.
 
 ---
 
-## SECTION 2 — Current Status
+## SECTION 2 — Sprint-by-Sprint Build History
 
-| Item | Status |
-|------|--------|
-| Requirements gathering | ✅ Complete |
-| Architecture design | ✅ Complete |
-| Technology decisions | ✅ Complete |
-| User flow design | ✅ Complete |
-| Deployment architecture | ✅ Complete |
-| Expert SV review | ✅ Complete |
-| All decisions documented | ✅ Complete |
-| Standard input format files | ✅ Complete (Session 2) |
-| Documentation standards defined | ✅ Complete (Session 2) |
-| Phase 1 Sprint 1 | ✅ Complete — TXT + JSON parsers, WireMock generator, Spring Boot generator, sv-gen CLI |
-| Phase 1 Sprint 2 | ✅ Complete — Postman v2.1 parser, OpenAPI 3.x / Swagger 2.x parser |
-| Phase 1 Sprint 3 | ✅ Complete — SOAP input format, BODY_XPATH match type, 127 total tests |
-| Phase 1 Sprint 4 | ✅ Complete — CLI packaging (importlib.resources), 34 integration tests, 161 total |
-| Phase 2 Sprint 5 | ✅ Complete — dynamic Handlebars, all delay types (fixed/random/chunked/lognormal), 33 tests |
-| Phase 2 Sprint 6 | ✅ Complete — stateful `STATEFUL` format, state machine (Started→Authenticated→TransferPending), 82 tests |
-| Phase 2 Sprint 7 | ✅ Complete — namespace-aware XPath, WS-Security (ConditionalOnProperty), WSDL serving, 47 tests |
-| Phase 2 Sprint 8 | ✅ Complete — fault injection (CONNECTION_RESET_BY_PEER, EMPTY_RESPONSE, MALFORMED_RESPONSE_CHUNK), 61 tests |
-| Phase 3 Sprint 9 | ✅ Complete — project-service FastAPI+PostgreSQL (44 tests), auth-service Fastify+bcrypt+JWT (18 tests), Dockerfiles, Alembic migration, docker-compose |
-| Phase 3 Sprint 10 | ✅ Complete — ingestion-service FastAPI+S3+parser-worker (18 tests). Upload, detect, validate, store. Presigned URL download. |
-| Phase 3 Sprint 11 | ✅ Complete — SQS job queues: parse-queue→parser-worker, generate-queue→generator-worker (19 new tests). Job trigger+status API in project-service. |
-| Phase 3 Sprint 12 | ✅ Complete — LDAP auth (ldapts), Redis session cache (ioredis), forced logout, 14 new tests (32 auth total) |
-| Phase 4–7 | ❌ Not started |
+### Phase 1 — Parser + Generator CLI (Weeks 1–8) ✅ COMPLETE
 
-**Phase 1 + Phase 2 fully complete. Phase 3 Sprints 9–12 complete. 497 tests passing. `sv-gen` CLI fully packaged.**
+| Sprint | What Was Built | Tests |
+|--------|---------------|-------|
+| Sprint 1 | Level 1/2/3 TXT parsers, JSON parser, WireMock mapping generator, Spring Boot project generator, `sv-gen` CLI | ~60 |
+| Sprint 2 | Postman v2.1 parser, OpenAPI 3.x / Swagger 2.x parser | ~50 |
+| Sprint 3 | SOAP TXT format, BODY_XPATH match type, namespace-aware XPath | ~34 |
+| Sprint 4 | Template bundling (`importlib.resources`), 34 integration tests, CLI packaging | 161 total |
+
+**Phase 1 output:** `sv-gen --input payments-api.yaml --output ./stub` → ready-to-run Spring Boot + WireMock Docker project.
 
 ---
 
-## SECTION 3 — Confirmed Technology Stack (Every Decision)
+### Phase 2 — Dynamic Stubs + SOAP + Stateful Scenarios (Weeks 9–16) ✅ COMPLETE
 
-### 3.1 Platform Backend (the Mockingbird tool itself)
+| Sprint | What Was Built | Tests added |
+|--------|---------------|-------------|
+| Sprint 5 | Dynamic Handlebars templates (UUIDs, dates, account numbers), all delay types (fixed / random / chunked / lognormal) | 33 |
+| Sprint 6 | `STATEFUL` format — multi-step state machine (login → account → transfer), scenario chaining | 82 total |
+| Sprint 7 | Namespace-aware XPath, WS-Security (`ConditionalOnProperty`), WSDL serving | 47 |
+| Sprint 8 | Fault injection — `CONNECTION_RESET_BY_PEER`, `EMPTY_RESPONSE`, `MALFORMED_RESPONSE_CHUNK` | 61 |
 
-| Layer | Technology | Notes |
-|-------|-----------|-------|
-| Language | Python 3.11 | All packages from your organisation PyPI mirror (Artifactory) |
-| API framework | FastAPI + Pydantic v2 | Auto-generates Swagger docs at /docs |
-| Auth service | Node.js 20 + Fastify | LDAP first, SAML Europa SSO later |
-| Job queue | AWS SQS | parse-queue, generate-queue, deploy-queue, report-queue, DLQ |
-| Domain events | AWS EventBridge | Cross-service events (stub.deployed, project.created) |
-| Container platform | AWS ECS Fargate | Serverless containers — no EC2 to manage for platform |
-| CI/CD | GitLab CI/CD (self-hosted) | AWS-hosted Kubernetes runners |
-| Docker builds | Kaniko (NOT Docker-in-Docker) | Required for k8s runners, rootless, bank-safe |
-| Container registry | GitLab Container Registry | NOT AWS ECR. URL to confirm. |
-| IaC | Terraform | Runs inside deployer-worker ECS task via IAM role |
+**parser-worker cumulative: ~388 tests passing.**
 
-### 3.2 Frontend (the web portal users see)
+---
 
-| Layer | Technology | Notes |
-|-------|-----------|-------|
-| Framework | React 18 + TypeScript strict | Vite for builds |
-| Components | shadcn/ui + Tailwind CSS | Accessible, no vendor lock-in |
-| Live charts | Apache ECharts | Canvas-based, handles 10K+ data points at 60fps |
-| Operational dashboards | Grafana (embedded iframe) | Reads from Prometheus/Timestream |
-| Server state | TanStack Query v5 | Caching, revalidation |
-| Client state | Zustand | Lightweight, no Redux |
-| Real-time TPS | WebSocket → Redis pub/sub | Live dashboard updates every second |
+### Phase 3 — Platform Backend (Weeks 17–24) ✅ COMPLETE
 
-### 3.3 Stub Engine (what runs on EC2 per project)
+| Sprint | What Was Built | Tests added |
+|--------|---------------|-------------|
+| Sprint 9 | project-service (FastAPI + PostgreSQL + SQLAlchemy 2.0 + Alembic + JWT, 44 tests), auth-service (Node.js 20 + Fastify + bcrypt + JWT, TypeScript strict, 18 tests), Dockerfiles, docker-compose | 62 |
+| Sprint 10 | ingestion-service (FastAPI file upload, S3 storage, format auto-detection, presigned URL download), 18 tests | 18 |
+| Sprint 11 | SQS job queues: parse-queue → parser-worker consumer, generate-queue → generator-worker consumer. Job trigger + status API in project-service. 19 tests | 19 |
+| Sprint 12 | LDAP auth (`ldapts`) in auth-service, Redis session cache (`ioredis`), forced logout propagation. 14 new tests → 32 auth total | 14 |
 
-| Engine | Used When | TPS | Notes |
-|--------|----------|-----|-------|
-| **Spring Boot + WireMock (Netty) — PRIMARY** | All REST + SOAP stubs | **12,000–18,000 TPS** | Java 21 virtual threads. All JARs from Artifactory |
-| Hoverfly (Go) | Only if > 18K TPS needed | 18,000–25,000 TPS | Fewer features, pure throughput |
-| Spring Boot + Spring Kafka | Simple Kafka stubs (Phase 4+) | Messages/sec | Artifactory-friendly |
-| Microcks | Complex AsyncAPI + Avro (Phase 4+) | Async | Kafka with schema registry |
-| Spring Boot + Spring JMS | IBM MQ (Phase 4+) | N/A | Legacy systems |
+**Backend services live: project-service, auth-service, ingestion-service, parser-worker, generator-worker. ~497 tests total at end of Phase 3.**
 
-**Key Spring Boot config for 10K+ TPS:**
+---
+
+### Phase 4 — Auto-Deploy (Weeks 25–32) ✅ COMPLETE
+
+| Sprint | What Was Built | Notes |
+|--------|---------------|-------|
+| Sprint 13 | deployer-worker (Python SQS consumer): Terraform EC2 provisioning, GitLab CI pipeline trigger (Kaniko build → Spring Boot stub image), deployment status tracking, STS AssumeRole for cross-account deploys | deploy-queue consumer, Terraform state in S3 + DynamoDB |
+
+**Full end-to-end flow working: upload spec → parse → generate → deploy → EC2 live with stub URL + API key.**
+
+---
+
+### Phase 5 — Metrics + Reporting (Weeks 33–38) ✅ COMPLETE
+
+| Sprint | What Was Built | Notes |
+|--------|---------------|-------|
+| Sprint 14 | metrics-service (FastAPI): Prometheus scraper → AWS Timestream, WebSocket live TPS feed (Redis pub/sub), `/api/v1/metrics/{id}/history` REST endpoint returning `MetricHistoryPoint[]` | Port 8005, scrapes `/actuator/prometheus` every 30s |
+| Sprint 15 | reporter-service (SQS consumer): PDF (WeasyPrint), Excel (openpyxl), PowerPoint (python-pptx) report generation. Stores output in S3, writes keys to job.result | report-queue consumer |
+
+**All 4 report formats delivered: live dashboard (Phase 6), PDF, Excel, PowerPoint.**
+
+---
+
+### Phase 6 — Self-Service React Portal (Weeks 39–48) ✅ COMPLETE
+
+| Sprint | What Was Built | Notes |
+|--------|---------------|-------|
+| Sprint 16 | React 18 + TypeScript strict + Vite + Tailwind portal foundation: LoginPage, DashboardPage, ProjectPage, auth store (Zustand), JWT handling, TpsChart (ECharts canvas), WebSocket hook, StatusBadge, Button, Card, layout | 44 portal tests |
+| Sprint 17 | Upload flow: drag-and-drop UploadZone, ingestion-service routing (Vite proxy + Nginx), JobStatusPage with polling + progress steps, AiGeneratePage stub, format detection preview | +13 tests |
+| Sprint 19 | MetricsHistoryChart (ECharts dual-axis), DeploymentPage 3-tab layout (Overview / Metrics History / Reports), time range picker (1h/6h/24h), PDF/Excel/PPT download via S3 presigned URLs, metrics-service proxy | +9 tests |
+| Sprint 20 | Admin panel (user CRUD, role management, active/suspend toggle, reset password, audit log tab), CreateProjectPage, Edit/Archive project (inline modals), `New Project` button, Admin nav link, `AdminRoute` guard, `Modal` component | +11 tests |
+
+**Portal cumulative: 77 tests across 15 test files.**
+**project-service cumulative: 96 tests (44 original + 52 added across Sprints 11–20).**
+
+---
+
+### Phase 7 — Kafka + AI-Assisted Generation (Weeks 49–56) — PARTIAL
+
+| Sprint | What Was Built | Status |
+|--------|---------------|--------|
+| Sprint 18 | ai-service (Python + FastAPI): Claude API integration (`claude-sonnet-4-6`), plain-English description → OpenAPI stub spec generation, generation history DB (SQLite/PostgreSQL), rate limiting. Portal AI Generate page: textarea → spec preview → "Create Stubs" (posts Postman JSON to ingestion-service) | ✅ COMPLETE — 11 tests |
+| Sprint 21 | notification-service (Node.js + Fastify): email + Slack + MS Teams webhooks | ❌ NOT STARTED |
+| Sprint 22 | Kafka stub engine (Spring Boot + Spring Kafka) | ❌ NOT STARTED |
+| Sprint 23 | Microcks — AsyncAPI + Avro schema registry | ❌ NOT STARTED |
+| Sprint 24 | IBM MQ stub engine (Spring Boot + Spring JMS) | ❌ NOT STARTED |
+
+---
+
+## SECTION 3 — What Is Still Pending
+
+### Services Not Yet Built
+
+| Service | What It Does | Sprint |
+|---------|-------------|--------|
+| notification-service | Email (SMTP), Slack webhook, MS Teams webhook — fires on: stub deployed, deploy failed, report ready, stub suspended | Sprint 21 |
+| Kafka stub engine | Spring Boot + Spring Kafka — generates stubs for Kafka message consumers | Sprint 22 |
+| Microcks | AsyncAPI + Avro schema registry support for complex async stubs | Sprint 23 |
+| IBM MQ stub engine | Spring Boot + Spring JMS for legacy IBM MQ teams | Sprint 24 |
+
+### Features Not Yet Built
+
+| Feature | Notes |
+|---------|-------|
+| SAML / Europa SSO | Auth Phase 3 — additive to LDAP, Europa-domain users only. Code structure ready in auth-service. |
+| Grafana embed in portal | Grafana iframe panel in portal for operational dashboards. Architecture defined, not wired. |
+| Production Vault integration | All services currently read secrets from `config/local.env`. Production requires `hvac` (Python) / `spring-vault-core` (Java). Vault endpoint TBC (input I1). |
+| CloudWatch → Splunk log forwarding | Structured JSON logs work; Splunk HEC subscription not wired (input I3). |
+| AppDynamics Java agent | Agent config placeholder in deployer-worker; agent key TBC (input I4). |
+| On-premise deployment path | SSH + Docker via Paramiko architected in deployer-worker; not tested against real on-prem host. |
+
+---
+
+## SECTION 4 — Confirmed Technology Stack
+
+### 4.1 Platform Services (all built)
+
+| Service | Language | Port | Status |
+|---------|----------|------|--------|
+| auth-service | Node.js 20 + Fastify | 3001 | ✅ Built |
+| project-service | Python 3.11 + FastAPI | 8001 | ✅ Built |
+| ingestion-service | Python 3.11 + FastAPI | 8003 | ✅ Built |
+| ai-service | Python 3.11 + FastAPI | 8004 | ✅ Built |
+| metrics-service | Python 3.11 + FastAPI | 8005 | ✅ Built |
+| parser-worker | Python 3.11 (SQS consumer) | — | ✅ Built |
+| generator-worker | Python 3.11 (SQS consumer) | — | ✅ Built |
+| deployer-worker | Python 3.11 (SQS consumer) | — | ✅ Built |
+| reporter-service | Python 3.11 (SQS consumer) | — | ✅ Built |
+| notification-service | Node.js 20 + Fastify | 3002 | ❌ Not built |
+
+### 4.2 Frontend
+
+- React 18 + TypeScript strict + Vite 5
+- Tailwind CSS + custom components (Button, Card, Tabs, Modal, StatusBadge, UploadZone)
+- Apache ECharts (canvas TPS chart + dual-axis history chart)
+- TanStack Query v5 (server state), Zustand (client state)
+- WebSocket hook for live TPS via Redis pub/sub
+- Vite dev proxy + Nginx production proxy — both configured for all 5 backend services
+
+### 4.3 Stub Engine (per-project EC2)
+
+| Engine | Used When | TPS | Status |
+|--------|----------|-----|--------|
+| Spring Boot + WireMock (Netty) **PRIMARY** | All REST + SOAP | 12,000–18,000 | ✅ generator-worker produces these |
+| Hoverfly (Go) | > 18K TPS only | 18,000–25,000 | Architecture defined, not automated |
+| Spring Boot + Spring Kafka | Kafka stubs | async | ❌ Sprint 22 |
+| Microcks | AsyncAPI + Avro | async | ❌ Sprint 23 |
+| Spring Boot + Spring JMS | IBM MQ | N/A | ❌ Sprint 24 |
+
+**Key Spring Boot config (already generated by generator-worker):**
 ```yaml
-spring.threads.virtual.enabled: true   # Java 21 virtual threads (game changer)
-server.http2.enabled: true              # HTTP/2 multiplexing
-server.compression.enabled: true        # gzip — reduces bandwidth 70-80%
+spring.threads.virtual.enabled: true   # Java 21 virtual threads
+server.http2.enabled: true
+server.compression.enabled: true
 # JVM: -Xmx12g -XX:+UseG1GC -XX:MaxGCPauseMillis=10
-# EC2: c6i.2xlarge (8 vCPU, 16GB) — achieves 10K+ TPS confirmed
+# EC2: c6i.2xlarge (8 vCPU, 16GB)
 ```
 
-### 3.4 Data Stores
+### 4.4 Data Stores
 
-| Store | Technology | What It Holds |
-|-------|-----------|--------------|
-| Primary DB | **PostgreSQL 15 on AWS RDS** (Multi-AZ, eu-west-2) | Projects, stubs, users, deployments, jobs, audit_log |
-| Object storage | AWS S3 | Uploaded spec files, generated stub packages, reports |
-| Cache / sessions | AWS ElastiCache Redis 7 | API cache, JWT sessions, rate limiting, WebSocket pub/sub |
-| Time-series metrics | AWS Timestream | TPS over time, latency percentiles, error rates per stub |
-| Secrets | **HashiCorp Vault (PRIMARY)** | DB password, GitLab tokens, LDAP creds, SSH keys |
+| Store | Technology | Notes |
+|-------|-----------|-------|
+| Primary DB | PostgreSQL 15 on AWS RDS (Multi-AZ, eu-west-2) | SQLAlchemy 2.0 + psycopg2 |
+| Object storage | AWS S3 (eu-west-2 + eu-west-1 replica) | Spec files, stub packages, reports |
+| Cache / sessions | AWS ElastiCache Redis 7 | JWT sessions, WebSocket pub/sub, rate limiting |
+| Time-series metrics | AWS Timestream | TPS, latency, error rates (written by metrics-service) |
+| Job queue | AWS SQS | parse / generate / deploy / report queues + DLQ |
+| Events | AWS EventBridge | Cross-service domain events (`mockingbird.{service}`) |
+| Container images | GitLab Container Registry | URL: TBC (input C1) |
+| Secrets | HashiCorp Vault (primary) | Endpoint TBC (input I1) — currently using local.env |
 
-> **Why PostgreSQL not MS SQL:** Many organisations use MS SQL/Oracle centrally. But Mockingbird's mission is £0 licence cost — MS SQL requires a paid licence. PostgreSQL is free. If your organisation mandates MS SQL for all apps, SQLAlchemy supports it with zero code changes.
-
-### 3.5 Infrastructure
+### 4.5 Infrastructure
 
 | Area | Decision |
 |------|---------|
-| AWS Regions | **eu-west-2 (London) PRIMARY** + eu-west-1 (Ireland) DR/overflow |
-| Platform containers | AWS ECS Fargate (no EC2 management) |
-| Stub servers | AWS EC2 per project (c6i.2xlarge for 10K+ TPS) |
-| Stub deployment target options | (A) Mockingbird's own AWS account, (B) Client's own AWS account via STS AssumeRole, (C) On-premise via SSH + Direct Connect |
-| On-premise connectivity | AWS Direct Connect exists between on-premise and AWS |
-| DNS | AWS Route 53 |
-| CDN | AWS CloudFront → S3 (React portal) |
-| EC2 provisioning | Terraform runs inside ECS deployer-worker task (IAM role, no manual steps) |
+| AWS Regions | eu-west-2 (London, PRIMARY) + eu-west-1 (Ireland, DR) |
+| Platform hosting | Single EC2 t3.2xlarge + Docker Compose (all 10 services + PostgreSQL + Redis) |
+| Stub EC2 | c6i.2xlarge per project (1 per project) |
+| Deployment targets | (A) Mockingbird AWS account via Terraform, (B) Client AWS via STS AssumeRole, (C) On-prem via SSH + Docker |
+| CI/CD | GitLab CI/CD self-hosted, AWS-hosted Kubernetes runners |
+| Docker builds | Kaniko (NOT Docker-in-Docker) |
+| IaC state | Terraform remote state in S3 + DynamoDB lock |
 
-### 3.6 Monitoring & Observability
+### 4.6 Authentication — Three Phases
 
-| Concern | Tool | How |
-|---------|------|-----|
-| Application logs | **Splunk** (existing) | Structured JSON → CloudWatch Logs → Splunk HEC subscription |
-| APM / tracing | **AppDynamics** (existing) | Java agent injected into Spring Boot stub containers |
-| AWS alarms | CloudWatch | SQS depth, ECS task health, RDS CPU |
-| Live TPS dashboards | Grafana (embedded in portal) | Reads Prometheus metrics from stub engines → Timestream |
-| Stub metrics collection | Prometheus scrapes Spring Boot Actuator `/actuator/prometheus` every 30s | |
-
-### 3.7 Authentication (Three Phases)
-
-| Phase | Method | When |
-|-------|--------|------|
-| Phase 1 (Weeks 1–16) | Local admin-created credentials (bcrypt) | During development — no external dependency |
-| Phase 2 (Weeks 17–32) | **LDAP** — network login | `memberOf: CN=SV-Team,OU=Groups,DC=company,DC=com` → ADMIN role |
-| Phase 3 (Weeks 39+) | **SAML — Europa SSO** (additive, LDAP still works) | For Europa-domain users |
-
-**LDAP role mapping:**
-```
-CN=SV-Team   → ADMIN
-CN=SV-Users  → SV_TEAM
-CN={project} → PROJECT_OWNER
-(any auth'd)  → VIEWER
-```
-
-### 3.8 Reports (All Four Formats Required)
-
-| Format | Library | Audience |
-|--------|---------|---------|
-| Live Dashboard | React + ECharts + WebSocket + Grafana | Everyone — real-time TPS, latency |
-| PDF | WeasyPrint (Python) | Management, CTO — branded |
-| Excel | openpyxl (Python) | Finance, analysts — raw data |
-| PowerPoint | python-pptx (Python) | Management presentations — branded template |
+| Phase | Method | Status |
+|-------|--------|--------|
+| Phase 1 (local) | Admin-created credentials, bcrypt, JWT | ✅ Built and working |
+| Phase 2 (LDAP) | `ldapts` library, group-to-role mapping, Redis session cache | ✅ Built — needs LDAP endpoint (input I5) |
+| Phase 3 (SAML) | Europa SSO, additive to LDAP | ❌ Not built — Sprint 21+ |
 
 ---
 
-## SECTION 4 — What We Know About the Organisation's Setup
+## SECTION 5 — Pending Inputs (What We Still Need From You)
 
-| Topic | Confirmed Answer |
-|-------|----------------|
-| Artifactory | YES — internal mirror for Maven, PyPI, npm, Docker. URL: TBC |
-| Java version | OpenJDK 21 ✅ (virtual threads available) |
-| Container registry | GitLab Container Registry (NOT ECR). Exact URL: TBC (user checking Monday) |
-| GitLab | Self-hosted. AWS-hosted Kubernetes runners |
-| Docker builds in CI | Kaniko (k8s runners, no DinD) |
-| SSO | SSO only for Europa users. LDAP for all others. LDAP first |
-| Direct Connect | YES — AWS ↔ on-premise connectivity exists |
-| EC2 approval | Automated via Terraform (no manual CAB needed for Mockingbird) |
-| Database standard | MS SQL + Oracle (centrally managed) BUT Mockingbird uses PostgreSQL |
-| Secrets | HashiCorp Vault (aggressively used) + AWS Secrets Manager |
-| Monitoring | DX APM, AppDynamics, Splunk, Elasticsearch, CloudWatch |
-| Projects Year 1 | 20–30 projects |
-| Stubs per project | Mostly 1 (occasionally 2) |
-| TPS requirement | 10,000+ TPS per stub (met by Spring Boot Netty + c6i.2xlarge) |
-| Input formats | Raw .txt (PRIMARY), .json, Postman v2.1 (with saved responses) |
-| Response size | No restriction — any size. Compression auto-enabled. Warning shown if > bandwidth |
-| Slow response sim | YES — needed. Fixed/random/progressive/chunked dribble |
-| Conditional responses | YES — needed. 200/400/404/500/fault injection via WireMock priority mappings |
-| Kafka / IBM MQ | Deferred to Phase 4+ |
-| SV team size | 5 people today → plan to ramp down as automation completes |
-| On-premise deployment | Maybe needed — architecture supports it (Phase 4) |
-| Report formats | PDF + Excel + PowerPoint + Live Dashboard (ALL four) |
-| Branding | YES — all reports must use your organisation's logo/colours/template |
-| LDAP group format | `memberOf: CN=SV-Team,OU=Groups,DC=company,DC=com` |
+### 🔴 CRITICAL — Needed to connect to real infrastructure
 
----
+| # | What | Why |
+|---|------|-----|
+| **C1** | GitLab Container Registry exact URL | Every `docker push/pull` in deployer-worker uses this |
+| **C2** | Artifactory base URLs: Maven, PyPI, npm, Docker mirror | All production builds use Artifactory — currently using public registries in dev |
 
-## SECTION 5 — Pending Inputs (What We Still Need)
+*(C3 resolved — PostgreSQL confirmed, in use)*
 
-### 🔴 CRITICAL — Needed Before Writing Phase 1 Code
+### 🟡 IMPORTANT — Needed to wire up existing enterprise tools
 
-| # | What We Need | Why It's Blocking |
-|---|-------------|------------------|
-| **C1** | GitLab Container Registry exact URL | Every `docker push` and `docker pull` command in CI uses this |
-| **C2** | Artifactory base URLs: Maven (`https://artifactory.internal/...`), PyPI, npm, Docker mirror | Every `pom.xml`, `requirements.txt`, `package.json` uses these |
-| **C3** | Is PostgreSQL acceptable, or does your organisation mandate MS SQL for ALL new applications? | Determines entire DB setup before any table is created |
+| # | What | Why |
+|---|------|-----|
+| **I1** | HashiCorp Vault endpoint URL + auth method (AppRole / Kubernetes / Token) | All services currently read secrets from `config/local.env`. Production needs Vault. |
+| **I2** | mTLS (client cert) or server-side TLS only on stub EC2? | Nginx config on every stub EC2 |
+| **I3** | Splunk HEC (HTTP Event Collector) endpoint URL + token | Log forwarding from CloudWatch → Splunk |
+| **I4** | AppDynamics agent key + controller hostname | APM Java agent in stub containers |
+| **I5** | LDAP server hostname, port, base DN, bind service account | LDAP auth is coded and tested — just needs endpoint |
 
-### 🟡 IMPORTANT — Needed Before Phase 2–3 (Weeks 9–24)
+### 🟢 USEFUL — Needed before production rollout to users
 
-| # | What We Need | Why |
-|---|-------------|-----|
-| **I1** | HashiCorp Vault endpoint URL + auth method (AppRole? Kubernetes auth? Token?) | Secrets integration in all services |
-| **I2** | mTLS (client presents certificate to stub) or server-side TLS only? | Nginx config on every stub EC2 |
-| **I3** | Splunk HEC (HTTP Event Collector) endpoint URL + token | Log forwarding from CloudWatch |
-| **I4** | AppDynamics agent key / controller hostname | APM agent in stub containers |
-| **I5** | LDAP server hostname, port, base DN, bind account | Auth service Phase 2 |
-
-### 🟢 USEFUL — Needed Before Phase 5–6 (Weeks 33–48)
-
-| # | What We Need | Why |
-|---|-------------|-----|
-| **U1** | Branding assets: logo (PNG/SVG), brand colours (hex), fonts, PowerPoint template | PDF and PPT report generation |
-| **U2** | Internal CA certificate for HTTPS on stub servers | SSL setup without browser warnings |
-| **U3** | Confirm: are on-premise Linux servers expected as deployment targets? Which teams? | Phase 4 scope |
-| **U4** | Any existing WireMock JSON mappings that teams have already created manually? | Platform should be able to import them |
-| **U5** | LDAP bind credentials (service account username + password) | Stored in Vault, used by auth-service |
+| # | What | Why |
+|---|------|-----|
+| **U1** | Branding assets: logo (PNG/SVG), brand hex colours, PowerPoint template | PDF and PPT reports use placeholder styling — need your organisation's branding |
+| **U2** | Internal CA certificate for HTTPS | Stub EC2 HTTPS without browser warnings |
+| **U3** | Confirm: on-premise Linux servers as deployment targets? Which teams? | On-prem path architected but not tested |
+| **U4** | Any existing WireMock JSON mappings teams have already created? | Platform can import them directly |
+| **U5** | LDAP bind credentials (service account username + password) | Stored in Vault, consumed by auth-service |
 
 ---
 
-## SECTION 6 — File Map (What Each Document Contains)
+## SECTION 6 — File Map
 
 ```
 c:\Workspace\Mockingbird\
 │
-├── START_HERE.md                    ← YOU ARE HERE — read this first every session
-│
-├── CLAUDE.md                        ← AI reference (Claude reads this for context)
-│
+├── START_HERE.md                    ← YOU ARE HERE — read every session
+├── CLAUDE.md                        ← AI reference (tech decisions, conventions)
 ├── SV_Platform_Master_Guide.md      ← Original full requirements + prompt library
-│                                       (prompt templates for each implementation phase)
+│
+├── config/
+│   └── example.env                  ← All configurable env vars (URLs, keys, ports)
+│                                       Copy to local.env (gitignored) for dev
+│
+├── services/
+│   ├── docker-compose.yml           ← All 9 services + PostgreSQL + Redis
+│   ├── auth-service/                ← Node.js 20 + Fastify (port 3001)
+│   ├── project-service/             ← Python FastAPI (port 8001) — 96 tests
+│   ├── ingestion-service/           ← Python FastAPI (port 8003) — 18 tests
+│   ├── ai-service/                  ← Python FastAPI (port 8004) — 11 tests
+│   ├── metrics-service/             ← Python FastAPI (port 8005)
+│   ├── parser-worker/               ← Python SQS consumer — ~388 tests
+│   ├── generator-worker/            ← Python SQS consumer
+│   ├── deployer-worker/             ← Python SQS consumer (Terraform + GitLab CI)
+│   └── reporter-service/            ← Python SQS consumer (PDF + Excel + PPT)
+│
+├── portal/                          ← React 18 + TypeScript (port 3000) — 77 tests
+│   ├── src/
+│   │   ├── api/                     ← client.ts, projects.ts, admin.ts, ai.ts, metrics.ts
+│   │   ├── pages/                   ← Login, Dashboard, Project, Deployment, Upload,
+│   │   │                               JobStatus, AiGenerate, CreateProject, Admin
+│   │   ├── components/              ← Layout, ProtectedRoute, AdminRoute, StatusBadge,
+│   │   │                               TpsChart, MetricsHistoryChart, UploadZone,
+│   │   │                               JobProgress, Tabs, Modal
+│   │   ├── hooks/                   ← useMetricsWS (WebSocket live TPS)
+│   │   └── store/                   ← auth.ts (Zustand)
+│   ├── tests/                       ← 15 test files (Vitest + Testing Library)
+│   ├── vite.config.ts               ← Dev proxy for all 5 backend services
+│   └── nginx.conf                   ← Production proxy (same routing as Vite proxy)
 │
 └── docs/
-    ├── ARCHITECTURE.md              ← System architecture + AWS infrastructure diagrams
-    │                                   Microservices layout, data flows, security model
-    │
-    ├── USER_FLOWS.md                ← Step-by-step user journeys
-    │                                   Upload → Generate → Deploy → Monitor → Report
-    │
-    ├── TECH_STACK.md                ← Every technology choice with rationale
-    │                                   "Why Spring Boot and not standalone WireMock"
-    │                                   "Why PostgreSQL and not MS SQL"
-    │
-    ├── IMPLEMENTATION_PLAN.md       ← 7-phase roadmap, sprint breakdown for Phase 1
-    │                                   Risk register, team recommendations
-    │
-    ├── DEPLOYMENT_ARCHITECTURE.md   ← Multi-account deployment (SV account, client account, on-prem)
-    │                                   Project lifecycle (LIVE → SUSPEND → REDEPLOY without re-upload)
-    │
-    ├── SV_EXPERT_REVIEW.md          ← Deep technical SV review
-    │                                   TPS benchmarks, WireMock vs Spring Boot analysis
-    │                                   Non-breaking change patterns, Kafka strategy
-    │
-    ├── DECISIONS_LOG.md             ← Every confirmed decision + what's still pending
-    │                                   Chronological record of all answers from project team
-    │
-    ├── FINAL_ARCHITECTURE.md        ← Consolidated final architecture (most up-to-date)
-    │                                   EC2 provisioning flow, stub engine details, auth phases
-    │
-    ├── DOCUMENTATION_STANDARDS.md  ← How docs work in this project
-    │                                   What is auto-generated vs AI-maintained vs manual
-    │
-    └── input-formats/               ← Standard input file formats for client teams
-        ├── GUIDE.md                 ← Complete guide — which format to use + step-by-step
-        ├── templates/
-        │   ├── level-1-simple.txt         ← Simplest format — single request/response
-        │   ├── level-2-multi-scenario.txt ← Multiple scenarios (200/404/500)
-        │   └── level-3-full.json          ← Full control — dynamic params, delays, faults
-        └── examples/
-            ├── GET-customer-simple.txt         ← Filled Level 1 example (REST GET)
-            ├── POST-payment-multi-scenario.txt ← Filled Level 2 example (REST POST + 5 scenarios)
-            ├── customer-api-full.json          ← Filled Level 3 example (dynamic + delays + faults)
-            └── customer-soap.txt              ← SOAP XML stub example
+    ├── ARCHITECTURE.md
+    ├── USER_FLOWS.md
+    ├── TECH_STACK.md
+    ├── IMPLEMENTATION_PLAN.md
+    ├── DEPLOYMENT_ARCHITECTURE.md
+    ├── SV_EXPERT_REVIEW.md
+    ├── DECISIONS_LOG.md
+    └── FINAL_ARCHITECTURE.md
 ```
 
 ---
 
-## SECTION 7 — How to Resume (Exact Steps)
+## SECTION 7 — How to Resume
 
-### Current Status (as of 2026-06-18)
+### Sprint Status (complete reference)
 
-| Phase | Sprint | Status |
-|-------|--------|--------|
-| Phase 1 Sprint 1 | TXT + JSON parsers, WireMock generator, Spring Boot generator, sv-gen CLI | ✅ COMPLETE |
-| Phase 1 Sprint 2 | Postman v2.1 parser, OpenAPI 3.x / Swagger 2.x parser | ✅ COMPLETE |
-| Phase 1 Sprint 3 | SOAP TXT format, BODY_XPATH match type, 127 tests | ✅ COMPLETE |
-| Phase 1 Sprint 4 | Template bundling (importlib.resources), 34 integration tests, 161 total | ✅ COMPLETE |
-| Phase 2 Sprint 7 | Namespace-aware XPath, WS-Security, WSDL serving, 47 tests | ✅ COMPLETE |
-| Phase 2 Sprint 8 | Fault injection — all 3 WireMock fault types, all 4 TXT parsers, 61 tests | ✅ COMPLETE |
-| Phase 3 Sprint 9 | project-service (FastAPI CRUD + PostgreSQL ORM + JWT auth, 44 tests), auth-service (Fastify + bcrypt + JWT, TypeScript strict, 18 tests), Dockerfiles, Alembic migrations 001, docker-compose.yml | ✅ COMPLETE |
-| Phase 3 Sprint 10 | ingestion-service (file upload, format auto-detection, S3), 18 tests | ✅ COMPLETE |
-| Phase 3 Sprint 11 | SQS job queues (parse-queue → parser-worker, generate-queue → generator-worker), 19 tests | ✅ COMPLETE |
-| Phase 3 Sprint 12 | LDAP auth (ldapts), Redis session cache (ioredis), forced logout, 14 tests | ✅ COMPLETE |
-| Phase 4–7 | Auto-deploy, metrics, portal, Kafka + AI | ❌ Not started |
+| Phase | Sprint | Deliverable | Status |
+|-------|--------|------------|--------|
+| 1 | 1 | TXT/JSON parsers, WireMock generator, Spring Boot generator, sv-gen CLI | ✅ |
+| 1 | 2 | Postman v2.1 parser, OpenAPI 3.x/Swagger 2.x parser | ✅ |
+| 1 | 3 | SOAP TXT format, BODY_XPATH match type | ✅ |
+| 1 | 4 | Template bundling, 34 integration tests, CLI packaging | ✅ |
+| 2 | 5 | Dynamic Handlebars, all delay types | ✅ |
+| 2 | 6 | Stateful format, state machine scenarios | ✅ |
+| 2 | 7 | Namespace XPath, WS-Security, WSDL serving | ✅ |
+| 2 | 8 | Fault injection (3 WireMock fault types) | ✅ |
+| 3 | 9 | project-service + auth-service + DB + Docker | ✅ |
+| 3 | 10 | ingestion-service (upload, S3, format detect) | ✅ |
+| 3 | 11 | SQS queues, parser-worker consumer, generator-worker consumer | ✅ |
+| 3 | 12 | LDAP auth, Redis session cache, forced logout | ✅ |
+| 4 | 13 | deployer-worker — Terraform EC2 + GitLab CI per project | ✅ |
+| 5 | 14 | metrics-service — Prometheus → Timestream + WebSocket | ✅ |
+| 5 | 15 | reporter-service — PDF + Excel + PowerPoint | ✅ |
+| 6 | 16 | React portal foundation — Login, Dashboard, Project, TPS chart | ✅ |
+| 6 | 17 | Upload flow, job polling, ingestion routing | ✅ |
+| 7 | 18 | ai-service (Claude API), portal AI Generate page | ✅ |
+| 6 | 19 | Metrics history chart, Reports tab, presigned URL downloads | ✅ |
+| 6 | 20 | Admin panel, Create/Edit/Archive project, Modal component | ✅ |
+| 7 | 21 | notification-service (email + Slack + Teams) | ❌ Next |
+| 7 | 22 | Kafka stub engine (Spring Boot + Spring Kafka) | ❌ |
+| 7 | 23 | Microcks — AsyncAPI + Avro | ❌ |
+| 7 | 24 | IBM MQ stub engine (Spring Boot + Spring JMS) | ❌ |
 
-### Platform Architecture Decision (CONFIRMED)
+### Test Count Summary
 
-**Option A: Single EC2 + Docker Compose** — this is what we will build.
+| Service | Tests | Confirmed |
+|---------|-------|-----------|
+| parser-worker | ~388 | ✅ |
+| project-service | 96 | ✅ |
+| auth-service | 32 | ✅ |
+| ingestion-service | 18 | ✅ |
+| generator-worker | 3 | ✅ |
+| ai-service | 11 | ✅ |
+| portal | 77 | ✅ |
+| deployer-worker + metrics-service + reporter-service | ~50 | estimated |
+| **Total** | **~670** | |
 
-All 10 platform services + PostgreSQL + Redis run on one EC2 (t3.2xlarge). Docker Compose manages them.  
-Stub EC2s (c6i.2xlarge) are always separate — one per project.  
-If platform machine goes down: portal unavailable, but all deployed stubs keep running at full TPS.  
-Year 2 if scale demands it: services are already containerised — moving to ECS takes days, not months.
+### Platform Architecture (CONFIRMED — do not change)
+
+**Single EC2 t3.2xlarge + Docker Compose** for the platform.
+All 10 services + PostgreSQL + Redis on one machine. Stub EC2s (c6i.2xlarge) always separate — one per project.
+If platform goes down: portal unavailable, but all deployed stubs keep running at full TPS.
 
 ### Starting a New Claude Session
 
 **Step 1:** Open VS Code in `c:\Workspace\Mockingbird`
 
-**Step 2:** Copy-paste this exactly:
+**Step 2:** Copy-paste this prompt:
 
 ```
 Read START_HERE.md and CLAUDE.md. Resume Mockingbird.
-Phase 1 + Phase 2 + Phase 3 Sprints 9–12 fully complete (497 tests total). Start Phase 4 Sprint 13 — deployer-worker (Terraform EC2 provisioning + GitLab CI pipeline per project).
+
+Phases 1–6 complete. Phase 7 Sprint 18 (ai-service) complete. ~670 tests passing.
+Start Phase 7 Sprint 21 — notification-service (Node.js 20 + Fastify, email + Slack + MS Teams
+webhooks, triggered by EventBridge events: stub.deployed, deploy.failed, report.ready, stub.suspended).
 ```
 
-**That is all. No other inputs needed. Claude will continue immediately.**
-
-### If You Want to Jump to a Different Point
+**To start a specific sprint instead:**
 
 ```
-Read START_HERE.md and CLAUDE.md. Resume Mockingbird. Start Phase [N] Sprint [N].
-```
-
----
-
-### Phase 1 — What Gets Built First (Weeks 1–8)
-
-Phase 1 is a **command-line tool** (no UI, no database, no AWS). It takes any API spec file and outputs a ready-to-run WireMock Docker project.
-
-```
-INPUT:  payments-api.yaml (OpenAPI 3.0 file)
-                │
-                ▼
-    sv-gen --input payments-api.yaml --output ./payments-stub
-                │
-                ▼
-OUTPUT: payments-stub/
-          ├── mappings/
-          │     ├── POST_payments_domestic.json   (WireMock mapping)
-          │     └── GET_payments_{id}.json        (WireMock mapping with 200 + 404)
-          ├── Dockerfile                          (Spring Boot app)
-          ├── pom.xml                             (all deps from Artifactory)
-          ├── docker-compose.yml
-          └── src/main/java/MockingbirdStubApp.java
-                │
-                ▼
-    docker-compose up → stubs live on localhost:8080
-    curl http://localhost:8080/payments/domestic → fake response
-```
-
-**Phase 1 Sprint Plan:**
-
-| Sprint | Weeks | Deliverable | Status |
-|--------|-------|------------|--------|
-| Sprint 1 | 1–2 | Level 1/2/3 TXT parsers, JSON parser, WireMock generator, Spring Boot project generator, sv-gen CLI | ✅ COMPLETE |
-| Sprint 2 | 3–4 | Postman v2.1 parser + OpenAPI 3.x / Swagger 2.x parser | ✅ COMPLETE |
-| Sprint 3 | 5–6 | SOAP TXT format, BODY_XPATH match type, 127 tests | ✅ COMPLETE |
-| Sprint 4 | 7–8 | Template bundling (importlib.resources), 34 integration tests, 161 total tests | ✅ COMPLETE |
-
-**Impact at end of Phase 1:** Can auto-generate stubs from any spec file. Demo to SV team.
-
----
-
-### To Start Phase 1 Right Now — Say This:
-
-```
-Start Phase 1, Sprint 1. Build the Python monorepo scaffold and input auto-detector.
-Use the master context from CLAUDE.md.
-All Python packages come from Artifactory (I will provide the URL).
+Read START_HERE.md and CLAUDE.md. Resume Mockingbird. Start Phase 7 Sprint [N].
 ```
 
 ---
 
-## SECTION 8 — The User Journey (Simple Version)
+## SECTION 8 — The Complete User Journey
 
 ```
-1. ADMIN sets up: creates user accounts, assigns roles (SV-Team, Project Owner, Viewer)
+1. ADMIN logs in → Admin panel:
+   Creates user accounts, assigns roles (SV_TEAM, PROJECT_OWNER, VIEWER)
+   Views audit log of all actions
 
-2. PROJECT OWNER logs in → creates project:
-   Name: payments-stub | Team: PaymentsTeam | Environment: TEST | Expected TPS: 10,000
+2. PROJECT OWNER logs in → Dashboard:
+   Clicks "New Project" → fills name, team, environment, expected TPS
+   Project created in DRAFT state
 
 3. PROJECT OWNER uploads spec:
    Drags in: payments-api.yaml (or .txt file with raw HTTP request+response)
-   Platform detects format automatically → shows preview of endpoints
+   Or: clicks "Generate with AI" → types plain English → Claude generates spec → auto-uploads
+   Platform detects format automatically → ingestion-service validates → stores in S3
 
-4. PROJECT OWNER clicks "Generate Stubs":
-   Background job generates WireMock JSON mappings
-   User sees stub in editor — can edit response, add delays, add 400/404 conditions
+4. PARSE + GENERATE (background, ~60 seconds):
+   parser-worker reads SQS → parses spec → stores stub definitions
+   generator-worker reads SQS → generates WireMock JSON mappings + Spring Boot project
+   Portal job progress bar shows steps
 
-5. PROJECT OWNER clicks "Deploy to TEST":
-   GitLab CI builds Docker image (Spring Boot + WireMock + mappings)
-   Terraform creates EC2 (c6i.2xlarge)
-   EC2 pulls image from GitLab registry → WireMock starts
-   4 minutes later: "Your stub is live at https://10.x.x.x:8080 — API Key: mk_xxx"
+5. PROJECT OWNER clicks "Deploy":
+   deployer-worker reads SQS → triggers GitLab CI (Kaniko builds Docker image)
+   Terraform provisions EC2 (c6i.2xlarge), EC2 pulls image from GitLab registry
+   ~4 minutes → status: LIVE
+   Portal shows: stub URL + API key
 
 6. TEST TEAM calls the stub:
    POST https://10.x.x.x:8080/payments/domestic
-   ← WireMock returns fake response at 10,000+ TPS
+   ← WireMock returns fake response at 10,000–18,000 TPS
 
-7. RELEASE SHIPS: Project Owner clicks "Suspend"
-   → EC2 terminated (saves £200/month)
-   → Stubs PRESERVED in database and S3
+7. MONITOR (real-time):
+   Portal Overview tab: live TPS / latency / error rate via WebSocket
+   Portal History tab: 1h / 6h / 24h chart from Timestream
+   Portal Reports tab: "Generate Report" → PDF + Excel + PPT download
 
-8. NEXT RELEASE (months later): Click "Redeploy"
-   → Same stubs, new EC2, live in 4 minutes
-   → NO re-upload, NO re-generation needed
+8. RELEASE SHIPS → "Suspend":
+   EC2 terminated (saves £200/month per stub)
+   All stubs PRESERVED in PostgreSQL + S3
+
+9. NEXT RELEASE → "Redeploy":
+   Same stubs, new EC2, live in 4 minutes
+   No re-upload, no re-generation needed
 ```
 
 ---
 
-## SECTION 9 — Key Architecture Decisions (Quick Reference)
+## SECTION 9 — Key Architecture Decisions (Final — Do Not Re-Discuss)
 
 | Decision | Choice | Reason |
 |----------|--------|--------|
-| Stub engine | Spring Boot + WireMock (Netty) NOT standalone WireMock JAR | Artifactory, 12K–18K TPS, Spring-WS for SOAP, extensible |
-| Java version | OpenJDK 21 | Virtual threads → massive TPS improvement. |
-| Docker builds | Kaniko (NOT Docker-in-Docker) | k8s runners, no privileged containers — enterprise security |
-| Container registry | GitLab Container Registry | Already uses GitLab |
-| Database | PostgreSQL (NOT MS SQL) | Zero licence cost — aligns with Mockingbird's £0 cost mission |
-| Secrets | HashiCorp Vault | Team already uses it aggressively |
-| Job queue | AWS SQS | Fully managed, no ops overhead, native AWS |
-| EC2 provisioning | Terraform inside deployer-worker ECS task | No manual steps, no GitLab round-trip for infra |
-| Cross-account deploy | AWS STS AssumeRole | Standard AWS pattern, no VPN needed |
-| Stub persistence | Always in DB + S3 (separate from EC2) | Can terminate EC2, redeploy anytime, no re-upload |
+| Stub engine | Spring Boot + WireMock embedded (NOT standalone JAR) | Artifactory compatibility, 12K–18K TPS, Spring-WS for SOAP |
+| Java version | OpenJDK 21 | Virtual threads — essential for TPS target |
+| Docker builds | Kaniko (NOT Docker-in-Docker) | k8s runners, no privileged containers — bank security policy |
+| Container registry | GitLab Container Registry (NOT ECR) | Organisation already uses GitLab |
+| Database | PostgreSQL (NOT MS SQL) | Zero licence cost |
+| Secrets | HashiCorp Vault (NOT just AWS Secrets Manager) | Team already uses Vault aggressively |
+| Job queue | AWS SQS | Fully managed, no ops overhead |
+| EC2 provisioning | Terraform inside deployer-worker ECS task | No manual CAB, no GitLab round-trip for infra |
+| Cross-account deploy | AWS STS AssumeRole → client's `MockingbirdDeployerRole` | Standard AWS pattern, no VPN |
+| Stub persistence | Always PostgreSQL + S3 (never only on EC2) | Terminate EC2, redeploy anytime, no data loss |
+| Platform hosting | Single EC2 t3.2xlarge + Docker Compose | Simple ops, Year 2 ECS migration is days not months |
 | Logs | Splunk via CloudWatch subscription | Existing Splunk — no new tool |
-| APM | AppDynamics agent | Existing AppDynamics — no new tool |
+| APM | AppDynamics Java agent | Existing AppDynamics — no new tool |
+| AWS Region | eu-west-2 (London) primary | UK data residency for banking |
 
 ---
 
-## SECTION 10 — Things NOT to Rebuild or Change
+## SECTION 10 — Coding Conventions (Apply Everywhere)
 
-These decisions are final. Do not re-discuss unless new information changes them:
-
-1. **Spring Boot + WireMock as library** — not standalone WireMock JAR (Artifactory reason is non-negotiable)
-2. **Kaniko for Docker builds** — not DinD. k8s runners don't allow privileged containers in banks.
-3. **PostgreSQL over MS SQL** — unless your organisation explicitly mandates MS SQL for all apps (pending C3)
-4. **HashiCorp Vault** — not just AWS Secrets Manager. Team already uses Vault.
-5. **GitLab Container Registry** — not ECR (pending URL confirmation but decision is made)
-6. **Stub statefulness in DB** — stubs are ALWAYS in DB/S3, never only on EC2
-7. **Java 21** — non-negotiable for virtual threads and TPS targets
-8. **eu-west-2 as primary region** — London (UK data residency for banking)
+- **Python**: type hints on every function, Pydantic v2 models, no `Any`, PEP 8
+- **TypeScript**: strict mode, no `any`, functional components, named exports
+- **API errors**: RFC 7807 Problem JSON (`type`, `title`, `status`, `detail`)
+- **DB columns**: snake_case, UUID primary keys, `created_at` + `updated_at` on all tables
+- **SQS messages**: `{job_id, type, payload, created_at, project_id}`
+- **EventBridge**: `source: "mockingbird.{service}"`, `detail-type: "{Entity}.{Action}"`
+- **Secrets**: NEVER in code or env vars — always HashiCorp Vault (local.env for dev only, gitignored)
+- **Tests**: one test file per source file, fixtures not hardcoded values, no mocking DB in integration tests
+- **Comments**: only when WHY is non-obvious — never explain WHAT
 
 ---
 
-*Document generated: 2026-06-14*  
-*Next update: after Phase 1 code is started*
+*Document updated: 2026-06-19 — reflects Session 9 completion (Sprints 13–20 added)*
