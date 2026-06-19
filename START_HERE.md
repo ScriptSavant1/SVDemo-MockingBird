@@ -2,8 +2,8 @@
 ## Read This First When Starting a New Session
 
 **Last Updated:** 2026-06-19 (Session 9)
-**Status:** Phases 1–6 COMPLETE. Phase 7 Sprint 18 (AI service) COMPLETE. ~670 tests passing across all services.
-**Next Action:** Phase 7 Sprint 21 — notification-service (email + Slack + MS Teams webhooks)
+**Status:** Phases 1–6 COMPLETE. Phase 7 Sprints 18 + 21 COMPLETE. ~690 tests passing across all services.
+**Next Action:** Phase 7 Sprint 22 — Kafka stub engine (Spring Boot + Spring Kafka)
 
 ---
 
@@ -111,7 +111,7 @@ Mockingbird is a **Service Virtualisation (SV) platform**.
 | Sprint | What Was Built | Status |
 |--------|---------------|--------|
 | Sprint 18 | ai-service (Python + FastAPI): Claude API integration (`claude-sonnet-4-6`), plain-English description → OpenAPI stub spec generation, generation history DB (SQLite/PostgreSQL), rate limiting. Portal AI Generate page: textarea → spec preview → "Create Stubs" (posts Postman JSON to ingestion-service) | ✅ COMPLETE — 11 tests |
-| Sprint 21 | notification-service (Node.js + Fastify): email + Slack + MS Teams webhooks | ❌ NOT STARTED |
+| Sprint 21 | notification-service (Node.js 20 + Fastify): email + Slack + MS Teams webhooks, SQS consumer for EventBridge events, POST /api/v1/notify/send | ✅ COMPLETE — 20 tests |
 | Sprint 22 | Kafka stub engine (Spring Boot + Spring Kafka) | ❌ NOT STARTED |
 | Sprint 23 | Microcks — AsyncAPI + Avro schema registry | ❌ NOT STARTED |
 | Sprint 24 | IBM MQ stub engine (Spring Boot + Spring JMS) | ❌ NOT STARTED |
@@ -157,7 +157,7 @@ Mockingbird is a **Service Virtualisation (SV) platform**.
 | generator-worker | Python 3.11 (SQS consumer) | — | ✅ Built |
 | deployer-worker | Python 3.11 (SQS consumer) | — | ✅ Built |
 | reporter-service | Python 3.11 (SQS consumer) | — | ✅ Built |
-| notification-service | Node.js 20 + Fastify | 3002 | ❌ Not built |
+| notification-service | Node.js 20 + Fastify | 3002 | ✅ Built |
 
 ### 4.2 Frontend
 
@@ -333,8 +333,8 @@ c:\Workspace\Mockingbird\
 | 7 | 18 | ai-service (Claude API), portal AI Generate page | ✅ |
 | 6 | 19 | Metrics history chart, Reports tab, presigned URL downloads | ✅ |
 | 6 | 20 | Admin panel, Create/Edit/Archive project, Modal component | ✅ |
-| 7 | 21 | notification-service (email + Slack + Teams) | ❌ Next |
-| 7 | 22 | Kafka stub engine (Spring Boot + Spring Kafka) | ❌ |
+| 7 | 21 | notification-service (email + Slack + MS Teams) | ✅ |
+| 7 | 22 | Kafka stub engine (Spring Boot + Spring Kafka) | ❌ Next |
 | 7 | 23 | Microcks — AsyncAPI + Avro | ❌ |
 | 7 | 24 | IBM MQ stub engine (Spring Boot + Spring JMS) | ❌ |
 
@@ -348,9 +348,10 @@ c:\Workspace\Mockingbird\
 | ingestion-service | 18 | ✅ |
 | generator-worker | 3 | ✅ |
 | ai-service | 11 | ✅ |
+| notification-service | 20 | ✅ |
 | portal | 77 | ✅ |
 | deployer-worker + metrics-service + reporter-service | ~50 | estimated |
-| **Total** | **~670** | |
+| **Total** | **~690** | |
 
 ### Platform Architecture (CONFIRMED — do not change)
 
@@ -367,9 +368,9 @@ If platform goes down: portal unavailable, but all deployed stubs keep running a
 ```
 Read START_HERE.md and CLAUDE.md. Resume Mockingbird.
 
-Phases 1–6 complete. Phase 7 Sprint 18 (ai-service) complete. ~670 tests passing.
-Start Phase 7 Sprint 21 — notification-service (Node.js 20 + Fastify, email + Slack + MS Teams
-webhooks, triggered by EventBridge events: stub.deployed, deploy.failed, report.ready, stub.suspended).
+Phases 1–6 complete. Phase 7 Sprints 18 + 21 complete. ~690 tests passing.
+Start Phase 7 Sprint 22 — Kafka stub engine (Spring Boot + Spring Kafka, generator-worker
+extension to produce Kafka consumer stub projects, basic consumer + producer stub support).
 ```
 
 **To start a specific sprint instead:**
