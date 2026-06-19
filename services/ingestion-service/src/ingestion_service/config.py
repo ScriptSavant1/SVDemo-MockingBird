@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     aws_region: str = "eu-west-2"
     # Set to http://localstack:4566 for local development; leave blank in production
     aws_endpoint_url: Optional[str] = None
+    # Set to a local directory path to store uploads on disk instead of S3.
+    # Leave blank in production. Example: LOCAL_STORAGE_PATH=./uploads
+    local_storage_path: Optional[str] = None
     # 10 MB hard ceiling on uploaded spec files
     max_upload_bytes: int = 10 * 1024 * 1024
     service_name: str = "ingestion-service"

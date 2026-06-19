@@ -22,7 +22,14 @@ from ..config import settings
 from ..database import get_db
 from ..dependencies import CurrentUser, get_current_user, require_sv_team_or_admin
 from ..models import Project, Stub
-from ..s3_client import generate_presigned_url, get_s3_client, upload_bytes
+from ..s3_client import (
+    generate_presigned_url,
+    get_s3_client,
+    is_local_storage,
+    local_file_url,
+    upload_bytes,
+    upload_local,
+)
 from ..schemas import DownloadUrlResponse, IngestionResult
 
 router = APIRouter()
@@ -104,12 +111,15 @@ def upload_stub_file(
         wiremock_mapping_count=scenario_count,
     )
     db.add(stub)
-    db.flush()  # write to transaction but don't commit yet — S3 upload must succeed first
+    db.flush()  # write to transaction — file storage must succeed before commit
 
-    # 6. Upload source file to S3 (within the open DB transaction)
+    # 6. Store the uploaded file — local disk or S3
     content_type = file.content_type or "application/octet-stream"
-    s3 = get_s3_client()
-    upload_bytes(s3, s3_key, content, content_type)
+    if is_local_storage():
+        upload_local(s3_key, content)
+    else:
+        s3 = get_s3_client()
+        upload_bytes(s3, s3_key, content, content_type)
 
     db.commit()
 
@@ -148,8 +158,11 @@ def get_source_url(
             detail="No source file stored for this stub",
         )
 
-    s3 = get_s3_client()
-    url = generate_presigned_url(s3, stub.source_file_key, expires_in=_PRESIGNED_EXPIRY)
+    if is_local_storage():
+        url = local_file_url(stub.source_file_key)
+    else:
+        s3 = get_s3_client()
+        url = generate_presigned_url(s3, stub.source_file_key, expires_in=_PRESIGNED_EXPIRY)
     filename = Path(stub.source_file_key).name
 
     return DownloadUrlResponse(

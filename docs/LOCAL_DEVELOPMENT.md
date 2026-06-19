@@ -1,142 +1,136 @@
-# Local Development Guide
+# Local Development Guide — Windows, No Docker
+
+You need **4 PowerShell terminals** open at the same time. Start them in the order below.
 
 ---
 
-## Web UI Quick Start
+## Prerequisites (one-time)
 
-This is the main path. You upload a spec file through the browser and get a stub generated.
+Make sure these are installed:
 
-### What you need installed
-
-```
-Python 3.11+     python --version
-Node.js 20+      node --version
-Docker Desktop   docker --version
-Git              git --version
-```
-
-If anything is missing:
-- Python: https://www.python.org/downloads/
-- Node.js: https://nodejs.org/ (choose LTS)
-- Docker: https://www.docker.com/get-started/
-
----
-
-### Step 1 — Copy the env file
-
-From the repo root:
-
-```bash
-cp config/example.env config/local.env
-```
-
-Open `config/local.env` and set these three values (everything else can stay as-is for local dev):
-
-```
-DB_PASSWORD=anything-you-like
-DATABASE_URL=postgresql://mockingbird:anything-you-like@postgres:5432/mockingbird
-JWT_SECRET=<paste output of: python -c "import secrets; print(secrets.token_hex(32))">
+```powershell
+python --version   # must be 3.11 or higher
+node --version     # must be v20 or higher
+git --version      # any version
 ```
 
 ---
 
-### Step 2 — Start the backing services
+## Terminal 1 — auth-service (login + JWT)
 
-```bash
-cd services
-docker compose --env-file ../config/local.env up -d localstack localstack-init postgres redis
-```
-
-This starts:
-- **LocalStack** on port 4566 — local mock of AWS S3 and SQS
-- **localstack-init** — creates the S3 bucket and SQS queues (runs once, exits)
-- **PostgreSQL 15** on port 5432
-- **Redis 7** on port 6379
-
-Wait about 20 seconds for LocalStack to become healthy, then continue.
-
----
-
-### Step 3 — Start the API services
-
-```bash
-docker compose --env-file ../config/local.env up -d auth-service project-service ingestion-service
-```
-
-This starts:
-- **auth-service** on `http://localhost:3001` — login and JWT
-- **project-service** on `http://localhost:8001` — project and stub records
-- **ingestion-service** on `http://localhost:8003` — file upload and validation
-
-Run migrations the first time only:
-
-```bash
-docker compose --env-file ../config/local.env run --rm project-service alembic upgrade head
-```
-
-Verify they're up:
-
-```bash
-curl http://localhost:3001/health   # {"status":"ok","service":"auth-service"}
-curl http://localhost:8001/health   # {"status":"ok","service":"project-service"}
-curl http://localhost:8003/health   # {"status":"ok","service":"ingestion-service"}
-```
-
----
-
-### Step 4 — Start the portal
-
-```bash
-cd portal
-npm install    # first time only
+```powershell
+cd C:\Workspace\Mockingbird\services\auth-service
+npm install
 npm run dev
 ```
 
-Open your browser at **http://localhost:3000**
-
----
-
-### Step 5 — First-time setup in the UI
-
-**Create the admin account** (only needed once — this endpoint closes itself after the first user):
-
-```bash
-curl -X POST http://localhost:3001/api/v1/auth/setup \
-  -H "Content-Type: application/json" \
-  -d '{"username": "admin", "email": "admin@example.com", "password": "your-password"}'
+Expected output (last line):
+```
+auth-service listening on 0.0.0.0:3001
 ```
 
-Now log in through the browser at http://localhost:3000 using those credentials.
+> **What it does:** Creates `auth-local.db` (SQLite) in the current folder automatically.
+> No PostgreSQL, no Docker needed.
 
 ---
 
-### Step 6 — Upload a spec and generate a stub
+## Terminal 2 — project-service (projects and stubs database)
 
-1. Click **New Project** and fill in the name and team
-2. Open the project → click **Upload Spec**
-3. Drag or browse to your spec file (see formats below)
-4. Give the stub a name → click **Upload**
-5. The UI shows format detected, stub count, and any validation errors
-6. Click **Generate** — the stub project is created and stored
+```powershell
+cd C:\Workspace\Mockingbird\services\project-service
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+
+# Set SQLite as the database (no PostgreSQL needed)
+$env:DATABASE_URL = "sqlite:///./mockingbird.db"
+
+# Create the database tables (run once only)
+alembic upgrade head
+
+# Start the service
+uvicorn project_service.main:app --host 0.0.0.0 --port 8001 --reload
+```
+
+Expected output:
+```
+INFO:     Uvicorn running on http://0.0.0.0:8001
+```
+
+> Swagger UI available at http://localhost:8001/docs
 
 ---
 
-### Spec file formats you can upload
+## Terminal 3 — ingestion-service (file upload + validation)
 
-| Format | File extension | Detected by |
-|--------|---------------|-------------|
-| Simple HTTP pairs (Level 1) | `.txt` | `--- MOCKINGBIRD v1.0 LEVEL 1 ---` header |
-| Multi-scenario (Level 2) | `.txt` | `--- MOCKINGBIRD v1.0 LEVEL 2 ---` header |
-| Stateful flow | `.txt` | `--- MOCKINGBIRD v1.0 STATEFUL ---` header |
-| SOAP | `.txt` | `--- MOCKINGBIRD v1.0 SOAP ---` header |
-| JSON Level 3 | `.json` | `_mockingbird: "1.0"` key |
-| Postman v2.1 | `.json` | `info._postman_id` key |
-| OpenAPI / Swagger | `.yaml` or `.json` | `openapi:` or `swagger:` key |
-| Kafka | `.json` | `_mockingbird_kafka: "1.0"` key |
-| AsyncAPI (Microcks) | `.yaml` or `.json` | `asyncapi:` key |
-| IBM MQ | `.json` | `_mockingbird_mq: "1.0"` key |
+```powershell
+cd C:\Workspace\Mockingbird\services\ingestion-service
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
 
-**Quickest test — paste this into a file called `payment.txt`:**
+# SQLite for the database, local folder for uploaded files (no S3 needed)
+$env:DATABASE_URL = "sqlite:///./ingestion.db"
+$env:LOCAL_STORAGE_PATH = ".\uploads"
+$env:JWT_SECRET = "local-dev-secret"
+
+uvicorn ingestion_service.main:app --host 0.0.0.0 --port 8003 --reload
+```
+
+Expected output:
+```
+INFO:     Uvicorn running on http://0.0.0.0:8003
+```
+
+> Uploaded files are saved to `services\ingestion-service\uploads\`
+
+---
+
+## Terminal 4 — portal (Web UI)
+
+```powershell
+cd C:\Workspace\Mockingbird\portal
+npm install   # first time only
+npm run dev
+```
+
+Expected output:
+```
+  VITE v5.x  ready in ...ms
+  Local:   http://localhost:3000/
+```
+
+Open **http://localhost:3000** in your browser.
+
+---
+
+## First-time: Create the admin account
+
+Run this **once only** (open a 5th PowerShell tab, or use any of the above after the service starts):
+
+```powershell
+curl.exe -X POST http://localhost:3001/api/v1/auth/setup `
+  -H "Content-Type: application/json" `
+  -d '{"username": "admin", "email": "svtest@demo.com", "password": "Test1234!"}'
+```
+
+> **Note on password:** The setup endpoint requires minimum 8 characters.
+> Your earlier attempt used `"password": "test"` which is only 4 characters — that's why it failed.
+
+Expected response:
+```json
+{"id":"...","username":"admin","email":"svtest@demo.com","role":"ADMIN"}
+```
+
+After this, go to http://localhost:3000 and log in with `admin` / `Test1234!`.
+
+---
+
+## Testing the upload flow
+
+### What to upload
+
+Create a file called `payment.txt` on your desktop:
 
 ```
 --- MOCKINGBIRD v1.0 LEVEL 1 ---
@@ -160,194 +154,120 @@ Content-Type: application/json
 }
 ```
 
----
+### Steps in the portal
 
-### Service ports at a glance
+1. **Log in** at http://localhost:3000
+2. Click **New Project** — fill in name (`Payment Tests`) and team (`QA`)
+3. Open the project → click **Upload Spec**
+4. Drag `payment.txt` into the upload zone (or click to browse)
+5. Optionally give it a stub name → click **Upload**
+6. The UI shows:
+   - Format detected: `level-1-txt`
+   - Stub count: `1`
+   - Validation: ✅ Valid
+7. Click **Generate** — the stub project is built in the background
 
-| URL | What |
-|-----|------|
-| http://localhost:3000 | Portal (Web UI) |
-| http://localhost:3001 | auth-service |
-| http://localhost:8001 | project-service (Swagger: /docs) |
-| http://localhost:8003 | ingestion-service (Swagger: /docs) |
-| http://localhost:4566 | LocalStack (AWS S3 + SQS mock) |
-| http://localhost:5432 | PostgreSQL |
-| http://localhost:6379 | Redis |
+### What "Generate" produces
 
----
-
-### Stopping everything
-
-```bash
-cd services
-docker compose --env-file ../config/local.env down        # stops containers, keeps data
-docker compose --env-file ../config/local.env down -v     # stops and deletes all data
+A complete Spring Boot + WireMock project stored in:
+```
+services\ingestion-service\uploads\stubs\<project-id>\<stub-id>\
 ```
 
----
-
-## Optional services
-
-Start these if you need them. They are not required for basic upload and generation.
-
-### AI stub generation (plain English → spec)
-
-Requires an Anthropic API key. Add to `config/local.env`:
-
-```
-ANTHROPIC_API_KEY=sk-ant-...
-```
-
-Then:
-
-```bash
-cd services
-docker compose --env-file ../config/local.env up -d ai-service
-# UI: http://localhost:8004/docs
-```
-
-### Metrics and live TPS feed
-
-```bash
-docker compose --env-file ../config/local.env up -d metrics-service
-# WebSocket TPS feed on ws://localhost:8005/ws/metrics/{project_id}
-```
-
-### Notifications (email / Slack / Teams)
-
-Set `SMTP_HOST` or `SLACK_DEFAULT_WEBHOOK_URL` in `config/local.env`, then:
-
-```bash
-docker compose --env-file ../config/local.env up -d notification-service
-```
-
-### SQS workers (parse / generate / deploy / report)
-
-These are needed for the fully automated pipeline where uploaded files are processed in the background via SQS queues. For local dev the ingestion-service calls the parser inline so you usually don't need these.
-
-```bash
-docker compose --env-file ../config/local.env up -d parser-worker generator-worker
-```
-
----
-
-## CLI (sv-gen) — no browser, no Docker
-
-Use this when you want to generate a stub project directly from the command line without starting any services.
-
-```bash
-cd services/parser-worker
-
-# One-time install
-python -m venv venv
-venv\Scripts\Activate.ps1        # Windows
-# source venv/bin/activate        # Mac / Linux
-pip install -e ".[dev]"
-
-# Verify
-sv-gen --version
-
-# Generate a stub
-sv-gen --input payment.txt --output ./my-stub
-
-# Validate only (no files written)
-sv-gen --input payment.txt --output ./out --dry-run
-
-# Run the generated stub locally
-cd my-stub
+This is your runnable stub. To run it locally (if you have Docker):
+```powershell
+cd services\ingestion-service\uploads\stubs\<project-id>\<stub-id>\source
 docker compose up --build
-# Stub: http://localhost:8080
-# Health: http://localhost:8081/actuator/health
+# Stub runs at http://localhost:8080
 ```
 
 ---
 
-## Running the Tests
+## Input file formats you can test
 
-### parser-worker (~480 tests)
+| Format | How to detect it |
+|--------|-----------------|
+| Level 1 TXT (simple) | Header line: `--- MOCKINGBIRD v1.0 LEVEL 1 ---` |
+| Level 2 TXT (multi-scenario) | Header line: `--- MOCKINGBIRD v1.0 LEVEL 2 ---` |
+| Stateful TXT | Header line: `--- MOCKINGBIRD v1.0 STATEFUL ---` |
+| SOAP TXT | Header line: `--- MOCKINGBIRD v1.0 SOAP ---` |
+| Postman v2.1 | JSON with `"info": { "_postman_id": "..." }` |
+| OpenAPI / Swagger | YAML/JSON with `openapi:` or `swagger:` at the top |
+| Kafka | JSON with `"_mockingbird_kafka": "1.0"` |
+| IBM MQ | JSON with `"_mockingbird_mq": "1.0"` |
+| AsyncAPI (Microcks) | YAML/JSON with `asyncapi:` at the top |
 
-Covers all input format parsers and all stub generators (WireMock, Kafka, Microcks, IBM MQ).
+---
 
-```bash
-cd services/parser-worker
-venv\Scripts\Activate.ps1        # activate venv from install above
-pip install -e ".[dev]"
+## Testing validation (invalid file on purpose)
 
-pytest                                             # all tests
-pytest -v                                          # verbose
-pytest tests/test_mq_parser.py -v                  # one file
-pytest -k "kafka"                                  # keyword filter
-pytest --cov=src/parser_worker --cov-report=term-missing
+Upload a blank `.txt` file or a file with a typo in the header — the UI will show the validation errors returned by the parser.
+
+You can also test the validation API directly:
+
+```powershell
+# First get a token
+$resp = curl.exe -s -X POST http://localhost:3001/api/v1/auth/login `
+  -H "Content-Type: application/json" `
+  -d '{"username":"admin","password":"Test1234!"}'
+$token = ($resp | ConvertFrom-Json).access_token
+
+# Upload a file (replace <project-id> with your actual project UUID from the portal)
+curl.exe -X POST http://localhost:8003/api/v1/projects/<project-id>/stubs/upload `
+  -H "Authorization: Bearer $token" `
+  -F "stub_name=My Payment Stub" `
+  -F "file=@C:\Users\karrir\Desktop\payment.txt"
 ```
 
-| Test file | What it covers |
-|-----------|---------------|
-| `test_txt_level1.py` | Simple TXT format |
-| `test_txt_level2.py` | Multi-scenario TXT |
-| `test_stateful.py` | Stateful flows |
-| `test_soap.py` | SOAP / XML |
-| `test_postman.py` | Postman v2.1 |
-| `test_openapi.py` | OpenAPI 3.x / Swagger 2.x |
-| `test_kafka_parser.py` + `test_kafka_generator.py` | Kafka (Sprint 22) |
-| `test_asyncapi_parser.py` + `test_microcks_generator.py` | AsyncAPI / Microcks (Sprint 23) |
-| `test_mq_parser.py` + `test_mq_generator.py` | IBM MQ (Sprint 24) |
+Response shows format detected, stub count, any errors.
 
-### project-service (~44 tests)
+---
 
-Uses SQLite in-memory — no postgres needed.
+## Running the parser tests (no services needed)
 
-```bash
-cd services/project-service
-python -m venv venv && venv\Scripts\Activate.ps1
+The parser can be tested entirely from the command line — no auth, no database, no upload:
+
+```powershell
+cd C:\Workspace\Mockingbird\services\parser-worker
+.\venv\Scripts\Activate.ps1   # if not already activated
 pip install -e ".[dev]"
+
+# Run all ~480 tests
 pytest
-```
 
-### auth-service (~18 tests)
+# Run tests for a specific format
+pytest tests/test_txt_level1.py -v
+pytest tests/test_kafka_parser.py -v
+pytest tests/test_mq_parser.py -v
 
-```bash
-cd services/auth-service
-npm install
-npm test
-```
-
-### Other Python services
-
-Same pattern for any service:
-
-```bash
-cd services/<name>
-python -m venv venv && venv\Scripts\Activate.ps1
-pip install -e ".[dev]"
-pytest
+# Generate a stub directly from the command line (skip the UI entirely)
+sv-gen --input C:\Users\karrir\Desktop\payment.txt --output C:\Temp\my-stub
 ```
 
 ---
 
-## What is Pending
+## Stopping everything
 
-### Organisation config (not needed for local dev)
+Press `Ctrl+C` in each terminal.
 
-| Priority | Item | Used for |
-|----------|------|---------|
-| 🔴 | GitLab Container Registry URL | Pushing built Docker images in CI |
-| 🔴 | Artifactory URLs (Maven, PyPI, npm, Docker) | GitLab CI builds (local dev uses public registries) |
-| 🟡 | HashiCorp Vault endpoint | Secrets in production (local dev uses env vars) |
-| 🟡 | LDAP server hostname + base DN | Phase 2 auth (local dev uses password login) |
-| 🟡 | Splunk HEC endpoint + token | Log forwarding |
-| 🟡 | AppDynamics agent key | APM in stub containers |
+Data is saved in:
+- `services\auth-service\auth-local.db` — users (SQLite)
+- `services\project-service\mockingbird.db` — projects and stubs (SQLite)
+- `services\ingestion-service\ingestion.db` — ingestion records (SQLite)
+- `services\ingestion-service\uploads\` — uploaded spec files
 
-### AWS infrastructure (not yet provisioned)
+Delete these files to start fresh.
 
-Real AWS S3, SQS, RDS, ElastiCache, ECS, Timestream, IAM roles, Terraform state bucket and lock table. LocalStack fills in for S3 and SQS in local dev.
+---
 
-### Code still to wire up
+## Troubleshooting
 
-| Item | Detail |
-|------|--------|
-| generator-worker MQ routing | Needs a branch to call `generate_mq_project()` when `engine_type == "MQ"` |
-| deployer-worker MQ SQS payload | MQ stubs use the same GitLab CI/Kaniko build as Kafka — needs `engine_type` field in the deploy SQS message |
-| Portal engine selector | UI needs connection fields (broker host, queue names) for Kafka / MQ project creation |
-| Vault integration | All services currently read secrets from env vars; Vault is wired as the production path but not yet connected |
-| LDAP / SAML | auth-service code is ready; needs LDAP server details |
-| End-to-end integration test | No test covers the full ingestion → parse → generate → deploy flow |
+| Problem | Fix |
+|---------|-----|
+| `npm run dev` fails with `cannot find module` | Run `npm install` first |
+| `Activate.ps1` is blocked by PowerShell | Run: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser` |
+| Port 3001 / 8001 / 8003 already in use | Find the process: `netstat -ano \| findstr :3001` → kill it in Task Manager |
+| `alembic upgrade head` fails | Make sure `$env:DATABASE_URL` is set in the same terminal before running it |
+| Login fails with 401 | Password must be at least 8 characters. Try `Test1234!` |
+| Portal shows proxy error | One of the backend services (3001, 8001, 8003) is not running |
+| `pip install` fails | Make sure Python virtual environment is activated (you should see `(venv)` in the prompt) |
