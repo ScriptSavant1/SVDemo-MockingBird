@@ -28,23 +28,19 @@ Start-Service "auth-service" @(
 # 2. project-service (Python + SQLite)
 Start-Service "project-service" @(
     "Set-Location '$root\services\project-service'",
-    "Write-Host '[project-service] Activating venv...' -ForegroundColor Green",
-    ".\venv\Scripts\Activate.ps1",
     "`$env:DATABASE_URL = 'sqlite:///./mockingbird.db'",
     "Write-Host '[project-service] Starting on http://localhost:8001' -ForegroundColor Green",
-    "uvicorn project_service.main:app --host 0.0.0.0 --port 8001 --reload"
+    ".\venv\Scripts\python.exe -m uvicorn project_service.main:app --host 0.0.0.0 --port 8001 --reload"
 )
 
 # 3. ingestion-service (Python + SQLite + local file storage — no S3 needed)
 Start-Service "ingestion-service" @(
     "Set-Location '$root\services\ingestion-service'",
-    "Write-Host '[ingestion-service] Activating venv...' -ForegroundColor Green",
-    ".\venv\Scripts\Activate.ps1",
     "`$env:DATABASE_URL = 'sqlite:///./ingestion.db'",
     "`$env:LOCAL_STORAGE_PATH = '.\uploads'",
     "`$env:JWT_SECRET = 'local-dev-secret'",
     "Write-Host '[ingestion-service] Starting on http://localhost:8003' -ForegroundColor Green",
-    "uvicorn ingestion_service.main:app --host 0.0.0.0 --port 8003 --reload"
+    ".\venv\Scripts\python.exe -m uvicorn ingestion_service.main:app --host 0.0.0.0 --port 8003 --reload"
 )
 
 # 4. portal (React + Vite)

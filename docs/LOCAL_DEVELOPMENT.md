@@ -15,31 +15,45 @@ If missing:
 
 ---
 
-## One-time setup (do this before the first run)
+## One-time setup — run these BEFORE start-dev.ps1
 
+You only do this once. Each block is a separate command sequence.
+
+**auth-service (Node.js):**
 ```powershell
-# 1. Install auth-service Node packages
 cd C:\Workspace\Mockingbird\services\auth-service
 npm install
+```
 
-# 2. Set up project-service Python environment
+**project-service (Python):**
+```powershell
 cd C:\Workspace\Mockingbird\services\project-service
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
 $env:DATABASE_URL = "sqlite:///./mockingbird.db"
-alembic upgrade head        # creates the database tables
+alembic upgrade head
+```
+> `alembic upgrade head` creates the database tables. Run it once only.
 
-# 3. Set up ingestion-service Python environment
+**ingestion-service (Python):**
+```powershell
 cd C:\Workspace\Mockingbird\services\ingestion-service
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
+```
 
-# 4. Install portal packages
+**portal (Node.js):**
+```powershell
 cd C:\Workspace\Mockingbird\portal
 npm install
 ```
+
+> If `Activate.ps1` is blocked, run this first (once per machine):
+> ```powershell
+> Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+> ```
 
 ---
 
