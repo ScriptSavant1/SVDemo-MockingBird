@@ -1,0 +1,51 @@
+spring:
+  application:
+    name: mockingbird-kafka-stub
+  threads:
+    virtual:
+      enabled: true   # Java 21 virtual threads
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      auto-offset-reset: latest
+      enable-auto-commit: true
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+
+# REST server for /api/stubs trigger endpoint
+server:
+  port: ${SERVER_PORT:8080}
+
+# Actuator on a separate port — metrics-service scrapes /actuator/prometheus every 30s
+management:
+  server:
+    port: 8081
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+    prometheus:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      project_id: ${STUB_PROJECT_ID:unknown}
+      project_name: ${STUB_PROJECT_NAME:unknown}
+      environment: ${STUB_ENVIRONMENT:dev}
+
+logging:
+  structured:
+    format:
+      console: json
+  level:
+    root: INFO
+    com.mockingbird: INFO
+    org.apache.kafka: WARN

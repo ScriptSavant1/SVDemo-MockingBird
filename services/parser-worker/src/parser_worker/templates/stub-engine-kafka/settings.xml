@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Maven settings — Artifactory mirror configuration.
+
+  ALL URLs and credentials come from environment variables.
+  Set ARTIFACTORY_MAVEN_URL, ARTIFACTORY_USR, ARTIFACTORY_PSWD
+  before running any mvn command.
+
+  In GitLab CI: these are injected automatically from Vault via the pipeline.
+  Locally:      export them from config/local.env before running mvn.
+-->
+<settings xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 http://maven.apache.org/xsd/settings-1.0.0.xsd">
+
+  <localRepository>/tmp/maven-cache</localRepository>
+
+  <servers>
+    <server>
+      <id>artifactory-mirror</id>
+      <!-- Credentials fetched from Vault in CI; set manually for local builds -->
+      <username>${env.ARTIFACTORY_USR}</username>
+      <password>${env.ARTIFACTORY_PSWD}</password>
+    </server>
+  </servers>
+
+  <mirrors>
+    <mirror>
+      <id>artifactory-mirror</id>
+      <name>Artifactory (all repos)</name>
+      <!-- ARTIFACTORY_MAVEN_URL is defined in config/local.env -->
+      <url>${env.ARTIFACTORY_MAVEN_URL}</url>
+      <mirrorOf>*</mirrorOf>
+    </mirror>
+  </mirrors>
+
+  <profiles>
+    <profile>
+      <id>artifactory</id>
+      <repositories>
+        <repository>
+          <id>artifactory-central</id>
+          <name>Artifactory</name>
+          <url>${env.ARTIFACTORY_MAVEN_URL}</url>
+          <layout>default</layout>
+          <releases>
+            <enabled>true</enabled>
+            <updatePolicy>daily</updatePolicy>
+            <checksumPolicy>fail</checksumPolicy>
+          </releases>
+          <snapshots>
+            <enabled>true</enabled>
+            <updatePolicy>always</updatePolicy>
+            <checksumPolicy>fail</checksumPolicy>
+          </snapshots>
+        </repository>
+      </repositories>
+      <pluginRepositories>
+        <pluginRepository>
+          <id>artifactory-central</id>
+          <name>Artifactory</name>
+          <url>${env.ARTIFACTORY_MAVEN_URL}</url>
+          <layout>default</layout>
+          <releases>
+            <enabled>true</enabled>
+          </releases>
+          <snapshots>
+            <enabled>true</enabled>
+          </snapshots>
+        </pluginRepository>
+      </pluginRepositories>
+    </profile>
+  </profiles>
+
+  <activeProfiles>
+    <activeProfile>artifactory</activeProfile>
+  </activeProfiles>
+
+</settings>

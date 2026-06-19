@@ -2,8 +2,8 @@
 ## Read This First When Starting a New Session
 
 **Last Updated:** 2026-06-19 (Session 9)
-**Status:** Phases 1–6 COMPLETE. Phase 7 Sprints 18 + 21 COMPLETE. ~690 tests passing across all services.
-**Next Action:** Phase 7 Sprint 22 — Kafka stub engine (Spring Boot + Spring Kafka)
+**Status:** Phases 1–6 COMPLETE. Phase 7 Sprints 18 + 21 + 22 COMPLETE. ~720 tests passing across all services.
+**Next Action:** Phase 7 Sprint 23 — Microcks (AsyncAPI + Avro schema registry)
 
 ---
 
@@ -112,8 +112,8 @@ Mockingbird is a **Service Virtualisation (SV) platform**.
 |--------|---------------|--------|
 | Sprint 18 | ai-service (Python + FastAPI): Claude API integration (`claude-sonnet-4-6`), plain-English description → OpenAPI stub spec generation, generation history DB (SQLite/PostgreSQL), rate limiting. Portal AI Generate page: textarea → spec preview → "Create Stubs" (posts Postman JSON to ingestion-service) | ✅ COMPLETE — 11 tests |
 | Sprint 21 | notification-service (Node.js 20 + Fastify): email + Slack + MS Teams webhooks, SQS consumer for EventBridge events, POST /api/v1/notify/send | ✅ COMPLETE — 20 tests |
-| Sprint 22 | Kafka stub engine (Spring Boot + Spring Kafka) | ❌ NOT STARTED |
-| Sprint 23 | Microcks — AsyncAPI + Avro schema registry | ❌ NOT STARTED |
+| Sprint 22 | Kafka stub engine (Spring Boot + Spring Kafka) — KafkaJsonParser, kafka_springboot.py generator, 5 Java templates | ✅ COMPLETE — 27 tests |
+| Sprint 23 | Microcks — AsyncAPI + Avro schema registry | ❌ Next |
 | Sprint 24 | IBM MQ stub engine (Spring Boot + Spring JMS) | ❌ NOT STARTED |
 
 ---
@@ -125,7 +125,7 @@ Mockingbird is a **Service Virtualisation (SV) platform**.
 | Service | What It Does | Sprint |
 |---------|-------------|--------|
 | notification-service | Email (SMTP), Slack webhook, MS Teams webhook — fires on: stub deployed, deploy failed, report ready, stub suspended | Sprint 21 |
-| Kafka stub engine | Spring Boot + Spring Kafka — generates stubs for Kafka message consumers | Sprint 22 |
+| Kafka stub engine | Spring Boot + Spring Kafka — generates stubs for Kafka message consumers | ✅ Sprint 22 done |
 | Microcks | AsyncAPI + Avro schema registry support for complex async stubs | Sprint 23 |
 | IBM MQ stub engine | Spring Boot + Spring JMS for legacy IBM MQ teams | Sprint 24 |
 
@@ -174,7 +174,7 @@ Mockingbird is a **Service Virtualisation (SV) platform**.
 |--------|----------|-----|--------|
 | Spring Boot + WireMock (Netty) **PRIMARY** | All REST + SOAP | 12,000–18,000 | ✅ generator-worker produces these |
 | Hoverfly (Go) | > 18K TPS only | 18,000–25,000 | Architecture defined, not automated |
-| Spring Boot + Spring Kafka | Kafka stubs | async | ❌ Sprint 22 |
+| Spring Boot + Spring Kafka | Kafka stubs | async | ✅ Sprint 22 — generator + templates done |
 | Microcks | AsyncAPI + Avro | async | ❌ Sprint 23 |
 | Spring Boot + Spring JMS | IBM MQ | N/A | ❌ Sprint 24 |
 
@@ -334,7 +334,7 @@ c:\Workspace\Mockingbird\
 | 6 | 19 | Metrics history chart, Reports tab, presigned URL downloads | ✅ |
 | 6 | 20 | Admin panel, Create/Edit/Archive project, Modal component | ✅ |
 | 7 | 21 | notification-service (email + Slack + MS Teams) | ✅ |
-| 7 | 22 | Kafka stub engine (Spring Boot + Spring Kafka) | ❌ Next |
+| 7 | 22 | Kafka stub engine (Spring Boot + Spring Kafka) — models_kafka.py, KafkaJsonParser, kafka_springboot.py generator, 5 Java templates (KafkaStubApplication, StubDefinition, StubRegistry, KafkaStubConsumer, StubController) | ✅ |
 | 7 | 23 | Microcks — AsyncAPI + Avro | ❌ |
 | 7 | 24 | IBM MQ stub engine (Spring Boot + Spring JMS) | ❌ |
 
@@ -342,7 +342,7 @@ c:\Workspace\Mockingbird\
 
 | Service | Tests | Confirmed |
 |---------|-------|-----------|
-| parser-worker | ~388 | ✅ |
+| parser-worker | ~415 | ✅ (includes 27 new Kafka tests) |
 | project-service | 96 | ✅ |
 | auth-service | 32 | ✅ |
 | ingestion-service | 18 | ✅ |
@@ -368,9 +368,9 @@ If platform goes down: portal unavailable, but all deployed stubs keep running a
 ```
 Read START_HERE.md and CLAUDE.md. Resume Mockingbird.
 
-Phases 1–6 complete. Phase 7 Sprints 18 + 21 complete. ~690 tests passing.
-Start Phase 7 Sprint 22 — Kafka stub engine (Spring Boot + Spring Kafka, generator-worker
-extension to produce Kafka consumer stub projects, basic consumer + producer stub support).
+Phases 1–6 complete. Phase 7 Sprints 18 + 21 + 22 complete. ~720 tests passing.
+Start Phase 7 Sprint 23 — Microcks integration (AsyncAPI + Avro schema registry support,
+deployer-worker extension to run Microcks as Docker container alongside the Kafka stub engine).
 ```
 
 **To start a specific sprint instead:**
