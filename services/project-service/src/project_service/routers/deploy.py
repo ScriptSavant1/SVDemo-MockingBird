@@ -29,7 +29,7 @@ from ..config import settings
 from ..database import get_db
 from ..dependencies import CurrentUser, get_current_user, require_sv_team_or_admin
 from ..models import Deployment, Job, Project, Stub
-from ..schemas import DeploymentOut, DeployTriggerOut, ReportTriggerOut, SuspendTriggerOut
+from ..schemas import DeploymentOut, DeployTriggerOut, ReportJobOut, ReportTriggerOut, SuspendTriggerOut
 from ..sqs_client import enqueue_deploy_job, enqueue_report_job, get_sqs_client
 
 router = APIRouter(prefix="/api/v1", tags=["deployments"])
@@ -300,6 +300,7 @@ def trigger_report(
         type="REPORT",
         project_id=project_id,
         stub_id=deployment.stub_id,
+        deployment_id=deployment_id,
         status="QUEUED",
         payload={"deployment_id": str(deployment_id), "report_period_hours": report_period_hours},
     )
@@ -314,3 +315,26 @@ def trigger_report(
     db.commit()
 
     return ReportTriggerOut(deployment_id=deployment_id, job_id=job.id)
+
+
+@router.get(
+    "/projects/{project_id}/deployments/{deployment_id}/reports",
+    response_model=list[ReportJobOut],
+    summary="List report jobs for a deployment (newest first, last 10)",
+)
+def list_reports(
+    project_id: uuid.UUID,
+    deployment_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(get_current_user),
+) -> list[Job]:
+    deployment = db.get(Deployment, deployment_id)
+    if deployment is None or deployment.project_id != project_id:
+        raise HTTPException(status_code=404, detail={**_NOT_FOUND, "detail": f"Deployment {deployment_id} not found"})
+    return (
+        db.query(Job)
+        .filter(Job.type == "REPORT", Job.deployment_id == deployment_id)
+        .order_by(Job.created_at.desc())
+        .limit(10)
+        .all()
+    )

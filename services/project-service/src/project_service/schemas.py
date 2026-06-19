@@ -188,6 +188,24 @@ class ReportTriggerOut(BaseModel):
     message: str = "Report job queued. Poll /api/v1/jobs/{job_id} for status updates."
 
 
+# ── Reports ────────────────────────────────────────────────────────────────────
+
+class ReportJobOut(BaseModel):
+    id: uuid.UUID
+    status: str
+    result: Optional[dict]
+    error_message: Optional[str]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DownloadUrlOut(BaseModel):
+    url: str
+    format: str
+    expires_in_seconds: int = 900
+
+
 # ── Health ─────────────────────────────────────────────────────────────────────
 
 class HealthOut(BaseModel):

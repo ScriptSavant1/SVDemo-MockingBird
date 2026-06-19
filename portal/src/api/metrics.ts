@@ -1,14 +1,9 @@
 import { api } from "./client";
-import type { MetricSnapshot } from "./types";
-
-export interface MetricHistory {
-  deployment_id: string;
-  points: MetricSnapshot[];
-}
+import type { MetricHistoryResponse } from "./types";
 
 export const metricsApi = {
-  current: (deploymentId: string) =>
-    api.get<MetricSnapshot>(`/api/v1/metrics/${deploymentId}/current`),
-  history: (deploymentId: string) =>
-    api.get<MetricHistory>(`/api/v1/metrics/${deploymentId}/history`),
+  history: (deploymentId: string, minutes: number = 60) =>
+    api.get<MetricHistoryResponse>(
+      `/api/v1/metrics/${deploymentId}/history?minutes=${minutes}`,
+    ),
 };

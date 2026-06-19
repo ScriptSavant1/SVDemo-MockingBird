@@ -133,6 +133,8 @@ class Job(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="QUEUED")
     project_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=True)
     stub_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("stubs.id"), nullable=True)
+    # Denormalised for efficient REPORT job lookup — no FK to avoid circular dependency with deployments
+    deployment_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
     sqs_message_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     # SQS message contract: {job_id, type, payload, created_at, project_id}
     payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)

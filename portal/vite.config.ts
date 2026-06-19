@@ -22,6 +22,11 @@ export default defineConfig({
         target: "http://localhost:8004",
         changeOrigin: true,
       },
+      // metrics-service routes — must precede generic /api/v1
+      "/api/v1/metrics": {
+        target: "http://localhost:8005",
+        changeOrigin: true,
+      },
       // ingestion-service routes (file upload + source download) — must precede generic /api/v1
       "^/api/v1/projects/[^/]+/stubs/upload$": {
         target: "http://localhost:8003",

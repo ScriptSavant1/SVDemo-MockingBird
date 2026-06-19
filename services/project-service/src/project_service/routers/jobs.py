@@ -12,14 +12,15 @@ from __future__ import annotations
 import uuid
 from pathlib import PurePosixPath
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import boto3
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
 from ..dependencies import CurrentUser, get_current_user, require_sv_team_or_admin
 from ..models import Job, Project, Stub
-from ..schemas import GenerateTriggerOut, JobOut
+from ..schemas import DownloadUrlOut, GenerateTriggerOut, JobOut
 from ..sqs_client import enqueue_parse_job, get_sqs_client
 
 router = APIRouter(prefix="/api/v1", tags=["jobs"])
@@ -97,3 +98,43 @@ def get_job(
             detail={"type": "https://mockingbird.internal/errors/not-found", "title": "Not Found", "status": 404, "detail": f"Job {job_id} not found"},
         )
     return job
+
+
+_FORMAT_KEY_MAP = {"pdf": "pdf_key", "excel": "excel_key", "ppt": "ppt_key"}
+
+
+@router.get(
+    "/jobs/{job_id}/download",
+    response_model=DownloadUrlOut,
+    summary="Get a presigned S3 download URL for a completed report job",
+)
+def download_report(
+    job_id: uuid.UUID,
+    format: str = Query(..., pattern="^(pdf|excel|ppt)$", description="pdf | excel | ppt"),
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(get_current_user),
+) -> DownloadUrlOut:
+    job = db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail={"type": "https://mockingbird.internal/errors/not-found", "title": "Not Found", "status": 404, "detail": f"Job {job_id} not found"})
+    if job.type != "REPORT":
+        raise HTTPException(status_code=400, detail="Job is not a REPORT job")
+    if job.status != "DONE":
+        raise HTTPException(status_code=400, detail=f"Report is not ready yet (status={job.status})")
+
+    s3_key = (job.result or {}).get(_FORMAT_KEY_MAP[format])
+    if not s3_key:
+        raise HTTPException(status_code=404, detail=f"{format.upper()} report not available for this job")
+
+    expires = 900
+    try:
+        s3 = boto3.client("s3", region_name=settings.aws_region)
+        url = s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": settings.s3_bucket, "Key": s3_key},
+            ExpiresIn=expires,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to generate download URL: {exc}") from exc
+
+    return DownloadUrlOut(url=url, format=format, expires_in_seconds=expires)

@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { Project, Stub, Deployment } from "./types";
+import type { DownloadUrlOut, Project, ReportJob, Stub, Deployment } from "./types";
 
 export interface CreateProjectBody {
   name: string;
@@ -39,4 +39,12 @@ export const projectsApi = {
     api.post<{ deployment_id: string; job_id: string; status: string }>(
       `/api/v1/projects/${projectId}/deployments/${deploymentId}/report`,
     ),
+
+  listReports: (projectId: string, deploymentId: string) =>
+    api.get<ReportJob[]>(
+      `/api/v1/projects/${projectId}/deployments/${deploymentId}/reports`,
+    ),
+
+  downloadReport: (jobId: string, format: "pdf" | "excel" | "ppt") =>
+    api.get<DownloadUrlOut>(`/api/v1/jobs/${jobId}/download?format=${format}`),
 };

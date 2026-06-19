@@ -74,3 +74,30 @@ export interface JobOut {
   created_at: string;
   updated_at: string;
 }
+
+export interface MetricHistoryPoint {
+  time: string;
+  tps: number;
+  latency_avg_ms: number;
+  error_rate: number;
+}
+
+export interface MetricHistoryResponse {
+  deployment_id: string;
+  points: MetricHistoryPoint[];
+  query_minutes: number;
+}
+
+export interface ReportJob {
+  id: string;
+  status: JobStatus;
+  result: Record<string, string | null> | null;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface DownloadUrlOut {
+  url: string;
+  format: string;
+  expires_in_seconds: number;
+}
