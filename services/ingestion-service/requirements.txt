@@ -1,0 +1,30 @@
+# ingestion-service — package requirements
+# Source of truth: pyproject.toml
+# These are loose version constraints so the file works on Windows, RHEL 9, and all platforms.
+#
+# IMPORTANT: parser-worker (a local sibling package) must be installed before this service.
+#            setup.ps1 and setup.sh handle this automatically.
+#            Manual install order:
+#              pip install -e ../parser-worker
+#              pip install -r requirements.txt
+#              pip install -e .
+#
+# Install:   pip install -r requirements.txt
+# After:     pip install -e .        (makes ingestion_service importable by uvicorn)
+
+# Runtime
+fastapi>=0.110.0,<0.120.0
+uvicorn[standard]>=0.29.0,<0.31.0
+sqlalchemy>=2.0.0,<3.0.0
+psycopg2-binary>=2.9.0,<3.0.0
+python-jose[cryptography]>=3.3.0,<4.0.0
+boto3>=1.34.0,<2.0.0
+pydantic>=2.0,<3.0
+pydantic-settings>=2.0,<3.0
+python-multipart>=0.0.9,<1.0.0
+
+# Dev / test
+pytest>=7.4
+pytest-cov>=4.1
+httpx>=0.27.0
+moto[s3]>=5.0.0,<6.0.0

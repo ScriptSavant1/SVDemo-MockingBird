@@ -1,0 +1,25 @@
+# project-service — package requirements
+# Source of truth: pyproject.toml
+# These are loose version constraints so the file works on Windows, RHEL 9, and all platforms.
+#
+# Install:   pip install -r requirements.txt
+# After:     pip install -e .        (makes project_service importable by uvicorn)
+
+# Runtime
+fastapi>=0.110.0,<0.120.0
+uvicorn[standard]>=0.29.0,<0.31.0
+sqlalchemy>=2.0.0,<3.0.0
+psycopg2-binary>=2.9.0,<3.0.0
+alembic>=1.13.0,<2.0.0
+python-jose[cryptography]>=3.3.0,<4.0.0
+pydantic[email]>=2.0,<3.0
+pydantic-settings>=2.0,<3.0
+prometheus-fastapi-instrumentator>=7.0.0,<8.0.0
+boto3>=1.34.0,<2.0.0
+bcrypt>=4.0,<6.0
+
+# Dev / test
+pytest>=7.4
+pytest-cov>=4.1
+httpx>=0.27.0
+moto[sqs]>=5.0.0,<6.0.0

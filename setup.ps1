@@ -40,6 +40,14 @@ function Require-Command($cmd, $installHint) {
     }
 }
 
+# Run a command and stop if it fails (native executables don't throw on $ErrorActionPreference = Stop)
+function Run($cmd) {
+    Invoke-Expression $cmd
+    if ($LASTEXITCODE -ne 0) {
+        Fail "Command failed (exit $LASTEXITCODE): $cmd"
+    }
+}
+
 function Setup-Python-Service($label, $dir) {
     Step "Python service: $label"
     Push-Location (Join-Path $root $dir)
@@ -48,20 +56,20 @@ function Setup-Python-Service($label, $dir) {
         Warn "venv already exists - skipping creation"
     } else {
         Write-Host "  Creating virtual environment..."
-        python -m venv venv
+        Run "python -m venv venv"
         OK "venv created"
     }
 
     Write-Host "  Upgrading pip..."
-    .\venv\Scripts\python.exe -m pip install --upgrade pip --quiet
+    Run ".\venv\Scripts\python.exe -m pip install --upgrade pip --quiet"
 
-    Write-Host "  Installing packages..."
-    .\venv\Scripts\python.exe -m pip install -e ".[dev]" --quiet
+    Write-Host "  Installing packages from requirements.txt..."
+    Run ".\venv\Scripts\python.exe -m pip install -r requirements.txt --quiet"
     OK "packages installed"
 
-    Write-Host "  Generating requirements.txt..."
-    .\venv\Scripts\python.exe -m pip freeze | Out-File -Encoding utf8 requirements.txt
-    OK "requirements.txt written"
+    Write-Host "  Installing package in editable mode..."
+    Run ".\venv\Scripts\python.exe -m pip install -e . --no-deps --quiet"
+    OK "package registered"
 
     Pop-Location
 }
@@ -69,7 +77,7 @@ function Setup-Python-Service($label, $dir) {
 function Setup-Node-Service($label, $dir) {
     Step "Node.js service: $label"
     Push-Location (Join-Path $root $dir)
-    npm install --silent
+    Run "npm install --silent"
     OK "npm packages installed"
     Pop-Location
 }
@@ -103,12 +111,11 @@ if ($allowedPolicies -contains $effectivePolicy) {
         Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
         OK "ExecutionPolicy set to RemoteSigned"
     } catch {
-        # Group Policy may override -- check if the effective policy still allows scripts
         $effective = Get-ExecutionPolicy
         if ($allowedPolicies -contains $effective) {
-            OK "ExecutionPolicy is '$effective' (overridden by Group Policy but scripts can still run)"
+            OK "ExecutionPolicy is '$effective' (managed by Group Policy, scripts can run)"
         } else {
-            Fail "ExecutionPolicy '$effective' blocks scripts. Ask your IT team to allow PowerShell scripts, or run: Set-ExecutionPolicy RemoteSigned -Scope Process"
+            Fail "ExecutionPolicy '$effective' blocks scripts. Ask IT to allow PowerShell scripts."
         }
     }
 }
@@ -125,17 +132,32 @@ Setup-Python-Service "parser-worker" "services\parser-worker"
 
 Setup-Python-Service "project-service" "services\project-service"
 
-Step "Creating project-service SQLite database"
+# ---------------------------------------------------------------------------
+# 5. project-service database
+#    If mockingbird.db already exists, stamp it to head (avoids "table already
+#    exists" error). If it is a fresh install, run upgrade head to create tables.
+# ---------------------------------------------------------------------------
+
+Step "Setting up project-service database"
 Push-Location (Join-Path $root "services\project-service")
 $env:DATABASE_URL = "sqlite:///./mockingbird.db"
-.\venv\Scripts\python.exe -m alembic upgrade head
-OK "database tables created (mockingbird.db)"
+
+if (Test-Path "mockingbird.db") {
+    Write-Host "  Database already exists - stamping to current migration head..."
+    Run ".\venv\Scripts\python.exe -m alembic stamp head"
+    OK "database already at current version (no migration needed)"
+} else {
+    Write-Host "  Creating database and running migrations..."
+    Run ".\venv\Scripts\python.exe -m alembic upgrade head"
+    OK "database created and tables set up (mockingbird.db)"
+}
+
 Pop-Location
 
 # ---------------------------------------------------------------------------
-# 5. ingestion-service
-#    parser-worker is a direct dependency so it must be installed into
-#    this venv first, then the ingestion-service packages on top.
+# 6. ingestion-service
+#    parser-worker must be installed into this venv first because
+#    ingestion-service imports parser_worker at runtime.
 # ---------------------------------------------------------------------------
 
 Step "Python service: ingestion-service"
@@ -145,41 +167,41 @@ if (Test-Path "venv") {
     Warn "venv already exists - skipping creation"
 } else {
     Write-Host "  Creating virtual environment..."
-    python -m venv venv
+    Run "python -m venv venv"
     OK "venv created"
 }
 
 Write-Host "  Upgrading pip..."
-.\venv\Scripts\python.exe -m pip install --upgrade pip --quiet
+Run ".\venv\Scripts\python.exe -m pip install --upgrade pip --quiet"
 
 Write-Host "  Installing parser-worker dependency first..."
-.\venv\Scripts\python.exe -m pip install -e "..\parser-worker" --quiet
+Run ".\venv\Scripts\python.exe -m pip install -e '..\parser-worker' --quiet"
 OK "parser-worker installed"
 
-Write-Host "  Installing ingestion-service packages..."
-.\venv\Scripts\python.exe -m pip install -e ".[dev]" --quiet
+Write-Host "  Installing packages from requirements.txt..."
+Run ".\venv\Scripts\python.exe -m pip install -r requirements.txt --quiet"
 OK "packages installed"
 
-Write-Host "  Generating requirements.txt..."
-.\venv\Scripts\python.exe -m pip freeze | Out-File -Encoding utf8 requirements.txt
-OK "requirements.txt written"
+Write-Host "  Installing package in editable mode..."
+Run ".\venv\Scripts\python.exe -m pip install -e . --no-deps --quiet"
+OK "package registered"
 
 Pop-Location
 
 # ---------------------------------------------------------------------------
-# 6. auth-service (Node.js)
+# 7. auth-service (Node.js)
 # ---------------------------------------------------------------------------
 
 Setup-Node-Service "auth-service" "services\auth-service"
 
 # ---------------------------------------------------------------------------
-# 7. portal (Node.js)
+# 8. portal (Node.js)
 # ---------------------------------------------------------------------------
 
 Setup-Node-Service "portal" "portal"
 
 # ---------------------------------------------------------------------------
-# 8. Verify everything is in place
+# 9. Verify everything is in place
 # ---------------------------------------------------------------------------
 
 Step "Verifying setup"

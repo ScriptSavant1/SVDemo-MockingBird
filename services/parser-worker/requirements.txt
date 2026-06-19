@@ -1,12 +1,19 @@
-# All packages from Artifactory PyPI mirror:
-# https://artifactory.internal/artifactory/dws-all-repos
-# pip install --index-url https://artifactory.internal/artifactory/api/pypi/dws-all-repos/simple -r requirements.txt
+# parser-worker — package requirements
+# Source of truth: pyproject.toml
+# These are loose version constraints so the file works on Windows, RHEL 9, and all platforms.
+#
+# Install:   pip install -r requirements.txt
+# After:     pip install -e .        (makes 'sv-gen' CLI and parser_worker importable)
 
+# Runtime
 pydantic>=2.0,<3.0
 click>=8.1,<9.0
 jinja2>=3.1,<4.0
 pyyaml>=6.0,<7.0
 
-# Dev / test only
+# Dev / test
 pytest>=7.4
 pytest-cov>=4.1
+boto3>=1.34.0,<2.0.0
+sqlalchemy>=2.0.0,<3.0.0
+moto[s3,sqs]>=5.0.0,<6.0.0
