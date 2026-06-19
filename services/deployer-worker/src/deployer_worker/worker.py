@@ -21,18 +21,24 @@ SQS message payload:
 """
 from __future__ import annotations
 
+import io
 import json
 import logging
+import os
+import tempfile
 import time
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import boto3
 from sqlalchemy.orm import Session
 
 from .gitlab_client import GitLabClient
 from .health import wait_for_ec2_healthy
+from .microcks import MicrocksDeployError, deploy_microcks
 from .terraform import TerraformError, apply as tf_apply, destroy as tf_destroy
 
 logger = logging.getLogger(__name__)
@@ -134,6 +140,25 @@ def process_message(
     job_id: str = body["job_id"]
     payload: dict = body["payload"]
     project_id: str = body["project_id"]
+
+    # Route by engine type — Microcks skips GitLab CI (pre-built image)
+    engine_type = payload.get("engine_type", "SPRINGBOOT")
+    if engine_type == "MICROCKS":
+        _handle_microcks_deploy(
+            payload=payload,
+            db=db,
+            job_id=job_id,
+            project_id=project_id,
+            terraform_dir=terraform_dir,
+            state_bucket=state_bucket,
+            aws_region=aws_region,
+            locks_table=locks_table,
+            ec2_subnet_id=ec2_subnet_id,
+            ec2_security_group_id=ec2_security_group_id,
+            ec2_key_pair_name=ec2_key_pair_name,
+            ec2_iam_instance_profile=ec2_iam_instance_profile,
+        )
+        return
 
     # SUSPEND action — just run terraform destroy
     if payload.get("action") == "SUSPEND":
@@ -259,6 +284,124 @@ def process_message(
             "stub_url": stub_url,
             "ec2_instance_id": ec2_instance_id,
             "ec2_ip_address": ec2_ip,
+        },
+    )
+
+
+def _handle_microcks_deploy(
+    payload: dict,
+    db: Session,
+    job_id: str,
+    project_id: str,
+    terraform_dir: Path,
+    state_bucket: str,
+    aws_region: str,
+    locks_table: str,
+    ec2_subnet_id: str,
+    ec2_security_group_id: str,
+    ec2_key_pair_name: str,
+    ec2_iam_instance_profile: str,
+) -> None:
+    """Deploy a Microcks container to EC2 (no GitLab CI build required)."""
+    deployment_id: str = payload["deployment_id"]
+    stub_id: str = payload.get("stub_id", "unknown")
+    microcks_s3_key: str = payload["microcks_s3_key"]
+    ssh_key_path: str = os.environ.get("EC2_SSH_KEY_PATH", "/secrets/ec2-key.pem")
+
+    _update_job(db, job_id, status="RUNNING")
+    _update_deployment(db, deployment_id, status="PROVISIONING")
+
+    # ── Step 1: Terraform apply ───────────────────────────────────────────────
+    api_key = _get_deployment_api_key(db, deployment_id)
+    state_key = f"stubs/{project_id}/{stub_id}/terraform.tfstate"
+    tf_vars = {
+        "project_id": project_id,
+        "stub_id": stub_id,
+        "docker_image": "",
+        "stub_api_key": api_key,
+        "subnet_id": ec2_subnet_id,
+        "security_group_id": ec2_security_group_id,
+        "key_name": ec2_key_pair_name,
+        "iam_instance_profile": ec2_iam_instance_profile,
+        "aws_region": aws_region,
+        "java_base_image": "",
+    }
+
+    try:
+        tf_outputs = tf_apply(
+            terraform_dir, tf_vars,
+            state_bucket=state_bucket, state_key=state_key,
+            aws_region=aws_region, locks_table=locks_table,
+        )
+    except TerraformError as exc:
+        err = str(exc)
+        logger.error("Terraform apply failed for Microcks deployment %s: %s", deployment_id, err)
+        _update_deployment(db, deployment_id, status="FAILED", error_message=err)
+        _update_job(db, job_id, status="FAILED", error=err)
+        return
+
+    ec2_instance_id = tf_outputs.get("instance_id", {}).get("value", "")
+    ec2_ip = tf_outputs.get("elastic_ip", {}).get("value", "")
+
+    # ── Step 2: Download + extract microcks config zip from S3 ───────────────
+    s3 = boto3.client("s3", region_name=aws_region)
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            zip_path = tmp_dir / "microcks-config.zip"
+            s3.download_file(state_bucket, microcks_s3_key, str(zip_path))
+            config_dir = tmp_dir / "config"
+            with zipfile.ZipFile(zip_path) as zf:
+                zf.extractall(config_dir)
+
+            # ── Step 3: SSH deploy ────────────────────────────────────────────
+            logger.info("SSH-deploying Microcks to EC2 %s for deployment %s", ec2_ip, deployment_id)
+            deploy_microcks(ec2_ip, ssh_key_path, config_dir)
+
+    except MicrocksDeployError as exc:
+        err = str(exc)
+        logger.error("Microcks SSH deploy failed for %s: %s", deployment_id, err)
+        _update_deployment(
+            db, deployment_id, status="FAILED",
+            ec2_instance_id=ec2_instance_id, ec2_ip_address=ec2_ip,
+            error_message=err,
+        )
+        _update_job(db, job_id, status="FAILED", error=err)
+        return
+    except Exception as exc:
+        err = f"Microcks deploy error: {exc}"
+        logger.error(err)
+        _update_deployment(db, deployment_id, status="FAILED", error_message=err)
+        _update_job(db, job_id, status="FAILED", error=err)
+        return
+
+    # ── Step 4: health check ──────────────────────────────────────────────────
+    healthy = wait_for_ec2_healthy(ec2_ip)
+    if not healthy:
+        err = f"EC2 {ec2_ip} (Microcks) did not become healthy within timeout"
+        logger.error(err)
+        _update_deployment(
+            db, deployment_id, status="FAILED",
+            ec2_instance_id=ec2_instance_id, ec2_ip_address=ec2_ip,
+            error_message=err,
+        )
+        _update_job(db, job_id, status="FAILED", error=err)
+        return
+
+    stub_url = f"http://{ec2_ip}:8080"
+    logger.info("Microcks deployment %s LIVE at %s", deployment_id, stub_url)
+    _update_deployment(
+        db, deployment_id, status="LIVE",
+        ec2_instance_id=ec2_instance_id, ec2_ip_address=ec2_ip, stub_url=stub_url,
+    )
+    _update_job(
+        db, job_id, status="DONE",
+        result={
+            "deployment_id": deployment_id,
+            "stub_url": stub_url,
+            "ec2_instance_id": ec2_instance_id,
+            "ec2_ip_address": ec2_ip,
+            "engine_type": "MICROCKS",
         },
     )
 

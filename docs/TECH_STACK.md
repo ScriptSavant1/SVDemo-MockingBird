@@ -198,7 +198,7 @@ application.yaml:
 - Can produce messages to Kafka topics on HTTP trigger
 - Can consume from topics and produce to reply topics (request-reply pattern)
 
-#### Engine 4: Microcks (KAFKA + AsyncAPI + Avro)
+#### Engine 4: Microcks (KAFKA + AsyncAPI + Avro) ✅ Sprint 23
 
 **When to use:** Complex AsyncAPI specs with Avro schema registry, gRPC stubs, GraphQL mocks
 
@@ -207,7 +207,16 @@ application.yaml:
 - Apache 2.0 licence
 - Active CNCF community
 
-**Note:** Require separate Microcks instance per project (heavier than Spring Kafka).
+**Note:** Runs as `microcks-uber` Docker image (all-in-one: app + MongoDB + async minion).
+No build step — image pulled from Artifactory mirror at deploy time.
+Deployer SSH-copies docker-compose.microcks.yml + asyncapi.yaml to EC2, runs docker-compose up.
+
+**Input format:** AsyncAPI 2.x or 3.x (YAML or JSON). Detected by `asyncapi:` top-level key.
+**Sprint 23 deliverables:**
+- `models_asyncapi.py` — Pydantic models (ParsedAsyncApiFile, ParsedAsyncApiChannel)
+- `parsers/asyncapi.py` — AsyncApiParser (YAML + JSON, Avro detection, schema registry URL)
+- `generator/microcks.py` — generates docker-compose.microcks.yml + asyncapi.yaml + .env.microcks
+- `deployer_worker/microcks.py` — Paramiko SSH deployer; worker.py engine_type == "MICROCKS" branch
 
 #### Engine 5: Spring Boot + Spring JMS (IBM MQ — Phase 4)
 

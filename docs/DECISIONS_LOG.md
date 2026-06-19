@@ -37,7 +37,8 @@
 | Stub engine (primary) | Spring Boot + WireMock as embedded library (NOT standalone JAR) + Netty | 2026-06-13 |
 | Stub engine (high TPS) | Hoverfly — only if > 18K TPS needed | 2026-06-13 |
 | SOAP implementation | Spring-WS (NOT WireMock's SOAP mode) | 2026-06-13 |
-| Kafka stubs (Phase 4+) | Spring Boot + Spring Kafka (simple) OR Microcks (AsyncAPI + Avro) | 2026-06-13 |
+| Kafka stubs — simple | Spring Boot + Spring Kafka (consumer-reply + producer) | ✅ Sprint 22 |
+| Kafka stubs — AsyncAPI + Avro | Microcks uber image — SSH-deployed via Paramiko, no build step | ✅ Sprint 23 |
 | IBM MQ stubs (Phase 4+) | Spring Boot + Spring JMS | 2026-06-13 |
 | Frontend framework | React 18 + TypeScript strict + Vite | 2026-06-12 |
 | UI components | shadcn/ui + Tailwind CSS | 2026-06-12 |

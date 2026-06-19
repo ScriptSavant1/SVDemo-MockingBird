@@ -358,17 +358,34 @@ Deliverable: Complete self-service portal. SV team no longer a bottleneck.
 
 **Goal:** Complete async protocol support and AI-assisted stub generation.
 
-### Sprint 26–27 (Week 49–52): Microcks + Kafka
+### Sprint 22 (complete): Spring Boot + Spring Kafka
 ```
-Tasks:
-  - AsyncAPI parser (Kafka topic definitions)
-  - Microcks integration: generate Kafka stub configs
-  - Microcks deployer: EC2 + Kafka broker (Docker Compose)
-  - Kafka message production simulation
-  - Kafka consumption simulation (consumer group stubs)
-  - Test with real Kafka client
+Deliverables (✅ done):
+  - models_kafka.py + KafkaJsonParser (.kafka.json format)
+  - kafka_springboot.py generator — 5 Java templates
+  - Two stub types: consumer-reply (listen → reply) and producer (HTTP trigger → publish)
+  - 27 tests passing
+```
 
-Deliverable: Kafka topic stubs deployed via same portal flow
+### Sprint 23 (complete): Microcks (AsyncAPI + Avro)
+```
+Deliverables (✅ done):
+  - models_asyncapi.py + AsyncApiParser (YAML + JSON, AsyncAPI 2.x/3.x)
+  - generator/microcks.py — docker-compose.microcks.yml + asyncapi.yaml + .env.microcks
+  - deployer_worker/microcks.py — Paramiko SSH deployer (no GitLab CI build needed)
+  - worker.py extended: engine_type == "MICROCKS" branch skips Kaniko, SSH-deploys instead
+  - paramiko added to deployer-worker dependencies
+  - 43 tests passing (21 parser/generator + 8 deployer + 14 existing)
+```
+
+### Sprint 26–27 (Week 49–52): (Originally Microcks + Kafka — now done early)
+```
+Completed ahead of schedule as Sprints 22–23.
+Remaining tasks for Sprint 26–27 (if needed):
+  - Avro schema registry integration end-to-end test
+  - AsyncAPI 3.x full support (currently parsed but operation mapping differs)
+  - Kafka broker co-deploy alongside Microcks on EC2
+  - Portal: engine selector (WireMock / Kafka / Microcks) in New Project flow
 ```
 
 ### Sprint 28–29 (Week 53–56): AI-Assisted Generation
