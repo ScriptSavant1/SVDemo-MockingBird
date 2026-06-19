@@ -388,6 +388,17 @@ Remaining tasks for Sprint 26–27 (if needed):
   - Portal: engine selector (WireMock / Kafka / Microcks) in New Project flow
 ```
 
+### Sprint 24 (complete): IBM MQ stub engine (Spring Boot + Spring JMS)
+```
+Deliverables (✅ done):
+  - models_mq.py + MQJsonParser (.mq.json format, _mockingbird_mq: "1.0" marker)
+  - mq_springboot.py generator — 5 Java templates
+  - Two stub types: consumer-reply (DMLC listener → JmsTemplate reply) and producer (HTTP trigger → JmsTemplate send)
+  - MQ connection from ibm.mq.* env vars (MQ_HOST, MQ_PORT, MQ_QUEUE_MANAGER, MQ_CHANNEL, MQ_USER, MQ_PASSWORD)
+  - mq-jms-spring-boot-starter v3.3.0 — no additional Spring JMS dep needed
+  - 30 tests passing
+```
+
 ### Sprint 28–29 (Week 53–56): AI-Assisted Generation
 ```
 Tasks:

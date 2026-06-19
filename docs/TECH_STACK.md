@@ -218,15 +218,29 @@ Deployer SSH-copies docker-compose.microcks.yml + asyncapi.yaml to EC2, runs doc
 - `generator/microcks.py` — generates docker-compose.microcks.yml + asyncapi.yaml + .env.microcks
 - `deployer_worker/microcks.py` — Paramiko SSH deployer; worker.py engine_type == "MICROCKS" branch
 
-#### Engine 5: Spring Boot + Spring JMS (IBM MQ — Phase 4)
+#### Engine 5: Spring Boot + Spring JMS (IBM MQ) ✅ Sprint 24
 
 **When to use:** IBM MQ / JMS stubs (common in banking legacy systems)
 
 **Chosen because:**
-- IBM MQ client JARs available from IBM Fix Central → mirror to Artifactory
-- `com.ibm.mq:com.ibm.mq.allclient` is the standard enterprise MQ library
-- Spring JMS provides `@JmsListener` (consumer simulation) and `JmsTemplate` (producer)
-- Natural fit with Spring Boot stack
+- `com.ibm.mq:mq-jms-spring-boot-starter` (v3.3.0) auto-configures MQConnectionFactory from `ibm.mq.*` env vars
+- Spring JMS `JmsTemplate` for sending; `DefaultMessageListenerContainer` for dynamic queue listeners
+- Natural fit with Spring Boot stack — same build pipeline as WireMock and Kafka engines
+- IBM MQ JARs available from Artifactory (mirrors Maven Central / IBM Fix Central)
+
+**Input format (.mq.json):**
+```json
+{ "_mockingbird_mq": "1.0", "stubs": [
+  { "name": "payment-reply", "type": "consumer-reply",
+    "consume_queue": "PAYMENT.REQUEST.QUEUE", "produce_queue": "PAYMENT.REPLY.QUEUE" },
+  { "name": "account-event", "type": "producer", "produce_queue": "ACCOUNT.EVENT.QUEUE" }
+]}
+```
+**Sprint 24 deliverables:**
+- `models_mq.py` — MQStubType, ParsedMQStub, ParsedMQFile Pydantic models
+- `parsers/mq_json.py` — MQJsonParser (marker: `_mockingbird_mq: "1.0"`)
+- `generator/mq_springboot.py` — generate_mq_project() fills pom.xml + Dockerfile, writes stubs.json
+- Java templates: MQStubApplication, StubDefinition, StubRegistry, MQStubConsumer (DefaultMessageListenerContainer), StubController
 
 #### Engine Selection Decision Tree
 

@@ -1,0 +1,55 @@
+spring:
+  application:
+    name: mockingbird-mq-stub
+  threads:
+    virtual:
+      enabled: true   # Java 21 virtual threads
+
+  # IBM MQ connection — all values injected at runtime via env vars.
+  # The mq-jms-spring-boot-starter auto-configures MQConnectionFactory from these.
+  jms:
+    listener:
+      acknowledge-mode: auto
+
+ibm:
+  mq:
+    queue-manager: ${MQ_QUEUE_MANAGER:QM1}
+    channel: ${MQ_CHANNEL:DEV.APP.SVRCONN}
+    conn-name: ${MQ_HOST:localhost}(${MQ_PORT:1414})
+    user: ${MQ_USER:app}
+    password: ${MQ_PASSWORD:}
+
+# REST server for /api/stubs trigger endpoint
+server:
+  port: ${SERVER_PORT:8080}
+
+# Actuator on a separate port — metrics-service scrapes /actuator/prometheus every 30s
+management:
+  server:
+    port: 8081
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+    prometheus:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      project_id: ${STUB_PROJECT_ID:unknown}
+      project_name: ${STUB_PROJECT_NAME:unknown}
+      environment: ${STUB_ENVIRONMENT:dev}
+
+logging:
+  structured:
+    format:
+      console: json
+  level:
+    root: INFO
+    com.mockingbird: INFO
+    com.ibm.mq: WARN

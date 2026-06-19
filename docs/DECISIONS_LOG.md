@@ -39,7 +39,7 @@
 | SOAP implementation | Spring-WS (NOT WireMock's SOAP mode) | 2026-06-13 |
 | Kafka stubs — simple | Spring Boot + Spring Kafka (consumer-reply + producer) | ✅ Sprint 22 |
 | Kafka stubs — AsyncAPI + Avro | Microcks uber image — SSH-deployed via Paramiko, no build step | ✅ Sprint 23 |
-| IBM MQ stubs (Phase 4+) | Spring Boot + Spring JMS | 2026-06-13 |
+| IBM MQ stubs | Spring Boot + mq-jms-spring-boot-starter v3.3.0 — DefaultMessageListenerContainer for dynamic queues | ✅ Sprint 24 |
 | Frontend framework | React 18 + TypeScript strict + Vite | 2026-06-12 |
 | UI components | shadcn/ui + Tailwind CSS | 2026-06-12 |
 | Charts | Apache ECharts (Canvas-based, handles high data volumes) | 2026-06-12 |
