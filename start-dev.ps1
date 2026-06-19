@@ -10,7 +10,8 @@ $root = $PSScriptRoot
 
 function Start-Service($title, $commands) {
     $joined = $commands -join "; "
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", $joined `
+    # -ExecutionPolicy Bypass lets the spawned window run .ps1 scripts (venv activation)
+    Start-Process powershell -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", "-Command", $joined `
         -WorkingDirectory $root
 }
 
