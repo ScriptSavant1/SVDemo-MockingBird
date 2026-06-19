@@ -94,8 +94,24 @@ OK "Node.js : $nodever"
 # ---------------------------------------------------------------------------
 
 Step "Setting PowerShell execution policy"
-Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
-OK "ExecutionPolicy = RemoteSigned"
+$effectivePolicy = Get-ExecutionPolicy
+$allowedPolicies = @("Bypass", "Unrestricted", "RemoteSigned")
+if ($allowedPolicies -contains $effectivePolicy) {
+    OK "ExecutionPolicy is already '$effectivePolicy' -- no change needed"
+} else {
+    try {
+        Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+        OK "ExecutionPolicy set to RemoteSigned"
+    } catch {
+        # Group Policy may override -- check if the effective policy still allows scripts
+        $effective = Get-ExecutionPolicy
+        if ($allowedPolicies -contains $effective) {
+            OK "ExecutionPolicy is '$effective' (overridden by Group Policy but scripts can still run)"
+        } else {
+            Fail "ExecutionPolicy '$effective' blocks scripts. Ask your IT team to allow PowerShell scripts, or run: Set-ExecutionPolicy RemoteSigned -Scope Process"
+        }
+    }
+}
 
 # ---------------------------------------------------------------------------
 # 3. parser-worker -- must install BEFORE ingestion-service
