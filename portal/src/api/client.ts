@@ -24,8 +24,19 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(path, { ...init, headers });
 
   if (res.status === 401) {
-    useAuthStore.getState().logout();
-    throw new ApiError(401, "Session expired — please log in again", "Unauthorised");
+    // Only treat as "session expired" if a token was already present (i.e., we were
+    // authenticated). On the login endpoint there is no token yet, so read the body.
+    const hasToken = !!useAuthStore.getState().token;
+    if (hasToken) {
+      useAuthStore.getState().logout();
+      throw new ApiError(401, "Session expired — please log in again", "Unauthorised");
+    }
+    let detail = "Invalid username or password";
+    try {
+      const body = (await res.json()) as { detail?: string };
+      detail = body.detail ?? detail;
+    } catch { /* non-JSON body */ }
+    throw new ApiError(401, detail);
   }
 
   if (!res.ok) {
