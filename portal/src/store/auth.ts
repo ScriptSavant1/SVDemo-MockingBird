@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
 
 interface AuthUser {
   username: string;
@@ -13,10 +14,18 @@ interface AuthState {
   logout: () => void;
 }
 
-export const useAuthStore = create<AuthState>()((set) => ({
-  token: null,
-  user: null,
-  isAuthenticated: false,
-  login: (token, user) => set({ token, user, isAuthenticated: true }),
-  logout: () => set({ token: null, user: null, isAuthenticated: false }),
-}));
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set) => ({
+      token: null,
+      user: null,
+      isAuthenticated: false,
+      login: (token, user) => set({ token, user, isAuthenticated: true }),
+      logout: () => set({ token: null, user: null, isAuthenticated: false }),
+    }),
+    {
+      name: "mockingbird-auth",
+      storage: createJSONStorage(() => sessionStorage),
+    }
+  )
+);

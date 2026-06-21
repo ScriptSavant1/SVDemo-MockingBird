@@ -44,7 +44,7 @@ export function Layout({ children }: LayoutProps) {
           </div>
           <div className="flex items-center gap-4">
             {user && (
-              <span className="text-sm text-blue-200">
+              <span data-testid="user-info" className="text-sm text-blue-200">
                 {user.username}{" "}
                 <span className="rounded bg-blue-900 px-1.5 py-0.5 text-xs">{user.role}</span>
               </span>
