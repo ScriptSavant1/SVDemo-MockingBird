@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { projectsApi, type UpdateProjectBody } from "@/api/projects";
+import { ingestionApi } from "@/api/ingestion";
 import { useAuthStore } from "@/store/auth";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -20,6 +21,7 @@ export function ProjectPage() {
   const canEdit = role === "ADMIN" || role === "SV_TEAM";
 
   const [deployingId, setDeployingId] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [showEdit, setShowEdit] = useState(false);
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
   const [editForm, setEditForm] = useState<UpdateProjectBody>({});
@@ -64,6 +66,21 @@ export function ProjectPage() {
       void navigate("/");
     },
   });
+
+  async function handleDownloadZip(stubId: string) {
+    setDownloadingId(stubId);
+    try {
+      const blob = await ingestionApi.downloadWiremockZip(projectId!, stubId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "wiremock.zip";
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloadingId(null);
+    }
+  }
 
   function openEdit(p: Project) {
     setEditForm({
@@ -156,17 +173,28 @@ export function ProjectPage() {
                 </td>
                 <td className="py-3 pr-4 text-gray-400">{formatDate(stub.updated_at)}</td>
                 <td className="py-3">
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
                     {stub.status === "READY" && (
-                      <Button
-                        size="sm"
-                        loading={deployingId === stub.id}
-                        onClick={() => deployMutation.mutate(stub.id)}
-                      >
-                        Deploy
-                      </Button>
+                      <>
+                        <Button
+                          size="sm"
+                          loading={deployingId === stub.id}
+                          onClick={() => deployMutation.mutate(stub.id)}
+                        >
+                          Deploy
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          loading={downloadingId === stub.id}
+                          onClick={() => void handleDownloadZip(stub.id)}
+                          title="Download WireMock stub ZIP for local use"
+                        >
+                          Download ZIP
+                        </Button>
+                      </>
                     )}
-                    {(stub.status === "LIVE" || stub.status === "SUSPENDED") && (
+                    {(stub.status === "LIVE" || stub.status === "SUSPENDED" || stub.status === "DEPLOYING") && (
                       <Link to={`/projects/${projectId}/stubs/${stub.id}`}>
                         <Button size="sm" variant="secondary">View</Button>
                       </Link>

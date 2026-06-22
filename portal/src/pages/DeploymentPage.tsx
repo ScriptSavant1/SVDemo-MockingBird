@@ -96,11 +96,26 @@ export function DeploymentPage() {
 
   if (!activeDeployment) {
     return (
-      <div className="py-12 text-center text-gray-500">
-        No active deployment found.{" "}
-        <Link to={`/projects/${projectId}`} className="text-[#00A9E0] hover:underline">
-          Back to project
+      <div className="max-w-lg mx-auto mt-12">
+        <Link to={`/projects/${projectId}`} className="text-sm text-[#00A9E0] hover:underline">
+          ← Back to project
         </Link>
+        <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-6 text-center">
+          <p className="text-lg font-semibold text-amber-800">Stub not yet deployed</p>
+          <p className="mt-2 text-sm text-amber-700">
+            This stub is <strong>READY</strong> — stubs are generated and waiting for deployment.
+            Click <strong>Deploy</strong> on the project page to provision an EC2 and go live.
+          </p>
+          <p className="mt-3 text-sm text-amber-700">
+            Live metrics, Reports (PDF / Excel / PPT), Suspend and Redeploy are all available
+            once the stub is deployed and <strong>LIVE</strong>.
+          </p>
+          <div className="mt-5">
+            <Link to={`/projects/${projectId}`}>
+              <Button variant="primary">Go to project → Deploy</Button>
+            </Link>
+          </div>
+        </div>
       </div>
     );
   }
