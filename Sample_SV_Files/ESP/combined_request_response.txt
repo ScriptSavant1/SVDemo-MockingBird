@@ -1,0 +1,10 @@
+={Method="POST" URL="/v2/account-management/account-enquiry-router/enquire?aggregate=SUP+FLAGS" httpDetails={Version="1.1" httpHeaders={Content-Type="application/json"
+x-interaction-id="AR7214520" dws-correlation-id="" channel="QB" User-Agent="Java/1.8.0_352" Host="devecpvm011679.server.banksvcs.net:61217" Accept="text/html, image/gif,
+image/jpeg, *; q=.2, */* q=.2" Connection="keep-alive" Content-Length="107"}} MessageType="http.text.message.type" rcvdTimestamp="10:00:59.205
+2026/06/10"}{"identifiers":[{"identifierType":"BBAN","identifierValue":"12542012113221","accountHostingSystem":"RTC"}]}
+ResponseHeader={StatusCode="200" ReasonPhrase="OK" MessageType="http.text.message.type" httpDetails={Version="1.1" httpHeaders={content-type="application/json"
+x-interaction-id="%X-Interaction-Id%%"}}}
+Response..[{"accountEnquiryResponse":[{"generalAccountInfo":{"identifierType":"BBAN","identifierValue":"12542012113221","subPrdTypeCatCd":"","accountStatus":"Open",
+"accountShortName":"EuroAccount","accountTypeCode":"Q1","accountOpenDate":"2011-01-01","accountCloseDate":"","accountCurrency":"","responsibilityCode":"R",
+"purposeOfAccountIndicator":"KNC","segmentDepartmentCode":"","badDebtCode":"R","cashlineStopCode":"R","accountStopCode":"N",
+"parentInfo":{"accountSortCode":"132546","accountNumber":"85142341","accountTypeCode":"Q9"}}}}]

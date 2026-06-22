@@ -8,6 +8,9 @@ POST /api/v1/projects/{project_id}/stubs/upload
 
 GET /api/v1/projects/{project_id}/stubs/{stub_id}/source
   — returns a presigned S3 URL (60-minute expiry)
+
+GET /api/v1/projects/{project_id}/stubs/{stub_id}/wiremock.zip
+  — download the generated WireMock mapping files as a ZIP
 """
 from __future__ import annotations
 
@@ -16,6 +19,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -113,13 +117,26 @@ def upload_stub_file(
     db.add(stub)
     db.flush()  # write to transaction — file storage must succeed before commit
 
-    # 6. Store the uploaded file — local disk or S3
+    # 6. Store the uploaded source file — local disk or S3
     content_type = file.content_type or "application/octet-stream"
     if is_local_storage():
         upload_local(s3_key, content)
     else:
         s3 = get_s3_client()
         upload_bytes(s3, s3_key, content, content_type)
+
+    # 7. Pre-generate WireMock ZIP so the download endpoint works immediately.
+    #    Stored at stubs/{project_id}/{stub_id}/wiremock/mappings.zip
+    wiremock_key = f"stubs/{project_id}/{stub_id}/wiremock/mappings.zip"
+    try:
+        from ..wiremock_generator import generate_wiremock_zip  # noqa: PLC0415
+        wiremock_bytes = generate_wiremock_zip(parsed_file)
+        if is_local_storage():
+            upload_local(wiremock_key, wiremock_bytes)
+        else:
+            upload_bytes(get_s3_client(), wiremock_key, wiremock_bytes, "application/zip")
+    except Exception:
+        wiremock_key = None  # non-fatal — upload still succeeds
 
     db.commit()
 
@@ -171,3 +188,61 @@ def get_source_url(
         presigned_url=url,
         expires_in_seconds=_PRESIGNED_EXPIRY,
     )
+
+
+@router.get(
+    "/api/v1/projects/{project_id}/stubs/{stub_id}/wiremock.zip",
+    summary="Download generated WireMock mappings as a ZIP",
+    response_class=Response,
+    responses={
+        200: {"content": {"application/zip": {}}, "description": "WireMock mapping ZIP"},
+        404: {"description": "Stub or WireMock ZIP not found"},
+    },
+)
+def download_wiremock_zip(
+    project_id: uuid.UUID,
+    stub_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(get_current_user),
+) -> Response:
+    stub = db.get(Stub, stub_id)
+    if stub is None or stub.project_id != project_id:
+        raise HTTPException(status_code=404, detail=f"Stub {stub_id} not found in project {project_id}")
+
+    wiremock_key = f"stubs/{project_id}/{stub_id}/wiremock/mappings.zip"
+
+    if is_local_storage():
+        local_path = Path(settings.local_storage_path or "./uploads") / wiremock_key
+        if not local_path.exists():
+            # Re-generate on demand if not pre-generated (e.g. uploaded before this feature)
+            if not stub.source_file_key:
+                raise HTTPException(status_code=404, detail="No source file stored for this stub")
+            source_path = Path(settings.local_storage_path or "./uploads") / stub.source_file_key
+            if not source_path.exists():
+                raise HTTPException(status_code=404, detail="Source file not found on disk")
+            from parser_worker.detector import detect_and_parse  # noqa: PLC0415
+            from ..wiremock_generator import generate_wiremock_zip  # noqa: PLC0415
+            _, vr, parsed_file = detect_and_parse(source_path)
+            if not vr.valid or parsed_file is None:
+                raise HTTPException(status_code=422, detail="Could not re-parse source file")
+            zip_bytes = generate_wiremock_zip(parsed_file)
+            upload_local(wiremock_key, zip_bytes)
+            return Response(
+                content=zip_bytes,
+                media_type="application/zip",
+                headers={"Content-Disposition": f'attachment; filename="wiremock-{stub_id}.zip"'},
+            )
+        return Response(
+            content=local_path.read_bytes(),
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="wiremock-{stub_id}.zip"'},
+        )
+
+    # S3 path — generate presigned URL
+    try:
+        s3 = get_s3_client()
+        url = generate_presigned_url(s3, wiremock_key, expires_in=_PRESIGNED_EXPIRY)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"WireMock ZIP not found: {exc}") from exc
+    from fastapi.responses import RedirectResponse  # noqa: PLC0415
+    return RedirectResponse(url=url)

@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { DownloadUrlOut, Project, ReportJob, Stub, Deployment } from "./types";
+import type { DownloadUrlOut, Project, ProjectPage, ReportJob, Stub, Deployment } from "./types";
 
 export interface CreateProjectBody {
   name: string;
@@ -19,7 +19,7 @@ export interface UpdateProjectBody {
 }
 
 export const projectsApi = {
-  list: () => api.get<Project[]>("/api/v1/projects"),
+  list: () => api.get<ProjectPage>("/api/v1/projects").then((page) => page.items),
   get: (id: string) => api.get<Project>(`/api/v1/projects/${id}`),
   create: (body: CreateProjectBody) => api.post<Project>("/api/v1/projects", body),
   update: (id: string, body: UpdateProjectBody) =>

@@ -15,7 +15,7 @@ export default defineConfig({
       "/api/v1/auth": {
         target: "http://localhost:3001",
         changeOrigin: true,
-        rewrite: (p) => p.replace(/^\/api\/v1\/auth/, "/auth"),
+        // No rewrite — auth-service routes live at /api/v1/auth/* (versioned)
       },
       // ai-service routes — must precede generic /api/v1
       "/api/v1/ai": {
@@ -27,12 +27,16 @@ export default defineConfig({
         target: "http://localhost:8005",
         changeOrigin: true,
       },
-      // ingestion-service routes (file upload + source download) — must precede generic /api/v1
+      // ingestion-service routes — must precede generic /api/v1
       "^/api/v1/projects/[^/]+/stubs/upload$": {
         target: "http://localhost:8003",
         changeOrigin: true,
       },
       "^/api/v1/projects/[^/]+/stubs/[^/]+/source$": {
+        target: "http://localhost:8003",
+        changeOrigin: true,
+      },
+      "^/api/v1/projects/[^/]+/stubs/[^/]+/wiremock\\.zip$": {
         target: "http://localhost:8003",
         changeOrigin: true,
       },
