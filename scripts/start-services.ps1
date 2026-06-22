@@ -1,115 +1,219 @@
 <#
 .SYNOPSIS
-    Start all 3 Mockingbird backend services for local development.
+    Start all Mockingbird backend services for local development.
 
 .DESCRIPTION
-    Starts auth-service (:3001), project-service (:8001), ingestion-service (:8003)
-    in separate terminals, waits for each /health endpoint, then exits.
-    If a port is already bound the existing process is kept and we just confirm /health.
-    The portal (Vite :3000) must be started separately: cd portal && npm run dev
+    Starts:
+      - auth-service (:3001)
+      - project-service (:8001)
+      - ingestion-service (:8003)
+
+    Waits for each /health endpoint.
 
 .PARAMETER SkipAuthService
-    Skip starting auth-service (useful if it's already running).
+    Skip starting auth-service.
 #>
+
 param(
     [switch]$SkipAuthService
 )
 
 $ErrorActionPreference = "Stop"
+
 $root = Split-Path -Parent $PSScriptRoot
 
-function Is-PortBound([int]$port) {
-    $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
-    return $null -ne $conn
+function Is-PortBound {
+    param([int]$Port)
+
+    $conn = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    return ($null -ne $conn)
 }
 
 function Wait-ForHealth {
-    param([string]$url, [string]$name, [int]$timeoutSec = 60)
-    $deadline = (Get-Date).AddSeconds($timeoutSec)
-    Write-Host "  Waiting for $name at $url ..." -ForegroundColor Yellow
+    param(
+        [string]$Url,
+        [string]$Name,
+        [int]$TimeoutSec = 60
+    )
+
+    Write-Host "Waiting for $Name ..." -ForegroundColor Yellow
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+
     while ((Get-Date) -lt $deadline) {
-        try {
-            $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
-            if ($r.StatusCode -eq 200) {
-                Write-Host "  $name is UP" -ForegroundColor Green
-                return $true
-            }
-        } catch { }
+        # curl.exe bypasses PowerShell 5.1 proxy configuration issues for localhost
+        $status = & curl.exe -s -o "$env:TEMP\health_check.txt" -w "%{http_code}" --max-time 2 $Url 2>$null
+        if ($status -eq "200") {
+            Write-Host "$Name is UP" -ForegroundColor Green
+            return $true
+        }
         Start-Sleep -Seconds 1
     }
-    Write-Host "  ERROR: $name did not start within ${timeoutSec}s" -ForegroundColor Red
+
+    Write-Host "$Name failed to start." -ForegroundColor Red
     return $false
 }
 
-# ── auth-service ──────────────────────────────────────────────────────────────
-$authDir  = Join-Path $root "services\auth-service"
-$envFile  = Join-Path $authDir ".env.local"
-if (-not (Test-Path $envFile)) {
-    Write-Host "ERROR: $envFile not found." -ForegroundColor Red
+# ====================================================
+# Read JWT secret
+# ====================================================
+
+$authDir = Join-Path $root "services\auth-service"
+$envFile = Join-Path $authDir ".env.local"
+
+if (!(Test-Path $envFile)) {
+    Write-Host ".env.local not found." -ForegroundColor Red
     exit 1
 }
-$jwtSecret = (Get-Content $envFile | Where-Object { $_ -match "^JWT_SECRET=" }) -replace "^JWT_SECRET=", ""
+
+$jwtSecret = (
+    Get-Content $envFile |
+    Where-Object { $_ -match "^JWT_SECRET=" }
+) -replace "^JWT_SECRET=", ""
+
+# ====================================================
+# auth-service
+# ====================================================
 
 $authProc = $null
+
 if (-not $SkipAuthService) {
-    Write-Host "`n[1/3] auth-service on :3001" -ForegroundColor Cyan
+
+    Write-Host "`n[1/3] auth-service (:3001)" -ForegroundColor Cyan
+
     if (Is-PortBound 3001) {
-        Write-Host "  Port 3001 already bound — skipping start, will confirm health" -ForegroundColor DarkYellow
-    } else {
-        # tsc compile + node takes ~40s on first run; timeout is 60s
-        $authProc = Start-Process -FilePath "powershell.exe" `
-            -ArgumentList "-NoExit", "-Command", "cd '$authDir'; `$env:JWT_SECRET='$jwtSecret'; npm run dev" `
-            -PassThru -WindowStyle Normal
-        Write-Host "  auth-service PID: $($authProc.Id)"
+        Write-Host "Port 3001 already in use. Skipping start."
+    }
+    else {
+
+        $authProc = Start-Process powershell.exe `
+            -ArgumentList @(
+                "-NoExit",
+                "-Command",
+                "cd '$authDir'; `$env:JWT_SECRET='$jwtSecret'; npm run dev"
+            ) `
+            -PassThru
+
+        Write-Host "auth-service PID: $($authProc.Id)"
     }
 }
 
-# ── project-service ───────────────────────────────────────────────────────────
-Write-Host "`n[2/3] project-service on :8001" -ForegroundColor Cyan
+# ====================================================
+# project-service
+# ====================================================
+
 $projDir = Join-Path $root "services\project-service"
 $projProc = $null
+
+Write-Host "`n[2/3] project-service (:8001)" -ForegroundColor Cyan
+
 if (Is-PortBound 8001) {
-    Write-Host "  Port 8001 already bound — skipping start" -ForegroundColor DarkYellow
-} else {
-    $projProc = Start-Process -FilePath "cmd.exe" `
-        -ArgumentList "/c", "cd /d `"$projDir`" && set jwt_secret=$jwtSecret && set `"database_url=sqlite:///./mockingbird.db`" && set `"local_storage_path=./uploads`" && .\venv\Scripts\activate && uvicorn project_service.main:app --reload --port 8001 --log-level info > uvicorn.log 2>&1" `
-        -PassThru -WindowStyle Hidden -WorkingDirectory $projDir
-    Write-Host "  project-service PID: $($projProc.Id)"
+
+    Write-Host "Port 8001 already in use. Skipping start."
+
+}
+else {
+
+    $projectCommand = @"
+cd '$projDir'
+`$env:jwt_secret='$jwtSecret'
+`$env:database_url='sqlite:///./mockingbird.db'
+`$env:local_storage_path='./uploads'
+.\venv\Scripts\activate
+uvicorn project_service.main:app --reload --port 8001 --log-level info
+"@
+
+    $projProc = Start-Process powershell.exe `
+        -ArgumentList @(
+            "-NoExit",
+            "-Command",
+            $projectCommand
+        ) `
+        -PassThru
+
+    Write-Host "project-service PID: $($projProc.Id)"
 }
 
-# ── ingestion-service ─────────────────────────────────────────────────────────
-Write-Host "`n[3/3] ingestion-service on :8003" -ForegroundColor Cyan
-$ingDir      = Join-Path $root "services\ingestion-service"
-$sharedDbPath = (Join-Path $projDir "mockingbird.db").Replace('\', '/')
-$sharedDbUrl  = "sqlite:///$sharedDbPath"
+# ====================================================
+# ingestion-service
+# ====================================================
+
+$ingDir = Join-Path $root "services\ingestion-service"
+
+$sharedDbPath = (Join-Path $projDir "mockingbird.db").Replace("\", "/")
+$sharedDbUrl = "sqlite:///$sharedDbPath"
+
 $ingProc = $null
+
+Write-Host "`n[3/3] ingestion-service (:8003)" -ForegroundColor Cyan
+
 if (Is-PortBound 8003) {
-    Write-Host "  Port 8003 already bound — skipping start" -ForegroundColor DarkYellow
-} else {
-    $ingProc = Start-Process -FilePath "cmd.exe" `
-        -ArgumentList "/c", "cd /d `"$ingDir`" && set jwt_secret=$jwtSecret && set `"database_url=$sharedDbUrl`" && set `"local_storage_path=./uploads`" && .\venv\Scripts\activate && uvicorn ingestion_service.main:app --reload --port 8003 --log-level info > uvicorn.log 2>&1" `
-        -PassThru -WindowStyle Hidden -WorkingDirectory $ingDir
-    Write-Host "  ingestion-service PID: $($ingProc.Id)"
+
+    Write-Host "Port 8003 already in use. Skipping start."
+
+}
+else {
+
+    $ingestionCommand = @"
+cd '$ingDir'
+`$env:jwt_secret='$jwtSecret'
+`$env:database_url='$sharedDbUrl'
+`$env:local_storage_path='./uploads'
+.\venv\Scripts\activate
+uvicorn ingestion_service.main:app --reload --port 8003 --log-level info
+"@
+
+    $ingProc = Start-Process powershell.exe `
+        -ArgumentList @(
+            "-NoExit",
+            "-Command",
+            $ingestionCommand
+        ) `
+        -PassThru
+
+    Write-Host "ingestion-service PID: $($ingProc.Id)"
 }
 
-# ── wait for health ────────────────────────────────────────────────────────────
-Write-Host "`nWaiting for all services to be healthy..." -ForegroundColor Cyan
-Start-Sleep -Seconds 5  # let Node/Python start before polling
+# ====================================================
+# Health checks
+# ====================================================
+
+Write-Host "`nWaiting for services..." -ForegroundColor Cyan
+
+Start-Sleep -Seconds 5
 
 $ok = $true
+
 if (-not $SkipAuthService) {
     $ok = $ok -and (Wait-ForHealth "http://localhost:3001/health" "auth-service" 60)
 }
-$ok = $ok -and (Wait-ForHealth "http://localhost:8001/health" "project-service" 30)
-$ok = $ok -and (Wait-ForHealth "http://localhost:8003/health" "ingestion-service" 30)
+
+$ok = $ok -and (Wait-ForHealth "http://localhost:8001/health" "project-service" 60)
+$ok = $ok -and (Wait-ForHealth "http://localhost:8003/health" "ingestion-service" 60)
 
 if ($ok) {
-    Write-Host "`nAll services running. Start portal: cd portal && npm run dev" -ForegroundColor Green
-    # Save PIDs for stop-services.ps1
+
+    Write-Host ""
+    Write-Host "All services are running." -ForegroundColor Green
+    Write-Host "Start portal separately:"
+    Write-Host "cd portal"
+    Write-Host "npm run dev"
+
     $pidFile = Join-Path $root ".service-pids"
-    "$($authProc?.Id),$($projProc?.Id),$($ingProc?.Id)" | Set-Content $pidFile
-    Write-Host "PIDs saved to .service-pids"
-} else {
-    Write-Host "`nOne or more services failed to start. Check uvicorn.log in each service directory." -ForegroundColor Red
+
+    $authPid = ""
+    $projPid = ""
+    $ingPid = ""
+
+    if ($authProc) { $authPid = $authProc.Id }
+    if ($projProc) { $projPid = $projProc.Id }
+    if ($ingProc) { $ingPid = $ingProc.Id }
+
+    "$authPid,$projPid,$ingPid" | Set-Content $pidFile
+}
+else {
+
+    Write-Host ""
+    Write-Host "One or more services failed to start." -ForegroundColor Red
     exit 1
 }

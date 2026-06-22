@@ -31,3 +31,24 @@ export async function uploadSpec(
 
   return res.json() as Promise<IngestionResult>;
 }
+
+async function downloadWiremockZip(projectId: string, stubId: string): Promise<Blob> {
+  const token = useAuthStore.getState().token;
+  const res = await fetch(
+    `/api/v1/projects/${projectId}/stubs/${stubId}/wiremock.zip`,
+    { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+  );
+
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const body = (await res.json()) as { detail?: string };
+      detail = body.detail ?? detail;
+    } catch { /* non-JSON */ }
+    throw new ApiError(res.status, detail);
+  }
+
+  return res.blob();
+}
+
+export const ingestionApi = { uploadSpec, downloadWiremockZip };

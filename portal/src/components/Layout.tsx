@@ -40,18 +40,7 @@ export function Layout({ children }: LayoutProps) {
             </Link>
 
             <nav className="flex items-center gap-5">
-              <Link to="/" className={navLinkClass("/projects")}>Projects</Link>
-
-              {/* Reports — Phase 5, coming soon */}
-              <span
-                title="Reports — available in Phase 5 (Metrics & Reporting)"
-                className="cursor-not-allowed text-sm text-blue-400 select-none"
-              >
-                Reports
-                <span className="ml-1 rounded bg-blue-900 px-1 py-0.5 text-[10px] text-blue-300">
-                  Phase 5
-                </span>
-              </span>
+              <Link to="/" className={navLinkClass("/")}>Projects</Link>
 
               {isAdmin && (
                 <Link
