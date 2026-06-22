@@ -75,6 +75,8 @@ class Stub(Base):
     # S3 object key for the uploaded source file
     source_file_key: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     wiremock_mapping_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Lifecycle: READY → DEPLOYING → LIVE → SUSPENDED; FAILED if something went wrong
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="READY")
     generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)

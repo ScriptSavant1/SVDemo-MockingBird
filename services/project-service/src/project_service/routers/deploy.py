@@ -22,6 +22,8 @@ import secrets
 import uuid
 from pathlib import PurePosixPath
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -75,19 +77,19 @@ def trigger_deploy(
             detail="Stub has not been generated yet. Run POST .../generate first.",
         )
 
-    # Prevent double-deploy while one is already in flight
+    # Prevent double-deploy while one is already in flight or live
     existing = (
         db.query(Deployment)
         .filter(
             Deployment.stub_id == stub_id,
-            Deployment.status.in_(["PENDING", "BUILDING", "PROVISIONING"]),
+            Deployment.status.in_(["PENDING", "BUILDING", "PROVISIONING", "LIVE"]),
         )
         .first()
     )
     if existing is not None:
         raise HTTPException(
             status_code=409,
-            detail={**_CONFLICT, "detail": f"A deployment is already in flight (id={existing.id}, status={existing.status})"},
+            detail={**_CONFLICT, "detail": f"A deployment is already in flight or live (id={existing.id}, status={existing.status}). Suspend it first."},
         )
 
     instance_type = _select_instance_type(project.expected_tps)
@@ -123,11 +125,20 @@ def trigger_deploy(
     db.flush()
 
     deployment.job_id = job.id
+    stub.status = "DEPLOYING"
 
     if settings.sqs_deploy_queue_url:
         sqs = get_sqs_client()
         msg_id = enqueue_deploy_job(sqs, job.id, stub_id, project_id, deployment.id, generated_key)
         job.sqs_message_id = msg_id
+    else:
+        # Local dev — no deployer-worker. Simulate a completed deployment so the
+        # full portal flow (DeploymentPage → metrics → reports) is testable.
+        job.status = "DONE"
+        deployment.status = "LIVE"
+        deployment.stub_url = f"http://localhost:8080/stubs/{stub_id}"
+        deployment.deployed_at = datetime.now(timezone.utc)
+        stub.status = "LIVE"
 
     db.commit()
     db.refresh(deployment)

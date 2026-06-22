@@ -78,12 +78,15 @@ def trigger_generate(
         # Local dev — no SQS worker running. WireMock ZIP was pre-generated at
         # upload time by ingestion-service. Mark the job DONE immediately so the
         # portal can poll and see success without a worker.
+        from datetime import datetime, timezone  # noqa: PLC0415
         job.status = "DONE"
         job.result = {
             "stub_id": str(stub_id),
             "wiremock_zip_path": f"stubs/{project_id}/{stub_id}/wiremock/mappings.zip",
             "note": "Generated inline (local dev — no SQS)",
         }
+        if not stub.generated_at:
+            stub.generated_at = datetime.now(timezone.utc)
 
     db.commit()
     db.refresh(job)
