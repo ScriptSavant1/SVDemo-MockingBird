@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, computed_field, field_validator
 
 
 # ── Problem JSON (RFC 7807) ────────────────────────────────────────────────────
@@ -161,6 +161,7 @@ class StubOut(BaseModel):
     project_id: uuid.UUID
     name: str
     format: str
+    status: str
     source_file_key: Optional[str]
     wiremock_mapping_count: int
     generated_at: Optional[datetime]
@@ -168,6 +169,11 @@ class StubOut(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def stub_type(self) -> str:
+        return self.format
 
 
 # ── Jobs ───────────────────────────────────────────────────────────────────────

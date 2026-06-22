@@ -129,12 +129,14 @@ def upload_stub_file(
     #    Stored at stubs/{project_id}/{stub_id}/wiremock/mappings.zip
     wiremock_key = f"stubs/{project_id}/{stub_id}/wiremock/mappings.zip"
     try:
+        from datetime import datetime, timezone  # noqa: PLC0415
         from ..wiremock_generator import generate_wiremock_zip  # noqa: PLC0415
         wiremock_bytes = generate_wiremock_zip(parsed_file)
         if is_local_storage():
             upload_local(wiremock_key, wiremock_bytes)
         else:
             upload_bytes(get_s3_client(), wiremock_key, wiremock_bytes, "application/zip")
+        stub.generated_at = datetime.now(timezone.utc)
     except Exception:
         wiremock_key = None  # non-fatal — upload still succeeds
 

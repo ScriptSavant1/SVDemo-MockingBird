@@ -5,6 +5,141 @@ Format: one entry per bug, newest at the top.
 
 ---
 
+## BUG-021 — Double-deploy allowed: "LIVE" missing from in-flight deployment guard
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-021 |
+| **Found** | 2026-06-22 |
+| **Status** | FIXED |
+| **Severity** | High |
+| **File** | `services/project-service/src/project_service/routers/deploy.py` |
+| **Commit** | (session fix) |
+
+**Description:**  
+After BUG-020 made local-dev deployments go directly to LIVE status, clicking Deploy a second time succeeded (returned 202) instead of blocking with 409 Conflict. A duplicate deployment was created for the same stub.
+
+**Root cause:**  
+The in-flight guard queried `Deployment.status.in_(["PENDING", "BUILDING", "PROVISIONING"])` — it never included `"LIVE"`. In production with a real deployer-worker, a LIVE deployment was expected to be permanent and not re-deployed without suspending first, but the guard omitted this state.
+
+**Fix:**  
+Added `"LIVE"` to the guard: `Deployment.status.in_(["PENDING", "BUILDING", "PROVISIONING", "LIVE"])`. Second deploy now returns 409 with "Suspend it first" message.
+
+---
+
+## BUG-020 — Local dev deploy simulation missing: stubs stuck in PENDING, DeploymentPage/Reports unreachable
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-020 |
+| **Found** | 2026-06-22 |
+| **Status** | FIXED |
+| **Severity** | High |
+| **File** | `services/project-service/src/project_service/routers/deploy.py` |
+| **Commit** | (session fix) |
+
+**Description:**  
+In local development (no deployer-worker SQS consumer running), clicking Deploy created a deployment record with `status="PENDING"` that never advanced. The portal showed no "View" button (only appears for LIVE/SUSPENDED deployments). The DeploymentPage, Metrics History tab, and Reports tab were therefore completely inaccessible.
+
+**Root cause:**  
+`deploy.py` only handled the SQS path. The `else` branch (no `sqs_deploy_queue_url`) committed the deployment as PENDING with no worker to advance it.
+
+**Fix:**  
+Added local dev simulation in the `else` branch: sets `job.status = "DONE"`, `deployment.status = "LIVE"`, `deployment.stub_url = f"http://localhost:8080/stubs/{stub_id}"`, `deployment.deployed_at = now`, and `stub.status = "LIVE"`. Deploy button now immediately transitions to "View" which opens the DeploymentPage with Reports tab accessible.
+
+---
+
+## BUG-019 — `generated_at` not set in generate local-dev inline path
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-019 |
+| **Found** | 2026-06-22 |
+| **Status** | FIXED |
+| **Severity** | High |
+| **File** | `services/project-service/src/project_service/routers/jobs.py` |
+| **Commit** | (session fix) |
+
+**Description:**  
+When POST `.../generate` was called and `sqs_parse_queue_url` was not set (local dev), the job ran inline but never set `stub.generated_at`. The Deploy button checks `generated_at is not None` before showing — so stubs generated via the UI generate button in local dev never got a Deploy button.
+
+**Root cause:**  
+The local-dev inline path in `jobs.py` set `job.status = "DONE"` and populated `job.result` but forgot `stub.generated_at`.
+
+**Fix:**  
+Added `if not stub.generated_at: stub.generated_at = datetime.now(timezone.utc)` in the no-SQS branch.
+
+---
+
+## BUG-018 — `generated_at` never set after WireMock ZIP generation in upload.py
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-018 |
+| **Found** | 2026-06-22 |
+| **Status** | FIXED |
+| **Severity** | High |
+| **File** | `services/ingestion-service/src/ingestion_service/routers/upload.py` |
+| **Commit** | (session fix) |
+
+**Description:**  
+File uploads succeeded and WireMock ZIPs were generated inline during upload, but `stub.generated_at` was never written. The `Deploy` button in the portal checks `stub.generated_at is not None` before rendering — so after an upload the Deploy button was always hidden.
+
+**Root cause:**  
+`upload.py` called `generate_wiremock_zip()` and stored the result to S3/local storage, but did not update `stub.generated_at` after success.
+
+**Fix:**  
+Added `stub.generated_at = datetime.now(timezone.utc)` inside the `try` block, after successful WireMock ZIP storage.
+
+---
+
+## BUG-017 — `StubOut` schema missing `stub_type` field: TYPE column showed "—" in portal
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-017 |
+| **Found** | 2026-06-22 |
+| **Status** | FIXED |
+| **Severity** | High |
+| **File** | `services/project-service/src/project_service/schemas.py` |
+| **Commit** | (session fix) |
+
+**Description:**  
+The TYPE column in the Stubs table always showed "—". The frontend `Stub` TypeScript type expected a `stub_type` field. The API response contained only `format`.
+
+**Root cause:**  
+`StubOut` Pydantic schema had no `stub_type` field. The frontend mapped `stub.stub_type` for the TYPE column display; receiving `undefined` caused the "—" fallback to render.
+
+**Fix:**  
+Added a Pydantic v2 `@computed_field` property `stub_type` on `StubOut` returning `self.format`. This adds `stub_type` to serialised JSON without modifying the DB schema.
+
+---
+
+## BUG-016 — `Stub` ORM model missing `status` column: Deploy/Download ZIP buttons never rendered
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-016 |
+| **Found** | 2026-06-22 |
+| **Status** | FIXED |
+| **Severity** | Critical |
+| **File** | `services/project-service/src/project_service/models.py`, `services/ingestion-service/src/ingestion_service/models.py`, Alembic migration `003_add_stub_status.py` |
+| **Commit** | (session fix) |
+
+**Description:**  
+The Deploy button and Download ZIP button were completely missing from the project detail page. The STATUS column showed "—" for every stub.
+
+**Root cause:**  
+The `Stub` SQLAlchemy model had no `status` column. The `StubOut` Pydantic schema therefore had no `status` field. The frontend `Stub` type expected `status: StubStatus` — receiving `undefined` caused all conditional button renders (`status === "READY" → show Deploy`, etc.) to evaluate as `false`. No buttons rendered for any stub.
+
+**Fix:**  
+1. Added `status: Mapped[str] = mapped_column(String(20), nullable=False, default="READY")` to both `Stub` models (project-service and ingestion-service).  
+2. Added Alembic migration `003_add_stub_status.py` with `server_default="READY"` and a backfill of `generated_at` for stubs that already had a `source_file_key`.  
+3. Added `status: str` field to `StubOut`.  
+4. Ran `alembic stamp 002` + `alembic upgrade head` to apply migration to existing DB.
+
+---
+
 ## BUG-015 — Admin role `<td>` anchored regex never matched because `<select>` text contains all options
 
 | Field | Value |
