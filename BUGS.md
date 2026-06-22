@@ -5,6 +5,186 @@ Format: one entry per bug, newest at the top.
 
 ---
 
+## BUG-015 — Admin role `<td>` anchored regex never matched because `<select>` text contains all options
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-015 |
+| **Found** | 2026-06-22 |
+| **Status** | FIXED |
+| **Severity** | Medium |
+| **File** | `portal/e2e/real/04-admin.spec.ts` |
+| **Commit** | 5f57c94 |
+
+**Description:**  
+The Playwright test `"created user appears with correct role"` used `page.locator('td').filter({ hasText: /^SV_TEAM$/ })` to find the role cell. It never matched. The test always timed out.
+
+**Root cause:**  
+The role column renders a `<select>` element containing ALL four roles as `<option>` elements. The innerText of the `<td>` is therefore `"ADMIN SV_TEAM PROJECT_OWNER VIEWER"`, not `"SV_TEAM"`. The anchored regex `^SV_TEAM$` cannot match multi-option text.
+
+**Fix:**  
+Changed to find the row by username, then assert `toHaveValue('SV_TEAM')` on the row's `<select>`:
+```typescript
+const svUserRow = page.locator('tr').filter({ hasText: 'sv.user' });
+await expect(svUserRow.locator('select')).toHaveValue('SV_TEAM');
+```
+
+---
+
+## BUG-014 — Playwright strict mode violation: `getByText` matched username in header span + table cells
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-014 |
+| **Found** | 2026-06-22 |
+| **Status** | FIXED |
+| **Severity** | Medium |
+| **File** | `portal/e2e/real/04-admin.spec.ts` |
+| **Commit** | 5f57c94 |
+
+**Description:**  
+`page.getByText("sv.admin")` matched 3 elements: the header user-info `<span>`, the username `<td>`, and the email `<td>`. Playwright strict mode threw "resolved to 2 elements" and the test failed.
+
+**Root cause:**  
+`getByText` searches the entire page without scoping to a specific element type.
+
+**Fix:**  
+Changed to `page.locator('td').filter({ hasText: 'sv.admin' }).first()` to scope to table cells only.
+
+---
+
+## BUG-013 — Playwright strict mode violation on upload/generate button
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-013 |
+| **Found** | 2026-06-22 |
+| **Status** | FIXED |
+| **Severity** | Medium |
+| **File** | `portal/e2e/real/02-projects.spec.ts` |
+| **Commit** | 5f57c94 |
+
+**Description:**  
+`await expect(page.getByRole('link', { name: /upload/i }).or(page.getByRole('button', { name: /upload/i }))).toBeVisible()` threw "strict mode violation: resolved to 2 elements" — the project detail page has both a nav link and an action button matching "upload".
+
+**Root cause:**  
+`.or()` chains two separate locators that each match elements; when both are present simultaneously, the combined locator has 2+ elements.
+
+**Fix:**  
+Added `.first()` before `.toBeVisible()`.
+
+---
+
+## BUG-012 — `wiremock_generator.py` accessed non-existent `ParsedRequestSpec` fields
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-012 |
+| **Found** | 2026-06-22 |
+| **Status** | FIXED |
+| **Severity** | High |
+| **File** | `services/ingestion-service/src/ingestion_service/wiremock_generator.py` |
+| **Commit** | 5f57c94 |
+
+**Description:**  
+`GET /projects/{id}/stubs/{stubId}/wiremock.zip` returned HTTP 500. Error: `AttributeError: 'ParsedRequestSpec' object has no attribute 'url_path'`.
+
+**Root cause:**  
+`_build_request_pattern()` referenced `req.url_path`, `req.url_pattern`, `req.headers`, and `req.query_params`. The actual `ParsedRequestSpec` model (in `parser_worker.models`) only has `url` and `required_headers`.
+
+**Fix:**  
+Rewrote `_build_request_pattern` to use `req.url` (splitting on `?` to extract query params) and `req.required_headers`.
+
+---
+
+## BUG-011 — `wiremock_generator.py` imported `ParsedScenario` from wrong module
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-011 |
+| **Found** | 2026-06-22 |
+| **Status** | FIXED |
+| **Severity** | High |
+| **File** | `services/ingestion-service/src/ingestion_service/wiremock_generator.py` |
+| **Commit** | 5f57c94 |
+
+**Description:**  
+First invocation of the ZIP download endpoint raised `ImportError: cannot import name 'ParsedScenario' from 'parser_worker.parsers.base'`.
+
+**Root cause:**  
+`ParsedScenario`, `ParsedStub`, and `ParsedFile` live in `parser_worker.models`, not `parser_worker.parsers.base`.
+
+**Fix:**  
+Changed import to `from parser_worker.models import ParsedFile, ParsedScenario, ParsedStub`.
+
+---
+
+## BUG-010 — JWT secret mismatch: ingestion-service read clean secret from .env while auth-service used trailing-space secret from env var
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-010 |
+| **Found** | 2026-06-22 |
+| **Status** | FIXED |
+| **Severity** | Critical |
+| **File** | `scripts/start-services.ps1`, `services/ingestion-service/.env` |
+| **Commit** | 5f57c94 |
+
+**Description:**  
+All ingestion-service upload requests returned HTTP 401 "Invalid or expired token" even with a valid token from auth-service.
+
+**Root cause:**  
+cmd.exe `set VAR=value && next` includes the trailing space before `&&` in the variable value. auth-service and project-service were started with `set JWT_SECRET=mockingbird-local-dev-jwt-2026 &&` → secret stored as `"mockingbird-local-dev-jwt-2026 "` (trailing space). Ingestion-service was started without the `set` command; pydantic-settings v2 read the secret from `.env` file and strips trailing whitespace → `"mockingbird-local-dev-jwt-2026"` (no space). HMAC-SHA256 signatures do not match.
+
+**Fix:**  
+Set ingestion-service to use the same unquoted `set jwt_secret=$jwtSecret` form in `start-services.ps1` so all three services share the identical secret string (trailing space included).
+
+---
+
+## BUG-009 — cmd.exe `set VAR=value &&` includes trailing space in variable value
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-009 |
+| **Found** | 2026-06-22 |
+| **Status** | FIXED |
+| **Severity** | High |
+| **File** | `scripts/start-services.ps1` |
+| **Commit** | 5f57c94 |
+
+**Description:**  
+`set local_storage_path=C:/path/uploads && uvicorn ...` set the variable to `"C:/path/uploads "` (trailing space). The ingestion-service resolved upload paths as `"C:\\path\\uploads \\stubs"` — a path with a literal space before `\stubs`. File writes failed with a path-not-found error.
+
+**Root cause:**  
+cmd.exe `set` treats everything between `=` and the next `&&` (including the space before `&&`) as the variable value.
+
+**Fix:**  
+Use quoted syntax `set "VAR=value"` for all variables except `jwt_secret` (which intentionally carries a trailing space for consistency with auth-service). Example: `set "local_storage_path=./uploads"`.
+
+---
+
+## BUG-008 — `Set-Content -Encoding UTF8` writes UTF-8 BOM, causing CA LISA parse failure
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-008 |
+| **Found** | 2026-06-22 |
+| **Status** | FIXED |
+| **Severity** | High |
+| **File** | `Sample_SV_Files/ESP/combined_request_response.txt` |
+| **Commit** | 5f57c94 |
+
+**Description:**  
+The combined CA LISA request+response file always failed validation with `Parse error: ESP request: expected '{' after '='`. First bytes were `0xEF 0xBB 0xBF` (UTF-8 BOM) instead of `0x3D 0x7B` (`={`).
+
+**Root cause:**  
+PowerShell 5.1 `Set-Content -Encoding UTF8` and `[System.IO.File]::WriteAllText(path, content, [System.Text.Encoding]::UTF8)` both write a UTF-8 BOM. The CA LISA parser reads the file as bytes and expects the first byte to be `=` (0x3D). The BOM prefix `0xEF 0xBB 0xBF` breaks the parser immediately.
+
+**Fix:**  
+Used `[System.IO.File]::WriteAllBytes` with raw `Uint8Array` concatenation (request bytes + `0x0A` newline + response bytes) to produce a BOM-free binary file. Verified first bytes are `0x3D 0x7B` (`={`).
+
+---
+
 ## BUG-007 — Upload fixture mocked wrong generate endpoint URL
 
 | Field | Value |

@@ -70,17 +70,17 @@ export function buildJobSteps(jobStatus: JobStatus | undefined, jobType: string 
       {
         label: "Parsing spec file",
         description: "Extracting request/response pairs…",
-        status: isRunning ? "active" : isDone || isFailed ? "done" : "pending",
+        status: isDone ? "done" : isFailed ? "error" : isRunning ? "active" : "pending",
       },
       {
         label: "Generating WireMock stubs",
         description: "Building Spring Boot stub configurations…",
-        status: isDone ? "active" : isFailed ? "error" : "pending",
+        status: isDone ? "done" : isFailed ? "error" : "pending",
       },
       {
         label: "Ready to deploy",
         description: "Stub is ready — click Deploy from the project page",
-        status: "pending",
+        status: isDone ? "done" : "pending",
       },
     ];
   }
