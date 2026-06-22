@@ -74,6 +74,16 @@ def trigger_generate(
         sqs = get_sqs_client()
         msg_id = enqueue_parse_job(sqs, job.id, stub_id, project_id, stub.source_file_key, filename)
         job.sqs_message_id = msg_id
+    else:
+        # Local dev — no SQS worker running. WireMock ZIP was pre-generated at
+        # upload time by ingestion-service. Mark the job DONE immediately so the
+        # portal can poll and see success without a worker.
+        job.status = "DONE"
+        job.result = {
+            "stub_id": str(stub_id),
+            "wiremock_zip_path": f"stubs/{project_id}/{stub_id}/wiremock/mappings.zip",
+            "note": "Generated inline (local dev — no SQS)",
+        }
 
     db.commit()
     db.refresh(job)

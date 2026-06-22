@@ -53,7 +53,7 @@ export function DashboardPage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {visible.map((p: Project) => (
             <Link key={p.id} to={`/projects/${p.id}`}>
-              <Card className="hover:border-[#003875] hover:shadow-md transition-all cursor-pointer">
+              <Card data-testid="project-card" className="hover:border-[#003875] hover:shadow-md transition-all cursor-pointer">
                 <CardHeader>
                   <CardTitle className="truncate">{p.name}</CardTitle>
                   <StatusBadge status={p.status} />

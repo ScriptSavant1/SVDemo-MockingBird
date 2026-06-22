@@ -123,6 +123,13 @@ export interface User {
   created_at: string;
 }
 
+export interface ProjectPage {
+  items: Project[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface UserPage {
   items: User[];
   total: number;

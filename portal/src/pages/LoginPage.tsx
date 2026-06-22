@@ -19,7 +19,7 @@ export function LoginPage() {
     setLoading(true);
     try {
       const res = await apiLogin(username, password);
-      login(res.access_token, { username: res.username, role: res.role });
+      login(res.access_token, { username: res.user.username, role: res.user.role });
       void navigate("/");
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : "Login failed");
