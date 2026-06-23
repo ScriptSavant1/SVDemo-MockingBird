@@ -14,8 +14,12 @@ GET /api/v1/projects/{project_id}/stubs/{stub_id}/wiremock.zip
 """
 from __future__ import annotations
 
+import io
+import re
+import shutil
 import tempfile
 import uuid
+import zipfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -100,6 +104,16 @@ def upload_stub_file(
             warnings=validation_result.warnings,
         )
 
+    # Override parser-derived stub names with the user-supplied stub_name.
+    # Parsers like CA LISA derive names from the source filename, which is a
+    # random temp path (e.g. tmppn51v54h.txt) when files arrive via the portal.
+    if parsed_file is not None and parsed_file.stubs and stub_name:
+        if len(parsed_file.stubs) == 1:
+            parsed_file.stubs[0].name = stub_name
+        else:
+            for _i, _s in enumerate(parsed_file.stubs, 1):
+                _s.name = f"{stub_name} {_i}"
+
     # 5. Create Stub record (flush first so we have an ID before S3 upload)
     stub_id = uuid.uuid4()
     s3_key = f"stubs/{project_id}/{stub_id}/source/{original_name}"
@@ -139,6 +153,28 @@ def upload_stub_file(
         stub.generated_at = datetime.now(timezone.utc)
     except Exception:
         wiremock_key = None  # non-fatal — upload still succeeds
+
+    # 8. Pre-generate the full Spring Boot stub project in local dev.
+    #    In production the generator-worker does this from the SQS generate-queue.
+    #    Stored at stubs/{project_id}/{stub_id}/generated/stub-engine.zip
+    if is_local_storage():
+        springboot_key = f"stubs/{project_id}/{stub_id}/generated/stub-engine.zip"
+        try:
+            from parser_worker.generator.springboot import generate_springboot_project  # noqa: PLC0415
+            _slug = re.sub(r"[^\w-]", "-", stub_name.lower())[:50] or "stub"
+            gen_dir = Path(tempfile.mkdtemp(prefix="mb-gen-"))
+            try:
+                generate_springboot_project(parsed_file, gen_dir, project_id=_slug, project_name=stub_name)
+                gen_buf = io.BytesIO()
+                with zipfile.ZipFile(gen_buf, "w", compression=zipfile.ZIP_DEFLATED) as gen_zf:
+                    for gen_fp in gen_dir.rglob("*"):
+                        if gen_fp.is_file():
+                            gen_zf.write(gen_fp, gen_fp.relative_to(gen_dir))
+                upload_local(springboot_key, gen_buf.getvalue())
+            finally:
+                shutil.rmtree(gen_dir, ignore_errors=True)
+        except Exception:
+            pass  # non-fatal — upload still succeeds
 
     db.commit()
 
@@ -246,5 +282,49 @@ def download_wiremock_zip(
         url = generate_presigned_url(s3, wiremock_key, expires_in=_PRESIGNED_EXPIRY)
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"WireMock ZIP not found: {exc}") from exc
+    from fastapi.responses import RedirectResponse  # noqa: PLC0415
+    return RedirectResponse(url=url)
+
+
+@router.get(
+    "/api/v1/projects/{project_id}/stubs/{stub_id}/stub-engine.zip",
+    summary="Download the full Spring Boot stub project as a ZIP (runnable on EC2)",
+    response_class=Response,
+    responses={
+        200: {"content": {"application/zip": {}}, "description": "Spring Boot stub project ZIP"},
+        404: {"description": "Project ZIP not found — re-upload the spec file"},
+    },
+)
+def download_stub_engine_zip(
+    project_id: uuid.UUID,
+    stub_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(get_current_user),
+) -> Response:
+    stub = db.get(Stub, stub_id)
+    if stub is None or stub.project_id != project_id:
+        raise HTTPException(status_code=404, detail=f"Stub {stub_id} not found in project {project_id}")
+
+    engine_key = f"stubs/{project_id}/{stub_id}/generated/stub-engine.zip"
+
+    if is_local_storage():
+        local_path = Path(settings.local_storage_path or "./uploads") / engine_key
+        if not local_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail="Spring Boot project not found. Re-upload the spec file to regenerate it.",
+            )
+        return Response(
+            content=local_path.read_bytes(),
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="stub-engine-{stub_id}.zip"'},
+        )
+
+    # S3 path — generate presigned URL
+    try:
+        s3 = get_s3_client()
+        url = generate_presigned_url(s3, engine_key, expires_in=_PRESIGNED_EXPIRY)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"Spring Boot project ZIP not found: {exc}") from exc
     from fastapi.responses import RedirectResponse  # noqa: PLC0415
     return RedirectResponse(url=url)
