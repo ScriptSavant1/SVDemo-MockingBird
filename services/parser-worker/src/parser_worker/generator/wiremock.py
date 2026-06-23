@@ -86,7 +86,7 @@ def _apply_url_matcher(
     from ..models import MatchCondition, MatchType  # local import avoids circular
 
     if not isinstance(match, MatchCondition):
-        block["urlPath"] = url
+        _set_url_and_query(block, url, has_path_params)
         return
 
     if match.type == MatchType.URL_CONTAINS:
@@ -97,6 +97,26 @@ def _apply_url_matcher(
         # Replace {paramName} with a regex segment, anchor to full path
         pattern = _PATH_PARAM_RE.sub(r'[^/]+', url)
         block["urlPattern"] = pattern
+    else:
+        _set_url_and_query(block, url, has_path_params)
+
+
+def _set_url_and_query(block: dict, url: str, has_path_params: bool) -> None:
+    """Split URL into urlPath + queryParameters so WireMock matches correctly.
+
+    WireMock urlPath ignores the query string, so query params must go in
+    queryParameters. Without this split, ?foo=bar stays in urlPath and never matches.
+    """
+    if "?" in url and not has_path_params:
+        path, qs = url.split("?", 1)
+        block["urlPath"] = path
+        qparams: dict[str, dict[str, str]] = {}
+        for part in qs.split("&"):
+            if "=" in part:
+                k, v = part.split("=", 1)
+                qparams[k] = {"equalTo": v}
+        if qparams:
+            block["queryParameters"] = qparams
     else:
         block["urlPath"] = url
 

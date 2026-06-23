@@ -146,25 +146,24 @@ Open the portal: **http://localhost:3000**
 
 ---
 
-## A5 — First time only: create the admin account
+## A5 — First time only: seed users
 
 Do this once, after the services are running for the first time.
-Your account persists in the database — you do not need to do this again after a restart.
+Your accounts persist in the database — you do not need to do this again after a restart.
 
 ```powershell
-curl.exe -X POST http://localhost:3001/api/v1/auth/setup `
-  -H "Content-Type: application/json" `
-  -d "{""username"":""admin"",""email"":""svtest@demo.com"",""password"":""Test1234!""}"
+cd C:\Workspace\Mockingbird
+.\scripts\seed-users.ps1
 ```
 
-Expected response:
-```json
-{"id":"...","username":"admin","email":"svtest@demo.com","role":"ADMIN"}
-```
+This creates two accounts:
 
-> Password must be at least 8 characters. Use `Test1234!` if unsure.
->
-> If you see `409 Conflict` — the admin already exists. Go ahead and log in.
+| Username | Password | Role |
+|----------|----------|------|
+| `sv.admin` | `Admin@2026!` | ADMIN |
+| `sv.user` | `User@2026!` | SV_TEAM |
+
+> If you see `409 Conflict` — the accounts already exist. Go ahead and log in.
 
 ---
 
@@ -271,12 +270,20 @@ Open the portal from your browser: **http://\<your-ec2-ip\>:3000**
 
 ---
 
-## B5 — First time only: create the admin account
+## B5 — First time only: seed users
 
+```bash
+cd ~/mockingbird
+bash scripts/seed-users.sh
+```
+
+This creates `sv.admin` / `Admin@2026!` (ADMIN) and `sv.user` / `User@2026!` (SV_TEAM).
+
+If you don't have a `seed-users.sh` yet, run manually:
 ```bash
 curl -X POST http://localhost:3001/api/v1/auth/setup \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","email":"svtest@demo.com","password":"Test1234!"}'
+  -d '{"username":"sv.admin","email":"sv.admin@mockingbird.internal","password":"Admin@2026!"}'
 ```
 
 ---
@@ -305,8 +312,8 @@ kill $(lsof -ti:3000) 2>/dev/null
 
 Open **http://localhost:3000** (Windows) or **http://\<server-ip\>:3000** (RHEL 9).
 
-- Username: `admin`
-- Password: `Test1234!`
+- Username: `sv.admin`
+- Password: `Admin@2026!`
 
 ---
 
@@ -627,7 +634,10 @@ Replace `3001` with the port number that is blocked.
 
 ### Login returns 401 Unauthorized
 
-Password must be at least 8 characters. Use `Test1234!`.
+Use the credentials created by `.\scripts\seed-users.ps1`:
+- Username: `sv.admin` — Password: `Admin@2026!`
+
+If you haven't run seed-users.ps1 yet, run it now (services must be running first).
 
 ---
 

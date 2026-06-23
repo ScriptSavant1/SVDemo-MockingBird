@@ -40,6 +40,10 @@ export default defineConfig({
         target: "http://localhost:8003",
         changeOrigin: true,
       },
+      "^/api/v1/projects/[^/]+/stubs/[^/]+/stub-engine\\.zip$": {
+        target: "http://localhost:8003",
+        changeOrigin: true,
+      },
       "/api/v1": {
         target: "http://localhost:8001",
         changeOrigin: true,

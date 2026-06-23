@@ -21,7 +21,10 @@ export function ProjectPage() {
   const canEdit = role === "ADMIN" || role === "SV_TEAM";
 
   const [deployingId, setDeployingId] = useState<string | null>(null);
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [deployError, setDeployError] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [showEdit, setShowEdit] = useState(false);
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
   const [editForm, setEditForm] = useState<UpdateProjectBody>({});
@@ -39,9 +42,29 @@ export function ProjectPage() {
     enabled: !!projectId,
   });
 
+  const generateMutation = useMutation({
+    mutationFn: (stubId: string) => projectsApi.generate(projectId!, stubId),
+    onMutate: (stubId) => {
+      setGeneratingId(stubId);
+      setDeployError(null);
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["stubs", projectId] });
+    },
+    onError: (err: Error) => setDeployError(err.message),
+    onSettled: () => setGeneratingId(null),
+  });
+
   const deployMutation = useMutation({
     mutationFn: (stubId: string) => projectsApi.deploy(projectId!, stubId),
-    onMutate: (stubId) => setDeployingId(stubId),
+    onMutate: (stubId) => {
+      setDeployingId(stubId);
+      setDeployError(null);
+    },
+    onSuccess: (_data, stubId) => {
+      void navigate(`/projects/${projectId}/stubs/${stubId}`);
+    },
+    onError: (err: Error) => setDeployError(err.message),
     onSettled: () => {
       setDeployingId(null);
       void qc.invalidateQueries({ queryKey: ["stubs", projectId] });
@@ -67,16 +90,19 @@ export function ProjectPage() {
     },
   });
 
-  async function handleDownloadZip(stubId: string) {
+  async function handleDownloadStubProject(stubId: string) {
     setDownloadingId(stubId);
+    setDownloadError(null);
     try {
-      const blob = await ingestionApi.downloadWiremockZip(projectId!, stubId);
+      const blob = await ingestionApi.downloadStubEngineZip(projectId!, stubId);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "wiremock.zip";
+      a.download = "stub-engine.zip";
       a.click();
       URL.revokeObjectURL(url);
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : "Download failed");
     } finally {
       setDownloadingId(null);
     }
@@ -174,7 +200,18 @@ export function ProjectPage() {
                 <td className="py-3 pr-4 text-gray-400">{formatDate(stub.updated_at)}</td>
                 <td className="py-3">
                   <div className="flex gap-2 flex-wrap">
-                    {stub.status === "READY" && (
+                    {stub.status === "READY" && !stub.generated_at && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        loading={generatingId === stub.id}
+                        onClick={() => generateMutation.mutate(stub.id)}
+                        title="Pre-generate WireMock mapping files before deploying"
+                      >
+                        Generate
+                      </Button>
+                    )}
+                    {stub.status === "READY" && !!stub.generated_at && (
                       <>
                         <Button
                           size="sm"
@@ -187,10 +224,10 @@ export function ProjectPage() {
                           size="sm"
                           variant="secondary"
                           loading={downloadingId === stub.id}
-                          onClick={() => void handleDownloadZip(stub.id)}
-                          title="Download WireMock stub ZIP for local use"
+                          onClick={() => void handleDownloadStubProject(stub.id)}
+                          title="Download the complete Spring Boot + WireMock project (pom.xml, Dockerfile, Java source, mappings). Run with: mvn spring-boot:run"
                         >
-                          Download ZIP
+                          Download Stub Project
                         </Button>
                       </>
                     )}
@@ -211,6 +248,17 @@ export function ProjectPage() {
           </tbody>
         </table>
       </Card>
+
+      {deployError && (
+        <div className="mt-3 rounded bg-red-50 px-3 py-2 text-sm text-red-700">
+          <strong>Action failed:</strong> {deployError}
+        </div>
+      )}
+      {downloadError && (
+        <div className="mt-3 rounded bg-red-50 px-3 py-2 text-sm text-red-700">
+          <strong>Download failed:</strong> {downloadError}
+        </div>
+      )}
 
       {/* Edit project modal */}
       {project && (

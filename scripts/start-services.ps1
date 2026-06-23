@@ -133,7 +133,14 @@ $ok = $ok -and (Wait-ForHealth "http://localhost:8001/health" "project-service" 
 $ok = $ok -and (Wait-ForHealth "http://localhost:8003/health" "ingestion-service" 30)
 
 if ($ok) {
-    Write-Host "`nAll services running.  Start portal:  cd portal && npm run dev" -ForegroundColor Green
+    Write-Host "`nAll backend services running." -ForegroundColor Green
+    Write-Host ""
+    Write-Host "  Next - open a NEW terminal and run:" -ForegroundColor Yellow
+    Write-Host "    cd $root\portal" -ForegroundColor White
+    Write-Host "    npm run dev" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  Then open:  http://localhost:3000" -ForegroundColor Cyan
+    Write-Host "  Login:      sv.admin / Admin@2026!" -ForegroundColor Cyan
     $authId = if ($authProc) { $authProc.Id } else { "" }
     "$authId,$($projProc.Id),$($ingProc.Id)" | Set-Content (Join-Path $root ".service-pids")
 } else {
