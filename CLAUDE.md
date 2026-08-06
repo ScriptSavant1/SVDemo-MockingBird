@@ -1,21 +1,47 @@
 # Mockingbird — Claude's Project Reference
+
 ## Read START_HERE.md first if resuming a session. This file is the AI-optimised version.
+
+---
+
+## Standing Rules (read once, apply always)
+
+Also read and follow, every session:
+
+- ai-assisted-development-playbook.md
+- documentation-automation-system.md
+- testing-strategy-and-definition-of-done.md
+
+These govern: impact analysis before non-trivial changes, unit/integration/
+regression test requirements, the code-level guardrails (fail loudly,
+scrutinize inverted conditions, never commit secrets, flag sensitive-data
+handling), the documentation update matrix, the periodic architecture-doc
+audit, and the Definition of Done checklist. They apply in addition to
+everything below — nothing below is overridden by them.
+
+**Doc-location mapping for this project:** the generic system's `/ai-brain/`
+maps to this project's existing `docs/` folder — ARCHITECTURE.md,
+DECISIONS_LOG.md, TECH_STACK.md, IMPLEMENTATION_PLAN.md all already live
+there. Don't create a separate `/ai-brain/` folder; treat `docs/` as its
+equivalent. `FEATURES.md`, `BUGS.md`, `CONFIGURATION.md`, and `GLOSSARY.md`
+do not exist yet in `docs/` — create them there, not elsewhere, the first
+time something needs to be recorded in one of them.
 
 ---
 
 ## Project Identity
 
-| Field | Value |
-|-------|-------|
-| Project Name | Mockingbird |
-| Organisation | your organisation |
-| Owner | Performance Test Engineer — transitioning from SV consumer to SV platform builder |
-| Purpose | Replace CA LISA + IBM Rational Test Workbench with open-source, automated SV platform |
-| TPS Target | 10,000+ TPS per stub (Spring Boot Netty + Java 21 on c6i.2xlarge achieves 12K–18K) |
-| Licence Cost Target | £0 (all open-source) |
-| Timeline | 56 weeks across 7 phases |
-| Year 1 Scale | 20–30 projects, mostly 1–2 stubs per project |
-| SV Team | 5 people today → ramping down as automation completes |
+| Field                 | Value                                                                                 |
+| --------------------- | ------------------------------------------------------------------------------------- |
+| Project Name          | Mockingbird                                                                           |
+| Organisation          | your organisation                                                                     |
+| Owner                 | Performance Test Engineer — transitioning from SV consumer to SV platform builder     |
+| Purpose               | Replace CA LISA + IBM Rational Test Workbench with open-source, automated SV platform |
+| TPS Target            | 10,000+ TPS per stub (Spring Boot Netty + Java 21 on c6i.2xlarge achieves 12K–18K)    |
+| Licence Cost Target   | £0 (all open-source)                                                                  |
+| Timeline              | 56 weeks across 7 phases                                                              |
+| Year 1 Scale          | 20–30 projects, mostly 1–2 stubs per project                                          |
+| SV Team               | 5 people today → ramping down as automation completes                                 |
 | Primary Input Formats | Raw .txt HTTP pairs (PRIMARY), .json, Postman v2.1 collections (with saved responses) |
 
 ---
@@ -30,18 +56,18 @@ Project teams upload their API spec in any format. Mockingbird auto-detects the 
 
 ### Platform Backend Services
 
-| Service | Language | Purpose |
-|---------|----------|---------|
-| auth-service | Node.js 20 + Fastify | LDAP auth → JWT; SAML added in Phase 3 |
-| project-service | Python 3.11 + FastAPI | Project/stub CRUD, audit log |
-| ingestion-service | Python 3.11 + FastAPI | File upload, format auto-detection |
-| parser-worker | Python 3.11 (SQS consumer) | Parses .txt / .json / Postman / OpenAPI |
-| generator-worker | Python 3.11 (SQS consumer) | Generates WireMock mappings + Spring Boot project |
-| deployer-worker | Python 3.11 (SQS consumer) | Triggers GitLab CI build; runs Terraform for EC2 |
-| metrics-service | Python 3.11 + FastAPI | Scrapes Prometheus → Timestream; WebSocket TPS feed |
-| reporter-service | Python 3.11 (SQS consumer) | PDF (WeasyPrint) + Excel (openpyxl) + PPT (python-pptx) |
-| notification-service | Node.js 20 + Fastify | Email, Slack, MS Teams webhooks |
-| ai-service | Python 3.11 + FastAPI | Claude API — plain English → OpenAPI stub generation |
+| Service              | Language                   | Purpose                                                 |
+| -------------------- | -------------------------- | ------------------------------------------------------- |
+| auth-service         | Node.js 20 + Fastify       | LDAP auth → JWT; SAML added in Phase 3                  |
+| project-service      | Python 3.11 + FastAPI      | Project/stub CRUD, audit log                            |
+| ingestion-service    | Python 3.11 + FastAPI      | File upload, format auto-detection                      |
+| parser-worker        | Python 3.11 (SQS consumer) | Parses .txt / .json / Postman / OpenAPI                 |
+| generator-worker     | Python 3.11 (SQS consumer) | Generates WireMock mappings + Spring Boot project       |
+| deployer-worker      | Python 3.11 (SQS consumer) | Triggers GitLab CI build; runs Terraform for EC2        |
+| metrics-service      | Python 3.11 + FastAPI      | Scrapes Prometheus → Timestream; WebSocket TPS feed     |
+| reporter-service     | Python 3.11 (SQS consumer) | PDF (WeasyPrint) + Excel (openpyxl) + PPT (python-pptx) |
+| notification-service | Node.js 20 + Fastify       | Email, Slack, MS Teams webhooks                         |
+| ai-service           | Python 3.11 + FastAPI      | Claude API — plain English → OpenAPI stub generation    |
 
 All Python packages from your organisation PyPI mirror (Artifactory). All Node packages from your organisation npm mirror.
 
@@ -49,15 +75,16 @@ All Python packages from your organisation PyPI mirror (Artifactory). All Node p
 
 **IMPORTANT: WireMock runs as an EMBEDDED LIBRARY inside Spring Boot — NOT as standalone JAR.**
 
-| Engine | Used When | TPS on c6i.2xlarge | Artifactory |
-|--------|----------|-------------------|-------------|
-| Spring Boot + WireMock (Netty) **PRIMARY** | All REST + SOAP | 12,000–18,000 | All JARs via Maven from Artifactory |
-| Hoverfly (Go) | Only if > 18K TPS needed | 18,000–25,000 | Docker image via Artifactory mirror |
-| Spring Boot + Spring Kafka | Simple Kafka (Phase 4+) | messages/sec | Maven from Artifactory |
-| Microcks | AsyncAPI + Avro (Phase 4+) | async | Docker image via Artifactory mirror |
-| Spring Boot + Spring JMS | IBM MQ (Phase 4+) | N/A | IBM MQ JARs via Artifactory |
+| Engine                                     | Used When                  | TPS on c6i.2xlarge | Artifactory                         |
+| ------------------------------------------ | -------------------------- | ------------------ | ----------------------------------- |
+| Spring Boot + WireMock (Netty) **PRIMARY** | All REST + SOAP            | 12,000–18,000      | All JARs via Maven from Artifactory |
+| Hoverfly (Go)                              | Only if > 18K TPS needed   | 18,000–25,000      | Docker image via Artifactory mirror |
+| Spring Boot + Spring Kafka                 | Simple Kafka (Phase 4+)    | messages/sec       | Maven from Artifactory              |
+| Microcks                                   | AsyncAPI + Avro (Phase 4+) | async              | Docker image via Artifactory mirror |
+| Spring Boot + Spring JMS                   | IBM MQ (Phase 4+)          | N/A                | IBM MQ JARs via Artifactory         |
 
 **Spring Boot stub engine key config:**
+
 - Java 21, `spring.threads.virtual.enabled: true`, `server.http2.enabled: true`, `server.compression.enabled: true`
 - JVM: `-Xmx12g -XX:+UseG1GC -XX:MaxGCPauseMillis=10`
 - EC2: c6i.2xlarge (8 vCPU, 16GB) for 10K TPS; c6i.xlarge for < 5K TPS
@@ -73,59 +100,59 @@ All Python packages from your organisation PyPI mirror (Artifactory). All Node p
 
 ### Data Stores
 
-| Store | Technology | Notes |
-|-------|-----------|-------|
-| Primary DB | **PostgreSQL 15 on AWS RDS** (Multi-AZ, eu-west-2) | NOT MS SQL. Licence-free. SQLAlchemy + psycopg2. |
-| Object storage | AWS S3 (eu-west-2 + eu-west-1 replica) | Spec files, stub packages, reports |
-| Cache / sessions | AWS ElastiCache Redis 7 | Sessions, API cache, WebSocket pub/sub |
-| Time-series metrics | AWS Timestream | TPS, latency, error rates |
-| Job queue | AWS SQS | parse/generate/deploy/report queues + DLQ |
-| Events | AWS EventBridge | Cross-service domain events |
-| Container images | **GitLab Container Registry** (NOT ECR) | URL: TBC — user confirming |
-| Secrets | **HashiCorp Vault** (primary) | `hvac` Python, `spring-vault-core` Java |
+| Store               | Technology                                         | Notes                                            |
+| ------------------- | -------------------------------------------------- | ------------------------------------------------ |
+| Primary DB          | **PostgreSQL 15 on AWS RDS** (Multi-AZ, eu-west-2) | NOT MS SQL. Licence-free. SQLAlchemy + psycopg2. |
+| Object storage      | AWS S3 (eu-west-2 + eu-west-1 replica)             | Spec files, stub packages, reports               |
+| Cache / sessions    | AWS ElastiCache Redis 7                            | Sessions, API cache, WebSocket pub/sub           |
+| Time-series metrics | AWS Timestream                                     | TPS, latency, error rates                        |
+| Job queue           | AWS SQS                                            | parse/generate/deploy/report queues + DLQ        |
+| Events              | AWS EventBridge                                    | Cross-service domain events                      |
+| Container images    | **GitLab Container Registry** (NOT ECR)            | URL: TBC — user confirming                       |
+| Secrets             | **HashiCorp Vault** (primary)                      | `hvac` Python, `spring-vault-core` Java          |
 
 ### Infrastructure
 
-| Area | Decision |
-|------|---------|
-| AWS Regions | eu-west-2 (London, PRIMARY) + eu-west-1 (Ireland, DR) |
-| Platform containers | AWS ECS Fargate (eu-west-2) |
-| Stub EC2 | c6i.2xlarge per project; can deploy to: (A) Mockingbird AWS account, (B) Client's AWS account via STS AssumeRole, (C) On-prem via SSH + Direct Connect |
-| EC2 provisioning | Terraform inside deployer-worker ECS task (IAM role — no manual steps) |
-| Cross-account deploy | AWS STS AssumeRole → client's `MockingbirdDeployerRole` |
-| On-premise | SSH + Docker via Python Paramiko (Phase 4); Direct Connect exists |
-| CI/CD | GitLab CI/CD (self-hosted, AWS-hosted Kubernetes runners) |
-| Docker image builds | **Kaniko** (NOT Docker-in-Docker) — required for k8s runners |
-| IaC state | Terraform remote state in S3 + DynamoDB lock |
+| Area                 | Decision                                                                                                                                               |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| AWS Regions          | eu-west-2 (London, PRIMARY) + eu-west-1 (Ireland, DR)                                                                                                  |
+| Platform containers  | AWS ECS Fargate (eu-west-2)                                                                                                                            |
+| Stub EC2             | c6i.2xlarge per project; can deploy to: (A) Mockingbird AWS account, (B) Client's AWS account via STS AssumeRole, (C) On-prem via SSH + Direct Connect |
+| EC2 provisioning     | Terraform inside deployer-worker ECS task (IAM role — no manual steps)                                                                                 |
+| Cross-account deploy | AWS STS AssumeRole → client's `MockingbirdDeployerRole`                                                                                                |
+| On-premise           | SSH + Docker via Python Paramiko (Phase 4); Direct Connect exists                                                                                      |
+| CI/CD                | GitLab CI/CD (self-hosted, AWS-hosted Kubernetes runners)                                                                                              |
+| Docker image builds  | **Kaniko** (NOT Docker-in-Docker) — required for k8s runners                                                                                           |
+| IaC state            | Terraform remote state in S3 + DynamoDB lock                                                                                                           |
 
 ### Authentication (Three Phases)
 
-| Phase | Method | Status |
-|-------|--------|--------|
-| 1 (Weeks 1–16) | Local admin-created credentials (bcrypt) | Build this first |
-| 2 (Weeks 17–32) | LDAP: `memberOf: CN=SV-Team,OU=Groups,DC=company,DC=com` | LDAP server details TBC |
-| 3 (Weeks 39+) | SAML Europa SSO (additive — LDAP still works) | Europa-domain users only |
+| Phase           | Method                                                   | Status                   |
+| --------------- | -------------------------------------------------------- | ------------------------ |
+| 1 (Weeks 1–16)  | Local admin-created credentials (bcrypt)                 | Build this first         |
+| 2 (Weeks 17–32) | LDAP: `memberOf: CN=SV-Team,OU=Groups,DC=company,DC=com` | LDAP server details TBC  |
+| 3 (Weeks 39+)   | SAML Europa SSO (additive — LDAP still works)            | Europa-domain users only |
 
 LDAP role mapping: `CN=SV-Team` → ADMIN, `CN=SV-Users` → SV_TEAM, project groups → PROJECT_OWNER
 
 ### Monitoring
 
-| Concern | Tool | Integration |
-|---------|------|------------|
-| Application logs | Splunk (existing) | JSON logs → CloudWatch → Splunk HEC (endpoint TBC) |
-| APM / tracing | AppDynamics (existing) | Java agent in stub containers (agent key TBC) |
-| AWS alarms | CloudWatch | SQS depth, ECS crashes, RDS CPU |
-| Live dashboards | Grafana (embedded) | Reads Prometheus metrics → Timestream |
-| Stub metrics | Prometheus scrapes `/actuator/prometheus` every 30s | |
+| Concern          | Tool                                                | Integration                                        |
+| ---------------- | --------------------------------------------------- | -------------------------------------------------- |
+| Application logs | Splunk (existing)                                   | JSON logs → CloudWatch → Splunk HEC (endpoint TBC) |
+| APM / tracing    | AppDynamics (existing)                              | Java agent in stub containers (agent key TBC)      |
+| AWS alarms       | CloudWatch                                          | SQS depth, ECS crashes, RDS CPU                    |
+| Live dashboards  | Grafana (embedded)                                  | Reads Prometheus metrics → Timestream              |
+| Stub metrics     | Prometheus scrapes `/actuator/prometheus` every 30s |                                                    |
 
 ### Reports (All Four Required)
 
-| Format | Library | Audience |
-|--------|---------|---------|
-| Live Dashboard | ECharts + WebSocket + Grafana | All users — real-time |
-| PDF | WeasyPrint | Management, CTO — branded |
-| Excel | openpyxl | Finance, analysts |
-| PowerPoint | python-pptx | Management presentations |
+| Format         | Library                       | Audience                  |
+| -------------- | ----------------------------- | ------------------------- |
+| Live Dashboard | ECharts + WebSocket + Grafana | All users — real-time     |
+| PDF            | WeasyPrint                    | Management, CTO — branded |
+| Excel          | openpyxl                      | Finance, analysts         |
+| PowerPoint     | python-pptx                   | Management presentations  |
 
 ---
 
@@ -144,11 +171,11 @@ DRAFT → READY → DEPLOYING → LIVE → SUSPENDED → (REDEPLOY) → LIVE
 
 ## Deployment Targets
 
-| Target | Mechanism | When |
-|--------|-----------|------|
-| Mockingbird's own AWS account | Terraform via ECS task IAM role | Default |
-| Client's AWS account | Terraform + STS AssumeRole | Client wants stubs in their VPC |
-| On-premise | SSH + Docker via Direct Connect | Air-gapped or no-AWS teams |
+| Target                        | Mechanism                       | When                            |
+| ----------------------------- | ------------------------------- | ------------------------------- |
+| Mockingbird's own AWS account | Terraform via ECS task IAM role | Default                         |
+| Client's AWS account          | Terraform + STS AssumeRole      | Client wants stubs in their VPC |
+| On-premise                    | SSH + Docker via Direct Connect | Air-gapped or no-AWS teams      |
 
 ---
 
@@ -168,32 +195,41 @@ DRAFT → READY → DEPLOYING → LIVE → SUSPENDED → (REDEPLOY) → LIVE
 
 ## Phase Reference
 
-| Phase | Weeks | Goal | Status |
-|-------|-------|------|--------|
-| 1 | 1–8 | Parser + Generator CLI (`sv-gen` command) | ❌ NOT STARTED |
-| 2 | 9–16 | Dynamic stubs + SOAP + stateful scenarios | Not started |
-| 3 | 17–24 | Platform backend (FastAPI + DB + SQS + LDAP) | Not started |
-| 4 | 25–32 | Auto-deploy (Terraform + EC2 + GitLab CI) | Not started |
-| 5 | 33–38 | Metrics + Reporting (all 4 formats) | Not started |
-| 6 | 39–48 | Self-service React portal | Not started |
-| 7 | 49–56 | Kafka + AI-assisted generation | Not started |
+| Phase | Weeks | Goal                                          | Status                      |
+| ----- | ----- | ---------------------------------------------- | ---------------------------- |
+| 1     | 1–8   | Parser + Generator CLI (`sv-gen` command)     | ✅ COMPLETE                 |
+| 2     | 9–16  | Dynamic stubs + SOAP + stateful scenarios     | ✅ COMPLETE                 |
+| 3     | 17–24 | Platform backend (FastAPI + DB + SQS + LDAP)  | ✅ COMPLETE                 |
+| 4     | 25–32 | Auto-deploy (Terraform + EC2 + GitLab CI)     | ✅ COMPLETE                 |
+| 5     | 33–38 | Metrics + Reporting (all 4 formats)           | ✅ COMPLETE                 |
+| 6     | 39–48 | Self-service React portal                     | ✅ COMPLETE                 |
+| 7     | 49–56 | Kafka + AI-assisted generation                | ⚠️ PARTIAL — core built      |
+
+Phase 7 remaining: SAML/Europa SSO, Grafana portal embed, production Vault
+integration, Splunk HEC log forwarding, AppDynamics agent wiring, and
+on-premise deploy testing against a real host — see START_HERE.md Section 3
+for details. These map to the Pending Inputs below.
+
+**Last audited against disk/START_HERE.md:** 2026-08-06. Per the Standing
+Rules' periodic-audit requirement, re-verify this table against actual
+service/service-test status before trusting it if this file looks old.
 
 ---
 
 ## Pending Inputs (Blocking)
 
-| Priority | Item | Needed For |
-|----------|------|-----------|
-| 🔴 C1 | GitLab Container Registry URL | Phase 1 Docker commands |
-| 🔴 C2 | Artifactory URLs (Maven, PyPI, npm, Docker) | Phase 1 — all builds |
-| 🔴 C3 | PostgreSQL acceptable, or MS SQL mandated? | Phase 1 — DB setup |
-| 🟡 I1 | HashiCorp Vault endpoint + auth method | Phase 3 |
-| 🟡 I2 | mTLS or server-side TLS only? | Phase 2 Nginx |
-| 🟡 I3 | Splunk HEC endpoint + token | Phase 3 |
-| 🟡 I4 | AppDynamics agent key + controller hostname | Phase 2 |
-| 🟡 I5 | LDAP server hostname + base DN | Phase 2 |
-| 🟢 U1 | Branding assets (logo, colours, PPT template) | Phase 5 |
-| 🟢 U2 | Internal CA certificate | Phase 2 HTTPS |
+| Priority | Item                                          | Needed For              |
+| -------- | --------------------------------------------- | ----------------------- |
+| 🔴 C1    | GitLab Container Registry URL                 | Phase 1 Docker commands |
+| 🔴 C2    | Artifactory URLs (Maven, PyPI, npm, Docker)   | Phase 1 — all builds    |
+| 🔴 C3    | PostgreSQL acceptable, or MS SQL mandated?    | Phase 1 — DB setup      |
+| 🟡 I1    | HashiCorp Vault endpoint + auth method        | Phase 3                 |
+| 🟡 I2    | mTLS or server-side TLS only?                 | Phase 2 Nginx           |
+| 🟡 I3    | Splunk HEC endpoint + token                   | Phase 3                 |
+| 🟡 I4    | AppDynamics agent key + controller hostname   | Phase 2                 |
+| 🟡 I5    | LDAP server hostname + base DN                | Phase 2                 |
+| 🟢 U1    | Branding assets (logo, colours, PPT template) | Phase 5                 |
+| 🟢 U2    | Internal CA certificate                       | Phase 2 HTTPS           |
 
 ---
 
@@ -204,7 +240,10 @@ mockingbird/
 ├── START_HERE.md                    ← Human resume document (read first)
 ├── CLAUDE.md                        ← This file (AI context)
 ├── SV_Platform_Master_Guide.md      ← Full requirements + prompt library
-├── docs/
+├── ai-assisted-development-playbook.md
+├── documentation-automation-system.md
+├── testing-strategy-and-definition-of-done.md
+├── docs/                            ← Equivalent to the generic system's /ai-brain/
 │   ├── ARCHITECTURE.md              ← System + AWS diagrams
 │   ├── USER_FLOWS.md                ← User journey flows
 │   ├── TECH_STACK.md                ← Technology decisions + rationale
@@ -212,10 +251,24 @@ mockingbird/
 │   ├── DEPLOYMENT_ARCHITECTURE.md   ← Multi-account + project lifecycle
 │   ├── SV_EXPERT_REVIEW.md          ← TPS benchmarks, SV expert findings
 │   ├── DECISIONS_LOG.md             ← All confirmed decisions + pending items
-│   └── FINAL_ARCHITECTURE.md        ← Consolidated final architecture
-├── services/                        ← (Phase 1+) — does not exist yet
-├── stub-engines/                    ← (Phase 1+) — does not exist yet
-└── terraform/                       ← (Phase 4+) — does not exist yet
+│   ├── FINAL_ARCHITECTURE.md        ← Consolidated final architecture
+│   ├── DOCUMENTATION_STANDARDS.md
+│   ├── LOCAL_DEVELOPMENT.md
+│   ├── USER_GUIDE.md
+│   ├── architecture/
+│   ├── input-formats/
+│   └── screenshots/
+│   (FEATURES.md, BUGS.md, CONFIGURATION.md, GLOSSARY.md — not created yet;
+│    create here, not elsewhere, when first needed)
+├── unit-tests/                      ← does not exist yet (tests live per-service instead)
+├── regression-tests/                ← does not exist yet
+├── services/                        ← built — auth, project, ingestion, parser-worker,
+│                                        generator-worker, deployer-worker, metrics,
+│                                        reporter, notification, ai-service
+├── stub-engines/                    ← does not exist as a top-level dir; stub engine
+│                                        templates are generated per-project by
+│                                        generator-worker instead
+└── terraform/                       ← built — terraform/stub-ec2/
 ```
 
 ---
