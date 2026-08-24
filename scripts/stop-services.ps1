@@ -19,7 +19,7 @@ if (Test-Path $pidFile) {
     }
     Remove-Item $pidFile -Force
 } else {
-    Write-Host "No .service-pids file found — killing by port" -ForegroundColor Yellow
+    Write-Host "No .service-pids file found - killing by port" -ForegroundColor Yellow
     foreach ($port in @(3001, 8001, 8003)) {
         $procs = netstat -ano | Select-String ":${port}\s" | ForEach-Object {
             ($_ -split "\s+")[-1]

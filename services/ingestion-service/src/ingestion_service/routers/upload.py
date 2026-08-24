@@ -15,6 +15,7 @@ GET /api/v1/projects/{project_id}/stubs/{stub_id}/wiremock.zip
 from __future__ import annotations
 
 import io
+import logging
 import re
 import shutil
 import tempfile
@@ -39,6 +40,8 @@ from ..s3_client import (
     upload_local,
 )
 from ..schemas import DownloadUrlResponse, IngestionResult
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -79,22 +82,32 @@ def upload_stub_file(
             detail=f"File exceeds {settings.max_upload_bytes // (1024 * 1024)} MB limit",
         )
 
-    # 3. Write to a temp file so the parser (which expects a Path) can read it
-    original_name = file.filename or "upload.txt"
-    suffix = Path(original_name).suffix or ".txt"
-    tmp_path: Path | None = None
+    # 3. Write to a temp file so the parser (which expects a Path) can read it.
+    #    file.filename is client-supplied — take only the basename (Path.name
+    #    strips any ../ or / segments) before it's ever used to build a storage key.
+    #
+    #    The file is written under its ORIGINAL name (in a fresh temp dir), not
+    #    a randomly-generated temp filename. Some parsers — notably CA LISA,
+    #    whose "%%StatusCode%%" template variable can only be resolved from a
+    #    filename hint like "Error400Response" — infer meaning from the source
+    #    filename. A random name (tmpXXXXXX.txt) silently defeats that
+    #    inference and makes every such response fall back to 200, including
+    #    genuine error responses. Using the real filename here is what lets
+    #    that inference actually work end-to-end.
+    original_name = Path(file.filename or "upload.txt").name or "upload.txt"
+    tmp_dir: Path | None = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-            tmp.write(content)
-            tmp_path = Path(tmp.name)
+        tmp_dir = Path(tempfile.mkdtemp(prefix="mb-upload-"))
+        tmp_path = tmp_dir / original_name
+        tmp_path.write_bytes(content)
 
         # 4. Detect format and validate
         from parser_worker.detector import detect_and_parse  # noqa: PLC0415 — deferred import
 
         _, validation_result, parsed_file = detect_and_parse(tmp_path)
     finally:
-        if tmp_path and tmp_path.exists():
-            tmp_path.unlink()
+        if tmp_dir and tmp_dir.exists():
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
     if not validation_result.valid:
         return IngestionResult(
@@ -152,6 +165,11 @@ def upload_stub_file(
             upload_bytes(get_s3_client(), wiremock_key, wiremock_bytes, "application/zip")
         stub.generated_at = datetime.now(timezone.utc)
     except Exception:
+        logger.exception(
+            "WireMock pre-generation failed for stub %s (project %s) — upload still succeeds, "
+            "but the user will need to retry Generate manually",
+            stub_id, project_id,
+        )
         wiremock_key = None  # non-fatal — upload still succeeds
 
     # 8. Pre-generate the full Spring Boot stub project in local dev.
@@ -174,7 +192,11 @@ def upload_stub_file(
             finally:
                 shutil.rmtree(gen_dir, ignore_errors=True)
         except Exception:
-            pass  # non-fatal — upload still succeeds
+            logger.exception(
+                "Spring Boot stub-engine pre-generation failed for stub %s (project %s) — "
+                "upload still succeeds, but Download Stub Project will 404 until regenerated",
+                stub_id, project_id,
+            )
 
     db.commit()
 

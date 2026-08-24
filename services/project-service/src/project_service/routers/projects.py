@@ -155,8 +155,12 @@ def update_project(
 def delete_project(
     project_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _user: CurrentUser = Depends(require_admin),
+    user: CurrentUser = Depends(require_admin),
 ) -> None:
     project = _get_or_404(db, project_id)
+    # Snapshot identifying info before deleting — project_id survives as NULL
+    # (see AuditLog.project_id ondelete=SET NULL) but the name/team otherwise
+    # wouldn't be recoverable from a NULL-project_id row after the fact.
+    _audit(db, user, project.id, "project.deleted", {"name": project.name, "team": project.team})
     db.delete(project)
     db.commit()

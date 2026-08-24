@@ -58,7 +58,7 @@ Project teams upload their API spec in any format. Mockingbird auto-detects the 
 
 | Service              | Language                   | Purpose                                                 |
 | -------------------- | -------------------------- | ------------------------------------------------------- |
-| auth-service         | Node.js 20 + Fastify       | LDAP auth → JWT; SAML added in Phase 3                  |
+| auth-service         | Node.js 22 + Fastify       | LDAP auth → JWT; SAML added in Phase 3                  |
 | project-service      | Python 3.11 + FastAPI      | Project/stub CRUD, audit log                            |
 | ingestion-service    | Python 3.11 + FastAPI      | File upload, format auto-detection                      |
 | parser-worker        | Python 3.11 (SQS consumer) | Parses .txt / .json / Postman / OpenAPI                 |
@@ -66,7 +66,7 @@ Project teams upload their API spec in any format. Mockingbird auto-detects the 
 | deployer-worker      | Python 3.11 (SQS consumer) | Triggers GitLab CI build; runs Terraform for EC2        |
 | metrics-service      | Python 3.11 + FastAPI      | Scrapes Prometheus → Timestream; WebSocket TPS feed     |
 | reporter-service     | Python 3.11 (SQS consumer) | PDF (WeasyPrint) + Excel (openpyxl) + PPT (python-pptx) |
-| notification-service | Node.js 20 + Fastify       | Email, Slack, MS Teams webhooks                         |
+| notification-service | Node.js 22 + Fastify       | Email, Slack, MS Teams webhooks                         |
 | ai-service           | Python 3.11 + FastAPI      | Claude API — plain English → OpenAPI stub generation    |
 
 All Python packages from your organisation PyPI mirror (Artifactory). All Node packages from your organisation npm mirror.
@@ -171,11 +171,17 @@ DRAFT → READY → DEPLOYING → LIVE → SUSPENDED → (REDEPLOY) → LIVE
 
 ## Deployment Targets
 
-| Target                        | Mechanism                       | When                            |
-| ----------------------------- | ------------------------------- | ------------------------------- |
-| Mockingbird's own AWS account | Terraform via ECS task IAM role | Default                         |
-| Client's AWS account          | Terraform + STS AssumeRole      | Client wants stubs in their VPC |
-| On-premise                    | SSH + Docker via Direct Connect | Air-gapped or no-AWS teams      |
+| Target                        | Mechanism                       | When                            | Build status |
+| ----------------------------- | -------------------------------- | ------------------------------- | ------------ |
+| Mockingbird's own AWS account | Terraform via ECS task IAM role | Default                         | ✅ Implemented — `deployer-worker` DEPLOY action always does this; `terraform/stub-ec2/main.tf` has a single hardcoded `provider "aws"`, no account parameterization |
+| Client's AWS account          | Terraform + STS AssumeRole      | Client wants stubs in their VPC | ❌ Not implemented — zero AssumeRole/STS code anywhere in the repo; `target_type` is accepted in the DEPLOY message schema but never read/branched on |
+| On-premise                    | SSH + Docker via Direct Connect | Air-gapped or no-AWS teams      | ⚠️ Partial — Paramiko SSH exists only for the Microcks/AsyncAPI deploy path (`deployer_worker/microcks.py`); the primary Spring Boot + WireMock DEPLOY path has no SSH/on-prem branch at all. Also never tested against a real on-prem host (see START_HERE.md Section 3). |
+
+**Practical implication:** today, every deployment — regardless of what a
+user picks — goes to Mockingbird's own AWS account. The other two rows are
+architecture intent, not working code. Treat them as a design decision
+already made (worth keeping) but not yet delivered, not as something a demo
+or pilot can rely on.
 
 ---
 

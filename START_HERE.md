@@ -148,7 +148,7 @@ Mockingbird is a **Service Virtualisation (SV) platform**.
 
 | Service | Language | Port | Status |
 |---------|----------|------|--------|
-| auth-service | Node.js 20 + Fastify | 3001 | ✅ Built |
+| auth-service | Node.js 22 + Fastify | 3001 | ✅ Built |
 | project-service | Python 3.11 + FastAPI | 8001 | ✅ Built |
 | ingestion-service | Python 3.11 + FastAPI | 8003 | ✅ Built |
 | ai-service | Python 3.11 + FastAPI | 8004 | ✅ Built |
@@ -157,7 +157,7 @@ Mockingbird is a **Service Virtualisation (SV) platform**.
 | generator-worker | Python 3.11 (SQS consumer) | — | ✅ Built |
 | deployer-worker | Python 3.11 (SQS consumer) | — | ✅ Built |
 | reporter-service | Python 3.11 (SQS consumer) | — | ✅ Built |
-| notification-service | Node.js 20 + Fastify | 3002 | ✅ Built |
+| notification-service | Node.js 22 + Fastify | 3002 | ✅ Built |
 
 ### 4.2 Frontend
 
@@ -270,7 +270,7 @@ c:\Workspace\Mockingbird\
 │
 ├── services/
 │   ├── docker-compose.yml           ← All 9 services + PostgreSQL + Redis
-│   ├── auth-service/                ← Node.js 20 + Fastify (port 3001)
+│   ├── auth-service/                ← Node.js 22 + Fastify (port 3001)
 │   ├── project-service/             ← Python FastAPI (port 8001) — 96 tests
 │   ├── ingestion-service/           ← Python FastAPI (port 8003) — 18 tests
 │   ├── ai-service/                  ← Python FastAPI (port 8004) — 11 tests

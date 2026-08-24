@@ -100,7 +100,7 @@
 - Flask → rejected: too minimal; no async; no built-in validation
 - Java Spring Boot → rejected for new services: heavier; slower iteration (WireMock already runs Java — no need to add more)
 
-#### Node.js 20 + Fastify (lightweight services)
+#### Node.js 22 + Fastify (lightweight services)
 
 **Used for:** auth-service, notification-service
 

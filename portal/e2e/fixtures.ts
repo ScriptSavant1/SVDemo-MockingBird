@@ -9,16 +9,21 @@ import { Page, Route } from "@playwright/test";
 // ── mock data ─────────────────────────────────────────────────────────────────
 
 export const MOCK_USER = {
+  id: "11111111-0000-0000-0000-000000000001",
   username: "admin",
+  email: "admin@company.com",
   role: "ADMIN",
 };
 
+// Matches the real auth-service response shape (services/auth-service/src/routes/auth.ts):
+// { access_token, token_type, expires_in, user: { id, username, email, role } }.
+// LoginPage.tsx reads res.user.username / res.user.role — a flat shape here
+// silently breaks every mocked login (this bit the E2E suite for a while).
 export const MOCK_LOGIN_RESPONSE = {
   access_token: "test-token-abc123",
   token_type: "Bearer",
   expires_in: 3600,
-  username: MOCK_USER.username,
-  role: MOCK_USER.role,
+  user: MOCK_USER,
 };
 
 export const MOCK_PROJECTS = [
@@ -80,11 +85,21 @@ function json(route: Route, body: unknown, status = 200) {
 /** Intercept auth endpoints. Call before navigating to login. */
 export async function mockAuth(
   page: Page,
-  opts: { failLogin?: boolean } = {}
+  opts: { failLogin?: boolean; role?: string; username?: string } = {}
 ) {
   await page.route("**/api/v1/auth/login", (route) => {
     if (opts.failLogin) {
       return json(route, { detail: "Invalid username or password" }, 401);
+    }
+    if (opts.role || opts.username) {
+      return json(route, {
+        ...MOCK_LOGIN_RESPONSE,
+        user: {
+          ...MOCK_USER,
+          role: opts.role ?? MOCK_USER.role,
+          username: opts.username ?? MOCK_USER.username,
+        },
+      });
     }
     return json(route, MOCK_LOGIN_RESPONSE);
   });
@@ -96,7 +111,10 @@ export async function mockAuth(
 export async function mockProjects(page: Page, projects = MOCK_PROJECTS) {
   await page.route("**/api/v1/projects", async (route) => {
     if (route.request().method() === "GET") {
-      return json(route, projects);
+      // projectsApi.list() reads a paginated envelope ({ items, total, limit,
+      // offset }, see portal/src/api/types.ts ProjectPage) — a bare array here
+      // silently resolves to an empty list (page.items is undefined on an array).
+      return json(route, { items: projects, total: projects.length, limit: 50, offset: 0 });
     }
     // POST /projects → create
     return json(route, MOCK_NEW_PROJECT, 201);
@@ -181,12 +199,12 @@ export async function mockJob(
  */
 export async function loginAs(
   page: Page,
-  opts: { username?: string; password?: string; projects?: typeof MOCK_PROJECTS } = {}
+  opts: { username?: string; password?: string; role?: string; projects?: typeof MOCK_PROJECTS } = {}
 ) {
   const username = opts.username ?? "admin";
   const password = opts.password ?? "password123";
 
-  await mockAuth(page);
+  await mockAuth(page, { role: opts.role, username: opts.username });
   await mockProjects(page, opts.projects);
 
   await page.goto("/login");

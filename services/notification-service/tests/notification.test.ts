@@ -35,11 +35,16 @@ import { sendTeams } from "../src/channels/teams";
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
+const TEST_INTERNAL_API_KEY = "test-internal-key";
+
 async function buildTestApp() {
+  process.env["INTERNAL_API_KEY"] = TEST_INTERNAL_API_KEY;
   const app = Fastify({ logger: false });
   await app.register(notifyRoutes);
   return app;
 }
+
+const AUTH_HEADERS = { "x-internal-api-key": TEST_INTERNAL_API_KEY };
 
 function makeEvent(overrides: Partial<NotificationEvent> = {}): NotificationEvent {
   return {
@@ -77,6 +82,7 @@ describe("POST /api/v1/notify/send", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/v1/notify/send",
+      headers: AUTH_HEADERS,
       payload: {
         event_type: "stub.deployed",
         project_id: "proj-1",
@@ -94,6 +100,7 @@ describe("POST /api/v1/notify/send", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/v1/notify/send",
+      headers: AUTH_HEADERS,
       payload: {
         event_type: "deploy.failed",
         project_id: "proj-2",
@@ -113,6 +120,7 @@ describe("POST /api/v1/notify/send", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/v1/notify/send",
+      headers: AUTH_HEADERS,
       payload: {
         event_type: "report.ready",
         project_id: "proj-3",
@@ -132,6 +140,7 @@ describe("POST /api/v1/notify/send", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/v1/notify/send",
+      headers: AUTH_HEADERS,
       payload: {
         event_type: "stub.suspended",
         project_id: "proj-4",
@@ -153,6 +162,7 @@ describe("POST /api/v1/notify/send", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/v1/notify/send",
+      headers: AUTH_HEADERS,
       payload: {
         event_type: "unknown.event",
         project_id: "proj-1",
@@ -168,9 +178,39 @@ describe("POST /api/v1/notify/send", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/v1/notify/send",
+      headers: AUTH_HEADERS,
       payload: { event_type: "stub.deployed" },
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  it("returns 401 when X-Internal-Api-Key is missing", async () => {
+    const app = await buildTestApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/notify/send",
+      payload: {
+        event_type: "stub.deployed",
+        project_id: "proj-1",
+        project_name: "payments-stub",
+      },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("returns 401 when X-Internal-Api-Key is wrong", async () => {
+    const app = await buildTestApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/notify/send",
+      headers: { "x-internal-api-key": "not-the-right-key" },
+      payload: {
+        event_type: "stub.deployed",
+        project_id: "proj-1",
+        project_name: "payments-stub",
+      },
+    });
+    expect(res.statusCode).toBe(401);
   });
 });
 
@@ -212,6 +252,16 @@ describe("formatMessage()", () => {
   it("stub.suspended: slack_text mentions 'suspended'", () => {
     const msg = formatMessage(makeEvent({ event_type: "stub.suspended", payload: {} }));
     expect(msg.slack_text).toContain("suspended");
+  });
+
+  it("escapes HTML special characters in project_name before embedding in html", () => {
+    const msg = formatMessage(makeEvent({
+      event_type: "stub.deployed",
+      project_name: "<img src=x onerror=alert(1)>",
+      payload: { stub_url: "https://10.0.0.1:8080", api_key: "mk_abc" },
+    }));
+    expect(msg.html).not.toContain("<img src=x onerror=alert(1)>");
+    expect(msg.html).toContain("&lt;img src=x onerror=alert(1)&gt;");
   });
 });
 

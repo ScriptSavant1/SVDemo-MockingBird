@@ -228,3 +228,21 @@ class TestDeleteProject:
     def test_delete_nonexistent_project(self, admin_client: TestClient):
         r = admin_client.delete(f"/api/v1/projects/{uuid.uuid4()}")
         assert r.status_code == 404
+
+    def test_deleting_project_leaves_an_audit_trail(self, admin_client: TestClient):
+        """A 'project.deleted' entry must survive the delete, with the project's
+        name/team snapshotted in — audit_log.project_id becomes NULL (SET NULL,
+        not CASCADE) so this row isn't destroyed along with the project.
+        """
+        create_r = admin_client.post("/api/v1/projects", json={"name": "Audit Me", "team": "Compliance"})
+        project_id = create_r.json()["id"]
+
+        r = admin_client.delete(f"/api/v1/projects/{project_id}")
+        assert r.status_code == 204
+
+        audit_r = admin_client.get("/api/v1/admin/audit")
+        assert audit_r.status_code == 200
+        actions = [e for e in audit_r.json()["items"] if e["action"] == "project.deleted"]
+        assert len(actions) == 1
+        assert actions[0]["detail"]["name"] == "Audit Me"
+        assert actions[0]["detail"]["team"] == "Compliance"

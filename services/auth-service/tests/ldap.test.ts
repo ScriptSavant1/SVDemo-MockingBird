@@ -8,6 +8,7 @@
 import Fastify, { FastifyInstance } from "fastify";
 import fastifyJwt from "@fastify/jwt";
 import type { JwtPayload } from "../src/types/index";
+import { escapeLdapFilterValue } from "../src/plugins/ldap";
 import type { LdapClient, LdapLookupResult } from "../src/plugins/ldap";
 import authRoutes from "../src/routes/auth";
 import ldapRoutes from "../src/routes/ldap";
@@ -394,5 +395,30 @@ describe("LDAP role mapping", () => {
   it("no matching group → VIEWER role", async () => {
     const body = await loginWithRole("VIEWER");
     expect(body.user.role).toBe("VIEWER");
+  });
+});
+
+// ── escapeLdapFilterValue — LDAP injection defense (RFC 4515) ────────────────
+
+describe("escapeLdapFilterValue", () => {
+  it("escapes wildcard * so it cannot broaden the search", () => {
+    expect(escapeLdapFilterValue("*")).toBe("\\2a");
+  });
+
+  it("escapes parentheses so an attacker cannot inject extra filter clauses", () => {
+    // A classic LDAP injection payload: close the filter and OR in a wildcard match
+    const payload = "*)(|(uid=*";
+    const escaped = escapeLdapFilterValue(payload);
+    expect(escaped).not.toContain("(");
+    expect(escaped).not.toContain(")");
+    expect(escaped).toBe("\\2a\\29\\28|\\28uid=\\2a");
+  });
+
+  it("escapes backslash before other substitutions to avoid double-escaping", () => {
+    expect(escapeLdapFilterValue("\\2a")).toBe("\\5c2a");
+  });
+
+  it("leaves an ordinary username unchanged", () => {
+    expect(escapeLdapFilterValue("j.smith")).toBe("j.smith");
   });
 });

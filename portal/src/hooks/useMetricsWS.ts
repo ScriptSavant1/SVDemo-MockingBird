@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { MetricSnapshot } from "@/api/types";
+import { useAuthStore } from "@/store/auth";
 
 interface UseMetricsWSResult {
   latest: MetricSnapshot | null;
@@ -19,7 +20,10 @@ export function useMetricsWS(deploymentId: string | null): UseMetricsWSResult {
     if (!deploymentId) return;
 
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const url = `${proto}//${window.location.host}/ws/metrics/${deploymentId}`;
+    const token = useAuthStore.getState().token;
+    const url = `${proto}//${window.location.host}/ws/metrics/${deploymentId}${
+      token ? `?token=${encodeURIComponent(token)}` : ""
+    }`;
     const ws = new WebSocket(url);
     wsRef.current = ws;
 

@@ -29,11 +29,27 @@ export default async function notifyRoutes(app: FastifyInstance): Promise<void> 
    * POST /api/v1/notify/send
    *
    * Synchronous dispatch endpoint — used by other services and for testing.
+   * The primary path (EventBridge → SQS → sqsPlugin) never touches this route;
+   * it exists for direct/synchronous service-to-service calls, so it's gated by
+   * a shared internal secret rather than a user JWT (no end user is calling this).
    * Returns 204 on success; channels that fail are logged but do not affect the response.
    */
   app.post<{ Body: SendBody }>(
     "/api/v1/notify/send",
     {
+      preHandler: async (request: FastifyRequest, reply: FastifyReply) => {
+        const expected = process.env["INTERNAL_API_KEY"];
+        const provided = request.headers["x-internal-api-key"];
+        if (!expected || provided !== expected) {
+          const problem: ProblemDetail = {
+            type: "https://mockingbird.internal/errors/unauthorized",
+            title: "Unauthorized",
+            status: 401,
+            detail: "Missing or invalid X-Internal-Api-Key header",
+          };
+          return reply.status(401).send(problem);
+        }
+      },
       schema: {
         body: {
           type: "object",

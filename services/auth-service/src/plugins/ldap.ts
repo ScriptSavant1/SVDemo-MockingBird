@@ -28,6 +28,21 @@ declare module "fastify" {
   }
 }
 
+/**
+ * Escape a value for safe interpolation into an LDAP search filter (RFC 4515).
+ * Without this, a username like `*)(uid=*` or `admin)(|(uid=*` sent to the
+ * unauthenticated /auth/ldap/login endpoint can widen or corrupt the search
+ * filter — classic LDAP injection.
+ */
+export function escapeLdapFilterValue(value: string): string {
+  return value
+    .replace(/\\/g, "\\5c")
+    .replace(/\*/g, "\\2a")
+    .replace(/\(/g, "\\28")
+    .replace(/\)/g, "\\29")
+    .replace(/\0/g, "\\00");
+}
+
 /** Map a list of LDAP memberOf DNs to a Mockingbird role. */
 function mapGroupsToRole(memberOf: string[], svTeamGroup: string, svUsersGroup: string): UserRole {
   const lower = memberOf.map((g) => g.toLowerCase());
@@ -56,7 +71,7 @@ export default fp(async function ldapPlugin(app: FastifyInstance) {
         // Step 1: bind as service account to search for the user
         await client.bind(bindDn, bindPassword);
         const { searchEntries } = await client.search(baseDn, {
-          filter: `(sAMAccountName=${username})`,
+          filter: `(sAMAccountName=${escapeLdapFilterValue(username)})`,
           attributes: ["dn", "mail", "memberOf"],
         });
 

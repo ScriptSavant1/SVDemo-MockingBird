@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -52,11 +53,18 @@ def query_history(
     deployment_id: str,
     minutes: int = 60,
 ) -> list[MetricHistoryPoint]:
-    """Query Timestream for the last N minutes of metrics for a deployment."""
+    """Query Timestream for the last N minutes of metrics for a deployment.
+
+    `deployment_id` is re-validated as a UUID here (not just trusted from the
+    caller) before being interpolated into the query string — the Timestream
+    Query API has no parameterized-query support in boto3, so a validated
+    UUID (hex digits + hyphens only) is the injection defense.
+    """
+    safe_deployment_id = str(uuid.UUID(str(deployment_id)))
     sql = (
         f"SELECT time, tps, latency_avg_ms, error_rate "
         f"FROM \"{database}\".\"{table}\" "
-        f"WHERE deployment_id = '{deployment_id}' "
+        f"WHERE deployment_id = '{safe_deployment_id}' "
         f"AND time between ago({minutes}m) and now() "
         f"ORDER BY time DESC"
     )

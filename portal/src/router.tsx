@@ -10,6 +10,7 @@ import { JobStatusPage } from "@/pages/JobStatusPage";
 import { AiGeneratePage } from "@/pages/AiGeneratePage";
 import { CreateProjectPage } from "@/pages/CreateProjectPage";
 import { AdminPage } from "@/pages/AdminPage";
+import { ReportsHubPage } from "@/pages/ReportsHubPage";
 
 export const router = createBrowserRouter([
   {
@@ -20,6 +21,7 @@ export const router = createBrowserRouter([
     element: <ProtectedRoute />,
     children: [
       { path: "/", element: <DashboardPage /> },
+      { path: "/reports", element: <ReportsHubPage /> },
       { path: "/projects/new", element: <CreateProjectPage /> },
       { path: "/projects/:projectId", element: <ProjectPage /> },
       { path: "/projects/:projectId/upload", element: <UploadPage /> },

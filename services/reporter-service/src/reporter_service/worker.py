@@ -139,11 +139,14 @@ def run_loop(
             db = db_factory()
             try:
                 process_message(message, db, ts_query_client, s3_client)
-            except Exception as exc:
-                logger.exception("Unhandled error processing message %s: %s", message.get("MessageId"), exc)
-            finally:
-                db.close()
+                # Only delete on success — an unhandled exception leaves the
+                # message in the queue so it's redelivered (and eventually
+                # DLQ'd) instead of being silently discarded as "handled."
                 sqs_client.delete_message(
                     QueueUrl=queue_url,
                     ReceiptHandle=message["ReceiptHandle"],
                 )
+            except Exception as exc:
+                logger.exception("Unhandled error processing message %s: %s", message.get("MessageId"), exc)
+            finally:
+                db.close()

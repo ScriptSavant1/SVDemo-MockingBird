@@ -269,6 +269,33 @@ class TestESPFormat:
         assert pf.stubs[0].scenarios[0].status == 400
 
     @skip_if_no_samples
+    def test_esp_400_status_inferred_via_upload_path(self, tmp_path):
+        """Regression test for a real bug found against Sample_SV_Files: the
+        ingestion-service upload endpoint used to write the uploaded content to
+        a randomly-named temp file (tmpXXXXXX.txt) before calling
+        detect_and_parse(), which silently defeated CA LISA's filename-based
+        %%StatusCode%% inference — every error response fell back to 200. The
+        fix was to preserve the original filename on disk. This test drives
+        detect_and_parse() the same way upload.py now does: a real file on
+        disk, named the way the portal's UploadZone.tsx names a combined
+        request+response upload (request name + response name joined by "__").
+        """
+        req = ESP_REQUEST_2.read_text(encoding="utf-8", errors="replace")
+        resp = ESP_RESPONSE_400.read_text(encoding="utf-8", errors="replace")
+        combined = req + "\n" + resp
+
+        combined_name = (
+            "1781082552845RTCAERv01_Request_20260610_100912"
+            "__1781082551676RTCAERv01_Error400Response_20260610_100911_combined.txt"
+        )
+        file_path = tmp_path / combined_name
+        file_path.write_text(combined, encoding="utf-8")
+
+        _, validation_result, parsed_file = detect_and_parse(file_path)
+        assert validation_result.valid is True
+        assert parsed_file.stubs[0].scenarios[0].status == 400
+
+    @skip_if_no_samples
     def test_esp_request_headers_parsed(self):
         """Content-Type and channel headers should be captured (not filtered)."""
         req = ESP_REQUEST_1.read_text(encoding="utf-8", errors="replace")

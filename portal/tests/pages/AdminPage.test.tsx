@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement } from "react";
@@ -165,7 +166,7 @@ describe("AdminPage — Audit Log tab", () => {
     renderPage();
 
     await waitFor(() => screen.getByRole("tab", { name: "Audit Log" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Audit Log" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Audit Log" }));
 
     await waitFor(() => {
       expect(screen.getByTestId("audit-table")).toBeDefined();

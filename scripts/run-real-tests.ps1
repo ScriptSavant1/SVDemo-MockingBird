@@ -43,7 +43,7 @@ $testOutput | ForEach-Object { Write-Host $_ }
 
 # ── 4. On failure: append to BUGS.md ──────────────────────────────────────────
 if ($testExitCode -ne 0) {
-    Write-Host "`nTest failures detected — updating BUGS.md" -ForegroundColor Yellow
+    Write-Host "`nTest failures detected - updating BUGS.md" -ForegroundColor Yellow
 
     # Parse failures from the output
     $failures = $testOutput | Where-Object { $_ -match "^\s+x\s+\d+\)" -or $_ -match "FAILED" }
@@ -62,7 +62,7 @@ if ($testExitCode -ne 0) {
 
     $newEntry = @"
 
-## $bugId — Real E2E test failures ($timestamp)
+## $bugId - Real E2E test failures ($timestamp)
 
 | Field | Value |
 |-------|-------|
@@ -103,7 +103,7 @@ Write-Host "`n=== Test run complete ===" -ForegroundColor Cyan
 if ($testExitCode -eq 0) {
     Write-Host "All real E2E tests PASSED" -ForegroundColor Green
 } else {
-    Write-Host "Some tests FAILED (exit $testExitCode) — see BUGS.md" -ForegroundColor Red
+    Write-Host "Some tests FAILED (exit $testExitCode) - see BUGS.md" -ForegroundColor Red
 }
 
 exit $testExitCode

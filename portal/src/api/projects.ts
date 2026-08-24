@@ -26,6 +26,9 @@ export const projectsApi = {
     api.put<Project>(`/api/v1/projects/${id}`, body),
   archive: (id: string) =>
     api.put<Project>(`/api/v1/projects/${id}`, { status: "ARCHIVED" }),
+  // Permanent, ADMIN-only, backend cascade-deletes stubs/deployments/jobs.
+  // The audit trail survives (see project-service AuditLog.project_id).
+  delete: (id: string) => api.delete<void>(`/api/v1/projects/${id}`),
 
   listStubs: (projectId: string) =>
     api.get<Stub[]>(`/api/v1/projects/${projectId}/stubs`),

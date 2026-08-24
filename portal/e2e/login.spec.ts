@@ -60,8 +60,7 @@ test.describe("Login page", () => {
           access_token: "tok",
           token_type: "Bearer",
           expires_in: 3600,
-          username: "admin",
-          role: "ADMIN",
+          user: { id: "admin-1", username: "admin", email: "admin@company.com", role: "ADMIN" },
         }),
       });
     });

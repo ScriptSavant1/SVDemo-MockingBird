@@ -1,3 +1,96 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/*
+ * Design tokens (shadcn/ui convention: HSL triplets consumed by Tailwind via
+ * `hsl(var(--token) / <alpha-value>)`, see tailwind.config.ts).
+ *
+ * Brand colors (navy #003875, cyan #00A9E0) are preserved as the primary/
+ * accent token VALUES — this is a re-platform onto a proper token system,
+ * not a rebrand.
+ */
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 215 28% 17%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 215 28% 17%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 28% 17%;
+
+    --primary: 209 100% 23%;        /* #003875 */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 198 100% 44%;      /* #00A9E0 */
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 210 20% 96%;
+    --muted-foreground: 215 14% 46%;
+
+    --accent: 198 100% 96%;
+    --accent-foreground: 209 100% 23%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 71% 35%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 45%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 214 20% 89%;
+    --input: 214 20% 89%;
+    --ring: 209 100% 23%;
+
+    --radius: 0.5rem;
+  }
+
+  /* Reserved for a future theme toggle — not wired to any UI control yet. */
+  .dark {
+    --background: 215 28% 10%;
+    --foreground: 210 20% 96%;
+
+    --card: 215 25% 13%;
+    --card-foreground: 210 20% 96%;
+
+    --popover: 215 25% 13%;
+    --popover-foreground: 210 20% 96%;
+
+    --primary: 198 100% 60%;
+    --primary-foreground: 215 28% 10%;
+
+    --secondary: 198 90% 50%;
+    --secondary-foreground: 215 28% 10%;
+
+    --muted: 215 20% 18%;
+    --muted-foreground: 215 14% 65%;
+
+    --accent: 215 20% 20%;
+    --accent-foreground: 198 100% 70%;
+
+    --destructive: 0 63% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 60% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 55%;
+    --warning-foreground: 215 28% 10%;
+
+    --border: 215 20% 22%;
+    --input: 215 20% 22%;
+    --ring: 198 100% 60%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}

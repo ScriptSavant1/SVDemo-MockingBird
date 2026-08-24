@@ -47,7 +47,7 @@ Expected: `Python 3.11.x` or higher
 
 ---
 
-### Node.js 20 or higher
+### Node.js 22 or higher
 
 1. Go to **https://nodejs.org/**
 2. Click the **LTS** download button
@@ -57,7 +57,7 @@ Verify:
 ```powershell
 node --version
 ```
-Expected: `v20.x.x` or higher
+Expected: `v22.x.x` or higher
 
 ---
 
@@ -214,7 +214,7 @@ cd mockingbird
 
 This single script does everything:
 
-- Installs system packages (Python 3.11, Node.js 20, git) via `dnf`
+- Installs system packages (Python 3.11, Node.js 22, git) via `dnf`
 - Creates Python virtual environments for all services
 - Installs all packages and generates `requirements.txt` files
 - Creates the database and tables

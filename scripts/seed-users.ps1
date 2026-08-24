@@ -3,7 +3,7 @@
     Create the initial admin user and a test SV_TEAM user in the auth-service.
 
 .DESCRIPTION
-    Calls POST /api/v1/auth/setup  (admin — only works on empty DB)
+    Calls POST /api/v1/auth/setup  (admin - only works on empty DB)
     Then logs in as admin and calls POST /api/v1/users (sv.user)
 
     Run this ONCE after a fresh database wipe.
@@ -19,7 +19,7 @@ try {
 } catch {
     $status = if ($_.Exception.Response) { $_.Exception.Response.StatusCode.value__ } else { 0 }
     if ($status -eq 409) {
-        Write-Host "  Admin already exists (409) — skipping" -ForegroundColor Yellow
+        Write-Host "  Admin already exists (409) - skipping" -ForegroundColor Yellow
     } else {
         Write-Host "  ERROR: $_" -ForegroundColor Red
         exit 1
@@ -48,13 +48,13 @@ try {
 } catch {
     $status = if ($_.Exception.Response) { $_.Exception.Response.StatusCode.value__ } else { 0 }
     if ($status -eq 409) {
-        Write-Host "  sv.user already exists (409) — skipping" -ForegroundColor Yellow
+        Write-Host "  sv.user already exists (409) - skipping" -ForegroundColor Yellow
     } else {
         Write-Host "  ERROR: $_" -ForegroundColor Red
     }
 }
 
-# ── Mirror users into project-service (admin panel data) ──────────────────────
+# -- Mirror users into project-service (admin panel data) --------------------
 # project-service has its own users table for the admin panel.
 # Users must exist there too; authentication is still done by auth-service.
 $projBase = "http://localhost:8001"
@@ -74,7 +74,7 @@ try {
 } catch {
     $status = if ($_.Exception.Response) { $_.Exception.Response.StatusCode.value__ } else { 0 }
     if ($status -eq 409) {
-        Write-Host "  sv.admin already in project-service (409) — skipping" -ForegroundColor Yellow
+        Write-Host "  sv.admin already in project-service (409) - skipping" -ForegroundColor Yellow
     } else {
         Write-Host "  WARN: could not mirror admin to project-service: $_" -ForegroundColor Yellow
     }
@@ -94,7 +94,7 @@ try {
 } catch {
     $status = if ($_.Exception.Response) { $_.Exception.Response.StatusCode.value__ } else { 0 }
     if ($status -eq 409) {
-        Write-Host "  sv.user already in project-service (409) — skipping" -ForegroundColor Yellow
+        Write-Host "  sv.user already in project-service (409) - skipping" -ForegroundColor Yellow
     } else {
         Write-Host "  WARN: could not mirror sv.user to project-service: $_" -ForegroundColor Yellow
     }

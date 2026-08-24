@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mockingbird — Admin Guide</title>
+<style>
+  :root {
+    --bg: #f7f9fc; --surface: #ffffff; --ink: #1a2433; --ink-soft: #4b5768;
+    --border: #dde3ec; --navy: #003875; --cyan: #00a9e0; --green: #1a7f4e;
+    --amber: #b7791f; --red: #c0392b; --grey: #8a94a3; --radius: 10px;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1620; --surface: #161f2c; --ink: #e8edf5; --ink-soft: #9aa7ba;
+      --border: #2a3648; --navy: #5aa9f0; --cyan: #4fd3ff; --green: #4fce8f;
+      --amber: #e8b95c; --red: #ef6b5c; --grey: #7c8798;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--ink); line-height: 1.55; }
+  .shell { display: flex; min-height: 100vh; }
+  nav.toc { width: 260px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border); padding: 28px 20px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+  nav.toc .brand { font-weight: 700; font-size: 1.05rem; margin-bottom: 2px; }
+  nav.toc .sub { color: var(--ink-soft); font-size: 0.78rem; margin-bottom: 24px; }
+  nav.toc a { display: block; color: var(--ink-soft); text-decoration: none; font-size: 0.85rem; padding: 5px 10px; border-radius: 6px; margin-bottom: 1px; }
+  nav.toc a:hover { background: var(--bg); color: var(--ink); }
+  nav.toc .section-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--grey); margin: 16px 0 6px 10px; }
+  main { flex: 1; max-width: 1000px; padding: 48px 56px 100px; }
+  h1 { font-size: 1.9rem; margin: 0 0 6px; }
+  h2 { font-size: 1.4rem; margin: 52px 0 6px; padding-top: 8px; border-top: 1px solid var(--border); }
+  h2:first-of-type { border-top: none; padding-top: 0; margin-top: 20px; }
+  h3 { font-size: 1.1rem; margin: 30px 0 8px; }
+  p { color: var(--ink-soft); max-width: 74ch; }
+  .lede { font-size: 1.05rem; color: var(--ink-soft); max-width: 70ch; }
+  ol.steps { padding-left: 0; list-style: none; counter-reset: step; max-width: 72ch; }
+  ol.steps > li { counter-increment: step; position: relative; padding-left: 40px; margin-bottom: 14px; color: var(--ink-soft); }
+  ol.steps > li::before { content: counter(step); position: absolute; left: 0; top: -1px; width: 26px; height: 26px; border-radius: 50%; background: var(--navy); color: #fff; font-size: 0.8rem; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+  ol.steps > li strong { color: var(--ink); }
+  ul.plain { color: var(--ink-soft); max-width: 72ch; }
+  code { font-family: var(--mono); font-size: 0.85em; background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+  .callout { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--navy); border-radius: 8px; padding: 16px 20px; margin: 20px 0; font-size: 0.92rem; max-width: 72ch; }
+  .callout.warn { border-left-color: var(--amber); }
+  .callout.danger { border-left-color: var(--red); }
+  .callout.tip { border-left-color: var(--green); }
+  .callout strong { color: var(--ink); }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.87rem; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--grey); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+  .shot-row { display: flex; gap: 18px; flex-wrap: wrap; margin: 20px 0 28px; align-items: flex-start; }
+  .shot { flex: 1 1 340px; max-width: 480px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .shot img { width: 100%; display: block; border-bottom: 1px solid var(--border); }
+  .shot .cap { padding: 10px 14px; font-size: 0.82rem; color: var(--ink-soft); }
+  .shot .cap strong { color: var(--ink); display: block; font-size: 0.85rem; margin-bottom: 2px; }
+  .shot.full { flex-basis: 100%; max-width: 100%; }
+  .pill { display: inline-block; font-size: 0.72rem; font-weight: 700; padding: 2px 9px; border-radius: 100px; margin-right: 4px; }
+  .pill.admin { background: color-mix(in srgb, var(--navy) 16%, transparent); color: var(--navy); }
+  a.crosslink { color: var(--cyan); text-decoration: none; font-weight: 600; }
+  a.crosslink:hover { text-decoration: underline; }
+  .condensed { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; margin: 16px 0; }
+  @media (max-width: 860px) { .shell { flex-direction: column; } nav.toc { width: 100%; height: auto; position: static; } }
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">Mockingbird</div>
+    <div class="sub">Admin Guide <span class="pill admin">ADMIN</span></div>
+    <a href="#overview">Overview</a>
+    <a href="#roles">Roles &amp; permissions</a>
+    <div class="section-label">Everything a user can do</div>
+    <a href="#projects-recap">Projects, upload, deploy</a>
+    <div class="section-label">Admin-only</div>
+    <a href="#users">User management</a>
+    <a href="#audit-log">Audit log</a>
+    <a href="#delete-project">Deleting a project</a>
+    <div class="section-label">Reference</div>
+    <a href="USER_GUIDE.html">User Guide ↗</a>
+    <a href="ARCHITECTURE.html">Architecture ↗</a>
+    <a href="MASTER_GUIDE.html">Deployment setup ↗</a>
+  </nav>
+
+  <main>
+    <h1 id="overview">Mockingbird — Admin Guide</h1>
+    <p class="lede">
+      Everything an <strong>ADMIN</strong> can do in Mockingbird — the full user
+      functionality (projects, uploads, deployments, reports) plus the admin-only
+      capabilities: user management, the audit log, and permanently deleting a project.
+    </p>
+
+    <h2 id="roles">Roles &amp; permissions</h2>
+    <table>
+      <tr><th>Capability</th><th>VIEWER</th><th>SV_TEAM</th><th>ADMIN</th></tr>
+      <tr><td>View projects, stubs, deployments, reports</td><td>✓</td><td>✓</td><td>✓</td></tr>
+      <tr><td>Create / upload / generate / deploy / suspend</td><td>—</td><td>✓</td><td>✓</td></tr>
+      <tr><td>Edit / Archive a project</td><td>—</td><td>✓</td><td>✓</td></tr>
+      <tr><td>Manage users (create, change role, reset password, suspend)</td><td>—</td><td>—</td><td>✓</td></tr>
+      <tr><td>View the audit log</td><td>—</td><td>—</td><td>✓</td></tr>
+      <tr><td><strong>Permanently delete</strong> a project</td><td>—</td><td>—</td><td>✓</td></tr>
+    </table>
+    <div class="shot-row">
+      <div class="shot">
+        <img src="screenshots/admin-02-dashboard.png" alt="Dashboard as seen by an admin, with the Admin nav link visible">
+        <div class="cap"><strong>Admin view</strong>The "Admin" nav link only appears for the ADMIN role.</div>
+      </div>
+    </div>
+
+    <h2 id="projects-recap">Projects, upload, and deploy — same as any user</h2>
+    <p>
+      As an admin you have every capability described in the <a class="crosslink" href="USER_GUIDE.html">User Guide</a> —
+      creating projects, uploading specs (single file or batch, with automatic
+      request/response pairing), generating stubs with AI, testing locally, deploying to
+      AWS, and downloading reports. That full walkthrough with screenshots isn't repeated
+      here; this guide focuses on what's unique to your role.
+    </p>
+    <div class="condensed">
+      <strong>Quick links into the User Guide:</strong>
+      <a class="crosslink" href="USER_GUIDE.html#dashboard">Dashboard</a> ·
+      <a class="crosslink" href="USER_GUIDE.html#create-project">Create a project</a> ·
+      <a class="crosslink" href="USER_GUIDE.html#upload-batch">Batch upload &amp; pairing</a> ·
+      <a class="crosslink" href="USER_GUIDE.html#ai-generate">AI generation</a> ·
+      <a class="crosslink" href="USER_GUIDE.html#deploy">Deploy to AWS</a> ·
+      <a class="crosslink" href="USER_GUIDE.html#reports">Reports</a>
+    </div>
+
+    <h2 id="users">User management <span class="pill admin">ADMIN</span></h2>
+    <p>Open <strong>Admin</strong> in the top nav — the <strong>Users</strong> tab is the default view.</p>
+    <div class="shot-row">
+      <div class="shot full">
+        <img src="screenshots/admin-10-admin-users.png" alt="Admin panel users tab showing a table of users with role dropdowns and reset password buttons">
+        <div class="cap"><strong>Users tab</strong>Every account, its role, and whether it's active. Change a role directly from the dropdown in the table — no separate save step needed.</div>
+      </div>
+    </div>
+
+    <h3>Creating a user</h3>
+    <ol class="steps">
+      <li>Click <strong>New User</strong>.</li>
+      <li>Fill in username, email, a temporary password, and pick a role (VIEWER / SV_TEAM / ADMIN).</li>
+      <li>Click <strong>Create</strong> — the account is active immediately.</li>
+    </ol>
+    <div class="shot-row">
+      <div class="shot">
+        <img src="screenshots/admin-11-create-user-empty.png" alt="Create user modal, empty">
+        <div class="cap"><strong>New User form</strong></div>
+      </div>
+      <div class="shot">
+        <img src="screenshots/admin-12-create-user-filled.png" alt="Create user modal, filled in">
+        <div class="cap"><strong>Filled in and ready to submit</strong></div>
+      </div>
+    </div>
+
+    <h3>Changing a role, resetting a password, suspending an account</h3>
+    <ul class="plain">
+      <li><strong>Role</strong> — use the dropdown directly in the Users table row; it saves on change.</li>
+      <li><strong>Reset password</strong> — click the button in that user's row to issue a new temporary password.</li>
+      <li><strong>Suspend / reactivate</strong> — toggle the Active column to immediately block or restore portal access without deleting the account or its history.</li>
+    </ul>
+
+    <h2 id="audit-log">Audit log <span class="pill admin">ADMIN</span></h2>
+    <p>
+      Switch to the <strong>Audit Log</strong> tab in Admin for a timestamped record of
+      every significant action across the platform — logins, project creation, uploads,
+      generation, deployment, user management changes, and project deletions.
+    </p>
+    <div class="shot-row">
+      <div class="shot full">
+        <img src="screenshots/admin-14-audit-log.png" alt="Admin panel audit log table">
+        <div class="cap"><strong>Audit log</strong>Who did what, and when — filterable, newest first.</div>
+      </div>
+    </div>
+    <div class="callout tip">
+      <strong>The audit trail survives project deletion.</strong> Deleting a project
+      cascades to its stubs, deployments, and job history — but not its audit entries.
+      Those are preserved (with the project's name and team snapshotted into the record)
+      specifically so deleting something doesn't also erase the accountability record of
+      what happened to it.
+    </div>
+
+    <h2 id="delete-project">Deleting a project <span class="pill admin">ADMIN</span></h2>
+    <p>
+      Unlike <strong>Archive</strong> (which just hides a project from the dashboard,
+      fully reversible, available to SV_TEAM too), <strong>Delete</strong> is a permanent,
+      admin-only action available directly from the dashboard.
+    </p>
+    <ol class="steps">
+      <li>On the dashboard, hover a project card — a delete (trash) icon appears top-right. In list view, it's the last column.</li>
+      <li>Click it, and review the confirmation dialog carefully.</li>
+      <li>Click <strong>Delete permanently</strong> to confirm.</li>
+    </ol>
+    <div class="shot-row">
+      <div class="shot full">
+        <img src="screenshots/admin-21-delete-project-confirm.png" alt="Delete project confirmation modal warning that all stubs, deployments, and job history will be permanently deleted">
+        <div class="cap"><strong>Confirmation dialog</strong>States plainly what gets deleted and that it can't be undone.</div>
+      </div>
+    </div>
+    <div class="callout danger">
+      <strong>What actually happens:</strong> the project, all its stubs, deployments, and
+      job history are permanently removed from the database. This does <strong>not</strong>
+      automatically suspend a currently-live AWS deployment first — if the project has a
+      live stub, suspend it before deleting, or you'll orphan a running (billable) EC2
+      instance with nothing left in the portal to manage it.
+    </div>
+    <div class="callout warn">
+      <strong>Who can delete:</strong> ADMIN role only, enforced by the backend regardless
+      of what the UI shows — an SV_TEAM user has no delete option on the dashboard at all.
+    </div>
+
+    <p style="margin-top:56px; font-size:0.8rem; color:var(--grey);">
+      Screenshots captured from the running portal against the current build. If the UI
+      looks different from these images, the app has moved on since this was written —
+      trust the running app over this document.
+    </p>
+  </main>
+</div>
+</body>
+</html>

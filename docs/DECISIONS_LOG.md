@@ -32,7 +32,8 @@
 |----------|----------------|------|
 | Primary backend language | Python 3.11 | 2026-06-12 |
 | API framework | FastAPI + Pydantic v2 | 2026-06-12 |
-| Auth / notification services | Node.js 20 + Fastify | 2026-06-12 |
+| Auth / notification services | Node.js 20 + Fastify (superseded — see 2026-08-24 row below) | 2026-06-12 |
+| Auth / notification services — Node runtime bump | Node.js 22.11.0 + Fastify, to match the company's standard toolchain version | 2026-08-24 |
 | Java version | **OpenJDK 21** (virtual threads, confirmed) | 2026-06-14 |
 | Stub engine (primary) | Spring Boot + WireMock as embedded library (NOT standalone JAR) + Netty | 2026-06-13 |
 | Stub engine (high TPS) | Hoverfly — only if > 18K TPS needed | 2026-06-13 |

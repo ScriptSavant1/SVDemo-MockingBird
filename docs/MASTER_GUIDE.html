@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mockingbird — Master Guide</title>
+<style>
+  :root {
+    --bg: #f7f9fc;
+    --surface: #ffffff;
+    --ink: #1a2433;
+    --ink-soft: #4b5768;
+    --border: #dde3ec;
+    --navy: #003875;
+    --cyan: #00a9e0;
+    --green: #1a7f4e;
+    --amber: #b7791f;
+    --red: #c0392b;
+    --grey: #8a94a3;
+    --radius: 10px;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1620; --surface: #161f2c; --ink: #e8edf5; --ink-soft: #9aa7ba;
+      --border: #2a3648; --navy: #5aa9f0; --cyan: #4fd3ff; --green: #4fce8f;
+      --amber: #e8b95c; --red: #ef6b5c; --grey: #7c8798;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--ink); line-height: 1.55;
+  }
+  .shell { display: flex; min-height: 100vh; }
+  nav.toc {
+    width: 250px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border);
+    padding: 28px 20px; position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  }
+  nav.toc .brand { font-weight: 700; font-size: 1.05rem; margin-bottom: 2px; }
+  nav.toc .sub { color: var(--ink-soft); font-size: 0.78rem; margin-bottom: 24px; }
+  nav.toc a {
+    display: block; color: var(--ink-soft); text-decoration: none; font-size: 0.86rem;
+    padding: 6px 10px; border-radius: 6px; margin-bottom: 2px;
+  }
+  nav.toc a:hover { background: var(--bg); color: var(--ink); }
+  nav.toc .section-label {
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--grey);
+    margin: 18px 0 6px 10px;
+  }
+  main { flex: 1; max-width: 980px; padding: 48px 56px 100px; }
+  h1 { font-size: 1.9rem; margin: 0 0 6px; }
+  h2 { font-size: 1.4rem; margin: 56px 0 6px; padding-top: 8px; border-top: 1px solid var(--border); }
+  h2:first-of-type { border-top: none; padding-top: 0; margin-top: 20px; }
+  h3 { font-size: 1.1rem; margin: 30px 0 10px; }
+  p { color: var(--ink-soft); max-width: 72ch; }
+  .lede { font-size: 1.05rem; color: var(--ink-soft); max-width: 68ch; }
+  ol.steps { padding-left: 0; list-style: none; counter-reset: step; max-width: 68ch; }
+  ol.steps > li {
+    counter-increment: step; position: relative; padding-left: 40px; margin-bottom: 14px; color: var(--ink-soft);
+  }
+  ol.steps > li::before {
+    content: counter(step); position: absolute; left: 0; top: -1px;
+    width: 26px; height: 26px; border-radius: 50%; background: var(--navy); color: #fff;
+    font-size: 0.8rem; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+  ol.steps > li strong { color: var(--ink); }
+  pre {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 0.83rem;
+    color: var(--ink); max-width: 100%;
+  }
+  code { font-family: var(--mono); font-size: 0.85em; background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+  pre code { background: none; padding: 0; }
+  .callout {
+    background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--navy);
+    border-radius: 8px; padding: 16px 20px; margin: 20px 0; font-size: 0.92rem; max-width: 68ch;
+  }
+  .callout.warn { border-left-color: var(--amber); }
+  .callout.tip { border-left-color: var(--green); }
+  .callout strong { color: var(--ink); }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.88rem; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--grey); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+  .shot-row { display: flex; gap: 18px; flex-wrap: wrap; margin: 20px 0 28px; align-items: flex-start; }
+  .shot {
+    flex: 1 1 320px; max-width: 460px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+  }
+  .shot img { width: 100%; display: block; border-bottom: 1px solid var(--border); }
+  .shot .cap { padding: 10px 14px; font-size: 0.82rem; color: var(--ink-soft); }
+  .shot .cap strong { color: var(--ink); display: block; font-size: 0.85rem; margin-bottom: 2px; }
+  .feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin: 20px 0; }
+  .feature-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px;
+  }
+  .feature-card .icon { font-size: 1.3rem; margin-bottom: 6px; }
+  .feature-card h4 { margin: 0 0 4px; font-size: 0.92rem; color: var(--ink); }
+  .feature-card p { margin: 0; font-size: 0.82rem; color: var(--ink-soft); }
+  .tabs { display: flex; gap: 4px; margin: 24px 0 0; border-bottom: 1px solid var(--border); }
+  .tabbtn {
+    padding: 8px 16px; font-size: 0.86rem; font-weight: 600; color: var(--ink-soft); cursor: pointer;
+    border-bottom: 2px solid transparent; user-select: none;
+  }
+  .tabbtn.active { color: var(--navy); border-bottom-color: var(--cyan); }
+  .tabpanel { display: none; padding-top: 18px; }
+  .tabpanel.active { display: block; }
+  .badge-live { color: var(--green); font-weight: 700; }
+  .badge-manual { color: var(--amber); font-weight: 700; }
+  a.crosslink { color: var(--cyan); text-decoration: none; font-weight: 600; }
+  a.crosslink:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">Mockingbird</div>
+    <div class="sub">Master Guide</div>
+    <a href="#overview">What it does</a>
+    <a href="#features">Functionality</a>
+    <div class="section-label">Setup</div>
+    <a href="#prereqs">Prerequisites</a>
+    <a href="#setup">Local setup</a>
+    <a href="#login">First login</a>
+    <div class="section-label">Using it</div>
+    <a href="#walkthrough">Portal walkthrough</a>
+    <a href="#local-test">Test a stub locally</a>
+    <a href="#aws-deploy">Deploy to AWS</a>
+    <div class="section-label">Reference</div>
+    <a href="ARCHITECTURE.html">Architecture diagrams ↗</a>
+    <a href="LOCAL_DEVELOPMENT.md">Full setup + troubleshooting ↗</a>
+  </nav>
+
+  <main>
+    <h1 id="overview">Mockingbird — Master Guide</h1>
+    <p class="lede">
+      Everything needed to go from a fresh checkout to a live, deployed stub: what the
+      platform does, how to run it on your own machine, how to test a generated stub
+      before trusting it, and how the automated AWS deployment actually works.
+    </p>
+
+    <div class="callout">
+      <strong>The short version:</strong> a project team uploads their API spec (raw HTTP
+      pairs, Postman, or OpenAPI). Mockingbird detects the format, parses it, and builds a
+      complete Spring&nbsp;Boot + WireMock stub project automatically — no manual steps.
+      You can download that project and run it on your own laptop to prove it works, then
+      click <strong>Deploy</strong> when you're ready and the platform provisions a live
+      AWS instance for it in about 4 minutes.
+    </div>
+
+    <h2 id="features">What Mockingbird can do</h2>
+    <div class="feature-grid">
+      <div class="feature-card"><div class="icon">📥</div><h4>Multi-format upload</h4><p>Raw HTTP .txt pairs, Postman v2.1, OpenAPI/Swagger, Kafka JSON, IBM MQ JSON, AsyncAPI — auto-detected, no format flag needed.</p></div>
+      <div class="feature-card"><div class="icon">📦</div><h4>Batch upload</h4><p>Upload many files in one action — each becomes its own independently deployable stub.</p></div>
+      <div class="feature-card"><div class="icon">🎯</div><h4>Multi-scenario matching</h4><p>Different responses per request body, header, or query param — including 4xx/5xx fault paths.</p></div>
+      <div class="feature-card"><div class="icon">🔀</div><h4>Stateful sequences</h4><p>Multi-step flows (login → fetch → logout) where each call's response depends on prior steps.</p></div>
+      <div class="feature-card"><div class="icon">🧬</div><h4>Dynamic data</h4><p>Handlebars templates echo request fields, generate UUIDs/timestamps into responses.</p></div>
+      <div class="feature-card"><div class="icon">🐢</div><h4>Fault injection</h4><p>Fixed, random, or progressive delays; dropped/partial responses for resilience testing.</p></div>
+      <div class="feature-card"><div class="icon">🧠</div><h4>AI-assisted generation</h4><p>Describe an API in plain English — Claude drafts an OpenAPI spec you can review before creating stubs.</p></div>
+      <div class="feature-card"><div class="icon">⚡</div><h4>10,000+ TPS</h4><p>Spring Boot + Netty + WireMock as an embedded library, not a standalone process.</p></div>
+      <div class="feature-card"><div class="icon">📊</div><h4>Live metrics</h4><p>Real-time TPS/latency/error-rate charts over WebSocket once a stub is deployed.</p></div>
+      <div class="feature-card"><div class="icon">📄</div><h4>Reports</h4><p>PDF, Excel, and PowerPoint usage reports generated per deployment.</p></div>
+      <div class="feature-card"><div class="icon">💤</div><h4>Suspend / redeploy</h4><p>Terminate the EC2 instance to stop paying for it; redeploy later in ~4 minutes with no re-upload.</p></div>
+      <div class="feature-card"><div class="icon">🔑</div><h4>Role-based access</h4><p>ADMIN / SV_TEAM / VIEWER roles gate who can create, deploy, and administer.</p></div>
+    </div>
+    <p style="font-size:0.85rem;">
+      For the full architecture behind these — including which deployment paths are fully
+      built versus still aspirational — see the
+      <a class="crosslink" href="ARCHITECTURE.html">Architecture Reference ↗</a>.
+    </p>
+
+    <h2 id="prereqs">Prerequisites</h2>
+    <table>
+      <tr><th>Tool</th><th>Version</th><th>Why</th></tr>
+      <tr><td>Python</td><td>3.11+</td><td>Parser and platform services</td></tr>
+      <tr><td>Node.js</td><td>22+</td><td>auth-service, notification-service, portal build</td></tr>
+      <tr><td>Java</td><td>21</td><td>Running a downloaded stub project directly with Maven</td></tr>
+      <tr><td>Git</td><td>any</td><td>Cloning the repository</td></tr>
+      <tr><td>Docker + Compose</td><td>latest</td><td>Optional — only if you run stubs/platform via containers instead of natively</td></tr>
+    </table>
+
+    <h2 id="setup">Local setup</h2>
+    <p>One script does everything — creates Python virtual environments, installs all packages, creates the local database, and installs Node dependencies.</p>
+
+    <div class="tabs">
+      <div class="tabbtn active" data-tab="win">Windows</div>
+      <div class="tabbtn" data-tab="linux">Linux (RHEL 9 / AWS EC2)</div>
+    </div>
+
+    <div class="tabpanel active" data-panel="win">
+      <ol class="steps">
+        <li><strong>Clone the repo</strong>
+          <pre><code>cd C:\
+git clone https://github.com/ScriptSavant1/SVDemo-MockingBird.git Workspace\Mockingbird
+cd C:\Workspace\Mockingbird</code></pre>
+        </li>
+        <li><strong>Run setup</strong> (3–5 minutes first time)
+          <pre><code>.\setup.ps1</code></pre>
+        </li>
+        <li><strong>Start all services</strong> — opens 4 PowerShell windows (auth, project, ingestion, portal)
+          <pre><code>.\start-dev.ps1</code></pre>
+        </li>
+        <li><strong>Seed the admin account</strong> (first time only)
+          <pre><code>.\scripts\seed-users.ps1</code></pre>
+        </li>
+      </ol>
+    </div>
+
+    <div class="tabpanel" data-panel="linux">
+      <ol class="steps">
+        <li><strong>Clone the repo</strong>
+          <pre><code>cd ~
+git clone https://github.com/ScriptSavant1/SVDemo-MockingBird.git mockingbird
+cd mockingbird</code></pre>
+        </li>
+        <li><strong>Run setup</strong> — installs system packages via <code>dnf</code>, needs <code>sudo</code>
+          <pre><code>chmod +x setup.sh
+./setup.sh</code></pre>
+        </li>
+        <li><strong>Start all services</strong> — runs in the background, logs to <code>logs/</code>
+          <pre><code>./start-dev.sh</code></pre>
+        </li>
+        <li><strong>Seed the admin account</strong> (first time only)
+          <pre><code>bash scripts/seed-users.sh</code></pre>
+        </li>
+      </ol>
+      <div class="callout warn">
+        Open your EC2 security group to inbound TCP 3000 (portal), 3001, 8001, 8003 from
+        your IP before trying to reach it remotely.
+      </div>
+    </div>
+
+    <div class="callout tip">
+      <strong>Check everything is healthy:</strong>
+      <pre style="margin-top:8px;"><code>curl http://localhost:3001/health
+curl http://localhost:8001/health
+curl http://localhost:8003/health</code></pre>
+      Each should return <code>{"status":"ok", ...}</code>. Full troubleshooting (port
+      conflicts, missing packages, blank portal screen) is in
+      <a class="crosslink" href="LOCAL_DEVELOPMENT.md">LOCAL_DEVELOPMENT.md ↗</a>.
+    </div>
+
+    <h2 id="login">First login</h2>
+    <p>Open <strong>http://localhost:3000</strong> and sign in with the account <code>seed-users</code> created:</p>
+    <table>
+      <tr><th>Username</th><th>Password</th><th>Role</th></tr>
+      <tr><td><code>sv.admin</code></td><td><code>Admin@2026!</code></td><td>ADMIN — full access</td></tr>
+      <tr><td><code>sv.user</code></td><td><code>User@2026!</code></td><td>SV_TEAM — create/upload/deploy, no admin panel</td></tr>
+    </table>
+
+    <div class="shot-row">
+      <div class="shot">
+        <img src="screenshots/admin-00-login-empty.png" alt="Mockingbird login page">
+        <div class="cap"><strong>Login</strong>Local · LDAP (Phase 2) · SAML (Phase 3) all issue the same session token.</div>
+      </div>
+      <div class="shot">
+        <img src="screenshots/admin-02-dashboard.png" alt="Mockingbird dashboard showing project cards with status badges">
+        <div class="cap"><strong>Dashboard</strong>Every project you own or can see, with live status, search, and filters.</div>
+      </div>
+    </div>
+
+    <h2 id="walkthrough">Portal walkthrough</h2>
+
+    <h3>1 — Create a project</h3>
+    <p>Click <strong>New Project</strong>, fill in name / team / environment / expected TPS, and create.</p>
+    <div class="shot-row">
+      <div class="shot">
+        <img src="screenshots/admin-03-create-project-empty.png" alt="Create project form">
+        <div class="cap"><strong>New Project form</strong></div>
+      </div>
+      <div class="shot">
+        <img src="screenshots/admin-06-project-detail.png" alt="Project detail page listing stubs">
+        <div class="cap"><strong>Project detail</strong>Lists every stub in this project with its current status.</div>
+      </div>
+    </div>
+
+    <h3>2 — Upload a spec file</h3>
+    <p>
+      Open the project, click <strong>Upload Spec</strong>. Choose <strong>Single spec</strong>
+      for one file (or a request+response pair), or <strong>Multiple files (batch)</strong>
+      to upload many files at once — each becomes its own stub, generated in parallel, with
+      per-file progress.
+    </p>
+    <div class="shot-row">
+      <div class="shot">
+        <img src="screenshots/admin-07-upload-empty.png" alt="Upload page with empty drop zone">
+        <div class="cap"><strong>Upload page</strong></div>
+      </div>
+      <div class="shot">
+        <img src="screenshots/admin-08-upload-file-selected.png" alt="Upload page with a file selected, ready to submit">
+        <div class="cap"><strong>File selected</strong>Format is detected automatically — no dropdown to set.</div>
+      </div>
+    </div>
+
+    <h3>3 — Parsing and generation happen automatically</h3>
+    <p>
+      Uploading immediately queues parsing and generation — you land on a job status page
+      that polls until the stub project is built. No further action is needed here.
+    </p>
+    <div class="shot-row">
+      <div class="shot">
+        <img src="screenshots/admin-09-job-status.png" alt="Job status page showing progress through parse and generate steps">
+        <div class="cap"><strong>Job status</strong>Parse → Generate → Ready, tracked automatically.</div>
+      </div>
+    </div>
+
+    <h3>4 — Admin: manage users and see the audit trail</h3>
+    <div class="shot-row">
+      <div class="shot">
+        <img src="screenshots/admin-10-admin-users.png" alt="Admin panel users table">
+        <div class="cap"><strong>Admin → Users</strong>Create accounts, change roles, suspend access.</div>
+      </div>
+      <div class="shot">
+        <img src="screenshots/admin-14-audit-log.png" alt="Admin panel audit log table">
+        <div class="cap"><strong>Admin → Audit log</strong>Every create/deploy/user-management action, timestamped.</div>
+      </div>
+    </div>
+
+    <h2 id="local-test">Test a stub locally before trusting it</h2>
+    <p>
+      This is the recommended workflow: prove the generated stub behaves correctly on your
+      own machine <em>before</em> spending AWS budget on it.
+    </p>
+    <ol class="steps">
+      <li>On the project page, once a stub says <strong>READY</strong> with a generated
+        badge, click <strong>Download Stub Project</strong>. You get a complete, runnable
+        Spring Boot project — <code>pom.xml</code>, <code>Dockerfile</code>, Java source,
+        and the WireMock mappings already baked in.</li>
+      <li>Unzip it, then run it directly with Maven:
+        <pre><code>cd stub-engine
+mvn spring-boot:run</code></pre>
+        or via Docker if you'd rather not install Java 21 locally:
+        <pre><code>docker build -t my-stub .
+docker run -p 8080:8080 my-stub</code></pre>
+      </li>
+      <li>Hit it like any real API — <code>curl</code>, Postman, or your application under
+        test pointed at <code>http://localhost:8080</code> — and confirm the responses,
+        status codes, and scenario matching behave the way you expect.</li>
+      <li>Satisfied? Go back to the portal and click <strong>Deploy</strong> to put the same
+        stub on AWS. Not satisfied? Fix the source spec and re-upload — nothing was deployed
+        yet, so there's nothing to clean up.</li>
+    </ol>
+
+    <h2 id="aws-deploy">Deploy to AWS — fully automated once you click it</h2>
+    <p>
+      Clicking <strong>Deploy</strong> is the one deliberate manual step in the whole
+      pipeline — provisioning billable infrastructure is a decision a person makes. Once
+      clicked, everything after it runs without intervention:
+    </p>
+    <ol class="steps">
+      <li><strong>GitLab CI builds</strong> the stub's Docker image via Kaniko and pushes it
+        to the GitLab Container Registry.</li>
+      <li><strong>Terraform provisions</strong> a c6i.2xlarge EC2 instance (8 vCPU, 16GB —
+        sized for 10K+ TPS) in Mockingbird's AWS account.</li>
+      <li><strong>Health checks poll</strong> the instance until the Spring Boot app
+        responds, then the deployment flips to <strong>LIVE</strong>.</li>
+      <li>You get a <strong>URL</strong> and a per-deployment <strong>API key</strong> back
+        in the portal — both shown on the deployment page.</li>
+    </ol>
+    <p>Typical time from click to live: about 4 minutes, per the platform's own target.</p>
+
+    <div class="callout tip">
+      <strong>Done with the project?</strong> Click <strong>Suspend</strong> — this
+      terminates the EC2 instance (so you stop paying for it) but keeps the stub definition
+      in PostgreSQL and S3. <strong>Redeploy</strong> later re-runs only the provisioning
+      steps above — no re-upload, no re-parsing, ~4 minutes to live again.
+    </div>
+
+    <div class="callout warn">
+      <strong>Only Mockingbird's own AWS account is wired up today.</strong> Deploying into
+      a client's own AWS account, or on-premises via SSH, are documented targets but not yet
+      implemented for the primary Spring Boot stub type — see the
+      <a class="crosslink" href="ARCHITECTURE.html#targets">Deployment Targets diagram ↗</a>
+      for exactly what's built versus planned.
+    </div>
+
+    <p style="margin-top:56px; font-size:0.8rem; color:var(--grey);">
+      Screenshots captured from the running portal against the current build. If the UI
+      looks different from these images, the app has moved on since this was written —
+      trust the running app over this document.
+    </p>
+  </main>
+</div>
+<script>
+  document.querySelectorAll(".tabbtn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tab = btn.getAttribute("data-tab");
+      document.querySelectorAll(".tabbtn").forEach((b) => b.classList.toggle("active", b === btn));
+      document.querySelectorAll(".tabpanel").forEach((p) => p.classList.toggle("active", p.getAttribute("data-panel") === tab));
+    });
+  });
+</script>
+</body>
+</html>

@@ -135,6 +135,21 @@ export function DeploymentPage() {
           {activeDeployment.stub_url && (
             <p className="mt-1 font-mono text-sm text-gray-500">{activeDeployment.stub_url}</p>
           )}
+          {activeDeployment.api_key && (
+            <p className="mt-1 flex items-center gap-2 text-sm text-gray-500">
+              API Key:{" "}
+              <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs" data-testid="deployment-api-key">
+                {activeDeployment.api_key}
+              </code>
+              <button
+                type="button"
+                onClick={() => void navigator.clipboard.writeText(activeDeployment.api_key!)}
+                className="text-xs text-[#00A9E0] hover:underline"
+              >
+                Copy
+              </button>
+            </p>
+          )}
         </div>
 
         <div className="flex gap-2">

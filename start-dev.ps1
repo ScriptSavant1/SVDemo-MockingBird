@@ -18,7 +18,7 @@ function Start-Service($title, $commands) {
 Write-Host "Starting Mockingbird local dev stack..." -ForegroundColor Cyan
 Write-Host ""
 
-# 1. auth-service (Node.js + SQLite — no PostgreSQL needed)
+# 1. auth-service (Node.js + SQLite - no PostgreSQL needed)
 Start-Service "auth-service" @(
     "Set-Location '$root\services\auth-service'",
     "Write-Host '[auth-service] Starting on http://localhost:3001' -ForegroundColor Green",
@@ -33,7 +33,7 @@ Start-Service "project-service" @(
     ".\venv\Scripts\python.exe -m uvicorn project_service.main:app --host 0.0.0.0 --port 8001 --reload"
 )
 
-# 3. ingestion-service (Python + SQLite + local file storage — no S3 needed)
+# 3. ingestion-service (Python + SQLite + local file storage - no S3 needed)
 Start-Service "ingestion-service" @(
     "Set-Location '$root\services\ingestion-service'",
     "`$env:DATABASE_URL = 'sqlite:///./ingestion.db'",

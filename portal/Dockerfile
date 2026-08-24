@@ -1,6 +1,6 @@
 # Stage 1 — build React app
 ARG NPM_REGISTRY=https://registry.npmjs.org
-FROM node:20-alpine AS builder
+FROM node:22.11.0-alpine AS builder
 WORKDIR /app
 
 ARG NPM_REGISTRY

@@ -1,3 +1,6 @@
+import * as RadixTabs from "@radix-ui/react-tabs";
+import { cn } from "@/lib/utils";
+
 interface Tab {
   id: string;
   label: string;
@@ -11,28 +14,23 @@ interface TabsProps {
 
 export function Tabs({ tabs, active, onChange }: TabsProps) {
   return (
-    <div className="border-b border-gray-200" role="tablist">
-      <nav className="-mb-px flex gap-6">
-        {tabs.map((tab) => {
-          const isActive = tab.id === active;
-          return (
-            <button
-              key={tab.id}
-              role="tab"
-              aria-selected={isActive}
-              onClick={() => onChange(tab.id)}
-              className={[
-                "whitespace-nowrap border-b-2 pb-3 text-sm font-medium transition-colors",
-                isActive
-                  ? "border-[#00A9E0] text-[#00A9E0]"
-                  : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700",
-              ].join(" ")}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
-      </nav>
-    </div>
+    <RadixTabs.Root value={active} onValueChange={onChange} className="border-b border-border">
+      <RadixTabs.List className="-mb-px flex gap-6">
+        {tabs.map((tab) => (
+          <RadixTabs.Trigger
+            key={tab.id}
+            value={tab.id}
+            className={cn(
+              "whitespace-nowrap border-b-2 border-transparent pb-3 text-sm font-medium text-muted-foreground transition-colors",
+              "hover:border-border hover:text-foreground",
+              "data-[state=active]:border-secondary data-[state=active]:text-secondary",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-t",
+            )}
+          >
+            {tab.label}
+          </RadixTabs.Trigger>
+        ))}
+      </RadixTabs.List>
+    </RadixTabs.Root>
   );
 }

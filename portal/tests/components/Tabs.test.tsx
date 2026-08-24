@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { createElement } from "react";
 import { Tabs } from "@/components/ui/Tabs";
 
@@ -24,18 +25,22 @@ describe("Tabs", () => {
     expect(screen.getByRole("tab", { name: "Overview" }).getAttribute("aria-selected")).toBe("false");
   });
 
-  it("calls onChange with the tab id when clicked", () => {
+  it("calls onChange with the tab id when clicked", async () => {
     const onChange = vi.fn();
+    const user = userEvent.setup();
     render(createElement(Tabs, { tabs: TABS, active: "overview", onChange }));
-    fireEvent.click(screen.getByRole("tab", { name: "Reports" }));
+    await user.click(screen.getByRole("tab", { name: "Reports" }));
     expect(onChange).toHaveBeenCalledWith("reports");
   });
 
-  it("does not call onChange when the already-active tab is clicked", () => {
+  it("does not call onChange when the already-active tab is clicked", async () => {
     const onChange = vi.fn();
+    const user = userEvent.setup();
     render(createElement(Tabs, { tabs: TABS, active: "overview", onChange }));
-    fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
-    // onChange is still called — the parent decides whether to do anything
-    expect(onChange).toHaveBeenCalledWith("overview");
+    await user.click(screen.getByRole("tab", { name: "Overview" }));
+    // Radix Tabs only fires onValueChange on an actual value change — clicking
+    // the tab that's already active is a no-op, matching <select>-style
+    // onChange semantics elsewhere in the app.
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

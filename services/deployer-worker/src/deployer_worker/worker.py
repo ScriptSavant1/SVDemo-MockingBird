@@ -440,11 +440,14 @@ def run_loop(
                     ec2_subnet_id, ec2_security_group_id, ec2_key_pair_name,
                     ec2_iam_instance_profile, java_base_image,
                 )
-            except Exception as exc:
-                logger.exception("Unhandled error processing message %s: %s", message.get("MessageId"), exc)
-            finally:
-                db.close()
+                # Only delete on success — an unhandled exception leaves the
+                # message in the queue so it's redelivered (and eventually
+                # DLQ'd) instead of being silently discarded as "handled."
                 sqs_client.delete_message(
                     QueueUrl=queue_url,
                     ReceiptHandle=message["ReceiptHandle"],
                 )
+            except Exception as exc:
+                logger.exception("Unhandled error processing message %s: %s", message.get("MessageId"), exc)
+            finally:
+                db.close()

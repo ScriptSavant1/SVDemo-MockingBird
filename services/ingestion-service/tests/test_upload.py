@@ -114,6 +114,19 @@ def test_health(sv_client):
 # ── Successful uploads ────────────────────────────────────────────────────────
 
 
+def test_upload_sanitizes_path_traversal_filename(sv_client):
+    """A malicious multipart filename must never survive into the storage key."""
+    resp = sv_client.post(
+        f"/api/v1/projects/{PROJECT_ID}/stubs/upload",
+        data={"stub_name": "Payment API"},
+        files={"file": ("../../../../etc/evil.txt", io.BytesIO(LEVEL1_TXT), "text/plain")},
+    )
+    assert resp.status_code == 200
+    s3_key = resp.json()["s3_key"]
+    assert ".." not in s3_key
+    assert s3_key.endswith("/evil.txt")
+
+
 def test_upload_level1_txt_valid(sv_client):
     resp = sv_client.post(
         f"/api/v1/projects/{PROJECT_ID}/stubs/upload",

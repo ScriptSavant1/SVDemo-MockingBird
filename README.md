@@ -64,7 +64,7 @@ You need these installed before you start. Minimum versions are important.
 | Tool | Version | Why | Install |
 |------|---------|-----|---------|
 | Python | 3.11 or higher | Runs the parser and platform services | [python.org](https://www.python.org/downloads/) |
-| Node.js | 20 or higher | Runs the auth-service | [nodejs.org](https://nodejs.org/) |
+| Node.js | 22 or higher | Runs the auth-service | [nodejs.org](https://nodejs.org/) |
 | Docker + Docker Compose | Latest | Runs the generated stubs and platform | [docker.com](https://www.docker.com/get-started/) |
 | Java | 21 | Required only if building the Spring Boot stub without Docker | [adoptium.net](https://adoptium.net/) |
 | Git | Any | Version control | [git-scm.com](https://git-scm.com/) |
@@ -73,7 +73,7 @@ You need these installed before you start. Minimum versions are important.
 
 ```bash
 python --version        # should say Python 3.11.x or higher
-node --version          # should say v20.x.x or higher
+node --version          # should say v22.x.x or higher
 docker --version        # any recent version
 docker compose version  # any recent version
 java --version          # should say 21.x.x or higher
@@ -575,8 +575,8 @@ SVDemo-MockingBird/
 │   │   │   └── templates/             ← Per-engine Java project templates
 │   │   └── tests/                     ← ~480 tests (pytest)
 │   │
-│   ├── auth-service/                  ← Login + JWT (Node.js 20 + Fastify)
-│   │   ├── package.json               ← Node.js 20 + Fastify v4
+│   ├── auth-service/                  ← Login + JWT (Node.js 22 + Fastify)
+│   │   ├── package.json               ← Node.js 22 + Fastify v4
 │   │   ├── tsconfig.json
 │   │   ├── Dockerfile
 │   │   ├── src/
@@ -680,7 +680,7 @@ npm run test:coverage
 │                                                                  │
 │  ┌─────────────┐  ┌──────────────┐  ┌───────────────────────┐   │
 │  │ auth-service│  │project-service│  │ Other platform        │   │
-│  │ Node.js 20  │  │ Python/FastAPI│  │ services (Phase 3-5)  │   │
+│  │ Node.js 22  │  │ Python/FastAPI│  │ services (Phase 3-5)  │   │
 │  │ Port: 3001  │  │ Port: 8001   │  │ ingestion, parser,    │   │
 │  └─────────────┘  └──────────────┘  │ generator, deployer   │   │
 │         │                │           └───────────────────────┘   │
@@ -832,7 +832,7 @@ These items are needed before connecting to the internal network. They do not af
 | Java version | OpenJDK 21 | Virtual threads — the key to 10K+ TPS on a single server |
 | CLI tool | Python 3.11 + Click | Fast development, excellent file parsing libraries |
 | Platform API | Python 3.11 + FastAPI | Auto-generates Swagger docs; Pydantic validation |
-| Auth service | Node.js 20 + Fastify | Fastest Node.js HTTP framework; TypeScript strict mode |
+| Auth service | Node.js 22 + Fastify | Fastest Node.js HTTP framework; TypeScript strict mode |
 | Database | PostgreSQL 15 (AWS RDS) | Zero licence cost; SQLAlchemy ORM works with both Postgres and SQLite (tests) |
 | Job queue | AWS SQS | Fully managed; no ops overhead |
 | Cache | Redis 7 (AWS ElastiCache) | Sessions, WebSocket pub/sub, API cache |

@@ -9,17 +9,35 @@ import type {
 } from "../types/index.js";
 import { DETAIL_TYPE_MAP } from "../types/index.js";
 
+/**
+ * Escape HTML special characters. Every value interpolated into an `html:`
+ * field below is caller-controlled (project_name, payload.* — ultimately
+ * from the /notify/send request body or an EventBridge event), so this is
+ * mandatory before interpolation, not optional hardening.
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 /** Build human-readable message content for each event type. */
 export function formatMessage(event: NotificationEvent): FormattedMessage {
   const name = event.project_name;
+  const nameHtml = escapeHtml(name);
 
   switch (event.event_type) {
     case "stub.deployed": {
       const url = String(event.payload["stub_url"] ?? "N/A");
       const key = String(event.payload["api_key"] ?? "N/A");
+      const urlHtml = escapeHtml(url);
+      const keyHtml = escapeHtml(key);
       return {
         subject: `[Mockingbird] Stub deployed: ${name}`,
-        html: `<p>Your stub <strong>${name}</strong> is now live.</p><p>URL: <a href="${url}">${url}</a><br>API Key: <code>${key}</code></p>`,
+        html: `<p>Your stub <strong>${nameHtml}</strong> is now live.</p><p>URL: <a href="${urlHtml}">${urlHtml}</a><br>API Key: <code>${keyHtml}</code></p>`,
         slack_text: `:white_check_mark: *${name}* stub is live — ${url}`,
         teams_title: "Stub Deployed",
         teams_body: `**${name}** is live at ${url} (API Key: ${key})`,
@@ -28,9 +46,10 @@ export function formatMessage(event: NotificationEvent): FormattedMessage {
 
     case "deploy.failed": {
       const error = String(event.payload["error"] ?? "Unknown error");
+      const errorHtml = escapeHtml(error);
       return {
         subject: `[Mockingbird] Deploy failed: ${name}`,
-        html: `<p>Deployment of <strong>${name}</strong> failed.</p><p>Error: ${error}</p>`,
+        html: `<p>Deployment of <strong>${nameHtml}</strong> failed.</p><p>Error: ${errorHtml}</p>`,
         slack_text: `:x: Deploy failed for *${name}*: ${error}`,
         teams_title: "Deploy Failed",
         teams_body: `Deployment of **${name}** failed: ${error}`,
@@ -40,9 +59,11 @@ export function formatMessage(event: NotificationEvent): FormattedMessage {
     case "report.ready": {
       const format = String(event.payload["format"] ?? "report");
       const reportUrl = String(event.payload["report_url"] ?? "");
+      const formatHtml = escapeHtml(format.toUpperCase());
+      const reportUrlHtml = escapeHtml(reportUrl);
       return {
         subject: `[Mockingbird] Report ready: ${name} (${format.toUpperCase()})`,
-        html: `<p>Your <strong>${format.toUpperCase()}</strong> report for <strong>${name}</strong> is ready.</p>${reportUrl ? `<p><a href="${reportUrl}">Download report</a></p>` : ""}`,
+        html: `<p>Your <strong>${formatHtml}</strong> report for <strong>${nameHtml}</strong> is ready.</p>${reportUrlHtml ? `<p><a href="${reportUrlHtml}">Download report</a></p>` : ""}`,
         slack_text: `:page_facing_up: *${name}* ${format.toUpperCase()} report is ready${reportUrl ? ` — ${reportUrl}` : ""}`,
         teams_title: "Report Ready",
         teams_body: `**${name}** ${format.toUpperCase()} report is ready.${reportUrl ? ` [Download](${reportUrl})` : ""}`,
@@ -52,7 +73,7 @@ export function formatMessage(event: NotificationEvent): FormattedMessage {
     case "stub.suspended": {
       return {
         subject: `[Mockingbird] Stub suspended: ${name}`,
-        html: `<p>Stub <strong>${name}</strong> has been suspended. The EC2 instance has been terminated to save costs.</p><p>You can redeploy it at any time — no re-upload needed.</p>`,
+        html: `<p>Stub <strong>${nameHtml}</strong> has been suspended. The EC2 instance has been terminated to save costs.</p><p>You can redeploy it at any time — no re-upload needed.</p>`,
         slack_text: `:zzz: *${name}* stub has been suspended (EC2 terminated).`,
         teams_title: "Stub Suspended",
         teams_body: `Stub **${name}** has been suspended. EC2 terminated. Redeploy any time in ~4 minutes.`,

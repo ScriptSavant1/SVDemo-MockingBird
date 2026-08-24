@@ -42,8 +42,9 @@ export interface Deployment {
   stub_id: string;
   project_id: string;
   status: DeploymentStatus;
-  ec2_ip: string | null;
+  ec2_ip_address: string | null;
   stub_url: string | null;
+  api_key: string | null;
   ec2_instance_id: string | null;
   created_at: string;
   updated_at: string;

@@ -399,7 +399,7 @@ PHASE 3 (Weeks 39+): SAML SSO (Europa users — additive)
 stages: [test, build, deploy]
 
 build-portal:
-  image: node:20-alpine  # from Artifactory mirror
+  image: node:22.11.0-alpine  # from Artifactory mirror
   script:
     - npm install --registry https://npm.artifactory.internal
     - npm run build

@@ -95,7 +95,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── auth-service (Node.js 20 + Fastify) ─────────────────────────────────────
+  # ── auth-service (Node.js 22 + Fastify) ─────────────────────────────────────
   auth-service:
     build:
       context: ./auth-service
@@ -350,7 +350,7 @@ services:
       start_period: 20s
       retries: 3
 
-  # ── notification-service (Node.js 20 + Fastify — email, Slack, MS Teams) ────
+  # ── notification-service (Node.js 22 + Fastify — email, Slack, MS Teams) ────
   notification-service:
     build:
       context: ./notification-service
@@ -368,6 +368,7 @@ services:
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_SECURE: ${SMTP_SECURE:-false}
       SMTP_FROM: ${SMTP_FROM:-mockingbird@company.internal}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
     ports:
       - "3002:3002"
     healthcheck:

@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     scrape_timeout_seconds: int = 5
     scrape_port: int = 8080
     environment: str = "local"
+    jwt_secret: str = "dev-secret-change-in-production"
+    jwt_algorithm: str = "HS256"
 
 
 settings = Settings()

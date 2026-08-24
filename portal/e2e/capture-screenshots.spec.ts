@@ -18,19 +18,19 @@ const SHOTS_DIR = path.resolve(__dirname, "../../docs/screenshots");
 const ADMIN_TOKEN = "tok-admin-demo";
 const USER_TOKEN = "tok-user-demo";
 
+// Matches the real auth-service response shape — LoginPage.tsx reads
+// res.user.username / res.user.role, not top-level fields.
 const ADMIN_LOGIN_RESP = {
   access_token: ADMIN_TOKEN,
   token_type: "Bearer",
   expires_in: 3600,
-  username: "sv.admin",
-  role: "ADMIN",
+  user: { id: "admin-1", username: "sv.admin", email: "sv.admin@company.com", role: "ADMIN" },
 };
 const USER_LOGIN_RESP = {
   access_token: USER_TOKEN,
   token_type: "Bearer",
   expires_in: 3600,
-  username: "j.smith",
-  role: "SV_TEAM",
+  user: { id: "user-1", username: "j.smith", email: "j.smith@company.com", role: "SV_TEAM" },
 };
 
 const PROJECTS = [
@@ -83,11 +83,12 @@ const STUBS = [
     id: "stub-001",
     project_id: "proj-001",
     name: "Payment Process Stub",
-    format: "ca-lisa-http-pair",
-    status: "READY",
-    scenario_count: 3,
+    stub_type: "ca-lisa-http-pair",
+    status: "LIVE",
+    wiremock_mapping_count: 3,
+    generated_at: "2026-01-15T10:10:00Z",
     created_at: "2026-01-15T10:05:00Z",
-    updated_at: "2026-01-16T09:00:00Z",
+    updated_at: "2026-06-10T14:04:00Z",
   },
 ];
 
@@ -133,6 +134,57 @@ const AUDIT_LOG = [
   { id: "a4", action: "user.create", username: "sv.admin", user_id: "u-001", detail: { new_username: "a.jones" }, created_at: "2026-03-10T11:30:00Z" },
 ];
 
+const DEPLOYMENT = {
+  id: "dep-001",
+  stub_id: "stub-001",
+  project_id: "proj-001",
+  status: "LIVE",
+  ec2_ip_address: "10.0.4.22",
+  stub_url: "https://stubs.mockingbird.internal/proj-001",
+  api_key: "mb-key-7a3f9c2d",
+  ec2_instance_id: "i-0a1b2c3d4e5f6g7h8",
+  created_at: "2026-06-10T14:00:00Z",
+  updated_at: "2026-06-10T14:04:00Z",
+};
+
+const METRICS_HISTORY = {
+  deployment_id: "dep-001",
+  points: Array.from({ length: 20 }, (_, i) => ({
+    time: new Date(Date.UTC(2026, 5, 21, 12, i * 3)).toISOString(),
+    tps: 8000 + Math.round(Math.sin(i / 3) * 1500),
+    latency_avg_ms: 4.5 + Math.random(),
+    error_rate: 0.001,
+  })),
+  query_minutes: 60,
+};
+
+const REPORT_JOBS = [
+  {
+    id: "job-report-1",
+    status: "DONE",
+    result: {
+      pdf_key: "stubs/proj-001/dep-001/report.pdf",
+      excel_key: "stubs/proj-001/dep-001/report.xlsx",
+      ppt_key: "stubs/proj-001/dep-001/report.pptx",
+    },
+    error_message: null,
+    created_at: "2026-06-21T09:00:00Z",
+  },
+];
+
+const AI_GENERATE_RESULT = {
+  generation_id: "gen-001",
+  detected_intent: "REST API for payment processing with 3 endpoints",
+  suggested_stub_name: "Payment Processing API",
+  spec_format: "postman-2.1",
+  spec_content: JSON.stringify({ info: { name: "Payment Processing API" }, item: [] }),
+  estimated_stub_count: 3,
+  model_used: "claude-sonnet-5",
+  input_tokens: 342,
+  output_tokens: 891,
+  created_at: "2026-06-21T10:00:00Z",
+};
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 function json(body: unknown, status = 200) {
@@ -143,12 +195,20 @@ async function setupAdminMocks(page: Page) {
   await page.route("**/api/v1/auth/login", (r) => r.fulfill(json(ADMIN_LOGIN_RESP)));
   await page.route("**/api/v1/auth/logout", (r) => r.fulfill(json({})));
   await page.route("**/api/v1/projects", (r) => {
-    if (r.request().method() === "GET") return r.fulfill(json(PROJECTS));
+    // projectsApi.list() reads a paginated envelope ({ items, total, limit,
+    // offset }) — a bare array here silently resolves to an empty list.
+    if (r.request().method() === "GET") return r.fulfill(json({ items: PROJECTS, total: PROJECTS.length, limit: 50, offset: 0 }));
     return r.fulfill(json({ ...PROJECTS[1], id: "proj-new", name: "Card Fraud Detection Stub", status: "DRAFT" }, 201));
   });
-  await page.route("**/api/v1/projects/proj-001", (r) => r.fulfill(json(PROJECTS[0])));
+  await page.route("**/api/v1/projects/proj-001", (r) => {
+    if (r.request().method() === "DELETE") return r.fulfill({ status: 204, body: "" });
+    return r.fulfill(json(PROJECTS[0]));
+  });
   await page.route("**/api/v1/projects/proj-001/stubs", (r) => r.fulfill(json(STUBS)));
-  await page.route("**/api/v1/projects/proj-001/deployments", (r) => r.fulfill(json([])));
+  await page.route("**/api/v1/projects/proj-001/deployments", (r) => r.fulfill(json([DEPLOYMENT])));
+  await page.route("**/api/v1/metrics/dep-001/history*", (r) => r.fulfill(json(METRICS_HISTORY)));
+  await page.route("**/api/v1/projects/proj-001/deployments/dep-001/reports", (r) => r.fulfill(json(REPORT_JOBS)));
+  await page.route("**/api/v1/ai/generate", (r) => r.fulfill(json(AI_GENERATE_RESULT)));
   await page.route("**/api/v1/admin/users*", (r) => {
     if (r.request().method() === "GET") return r.fulfill(json({ items: USERS, total: USERS.length, page: 1, size: 50 }));
     return r.fulfill(json({ id: "u-005", username: "new.user", email: "new.user@company.com", role: "VIEWER", is_active: true, created_at: "2026-06-21T12:00:00Z" }, 201));
@@ -170,7 +230,10 @@ async function setupAdminMocks(page: Page) {
 async function setupUserMocks(page: Page) {
   await page.route("**/api/v1/auth/login", (r) => r.fulfill(json(USER_LOGIN_RESP)));
   await page.route("**/api/v1/auth/logout", (r) => r.fulfill(json({})));
-  await page.route("**/api/v1/projects", (r) => r.fulfill(json(PROJECTS.slice(0, 2))));
+  await page.route("**/api/v1/projects", (r) => {
+    const items = PROJECTS.slice(0, 2);
+    return r.fulfill(json({ items, total: items.length, limit: 50, offset: 0 }));
+  });
   await page.route("**/api/v1/projects/proj-002", (r) => r.fulfill(json(PROJECTS[1])));
   await page.route("**/api/v1/projects/proj-002/stubs", (r) => r.fulfill(json([])));
   await page.route("**/api/v1/projects/proj-002/deployments", (r) => r.fulfill(json([])));
@@ -292,6 +355,121 @@ test.describe("Admin screenshots", () => {
     await page.goto("/admin");
     await page.getByRole("tab", { name: "Audit Log" }).click();
     await shot(page, "admin-14-audit-log");
+  });
+
+  test("09 reports hub", async ({ page }) => {
+    await loginAs(page, "admin");
+    await page.getByTestId("reports-nav-link").click();
+    await expect(page).toHaveURL("/reports");
+    await shot(page, "admin-15-reports-hub");
+  });
+
+  test("10 deployment — overview tab", async ({ page }) => {
+    await loginAs(page, "admin");
+    await page.goto("/projects/proj-001/stubs/stub-001");
+    await expect(page.getByRole("heading", { name: "Stub Deployment" })).toBeVisible();
+    await shot(page, "admin-16-deployment-overview");
+  });
+
+  test("11 deployment — metrics history tab", async ({ page }) => {
+    await loginAs(page, "admin");
+    await page.goto("/projects/proj-001/stubs/stub-001");
+    await page.getByRole("tab", { name: "Metrics History" }).click();
+    await shot(page, "admin-17-deployment-metrics");
+  });
+
+  test("12 deployment — reports tab", async ({ page }) => {
+    await loginAs(page, "admin");
+    await page.goto("/projects/proj-001/stubs/stub-001");
+    await page.getByRole("tab", { name: "Reports" }).click();
+    await shot(page, "admin-18-deployment-reports");
+  });
+
+  test("13 AI-generate page", async ({ page }) => {
+    await loginAs(page, "admin");
+    await page.goto("/projects/proj-001/ai-generate");
+    await shot(page, "admin-19-ai-generate-empty");
+
+    await page.getByTestId("description-input").fill(
+      "A payment processing REST API with three endpoints: POST /payments creates a payment, GET /payments/{id} returns details, POST /payments/{id}/refund initiates a refund.",
+    );
+    await page.getByTestId("generate-button").click();
+    await expect(page.getByTestId("spec-preview")).toBeVisible();
+    await shot(page, "admin-20-ai-generate-result");
+  });
+
+  test("14 delete project confirmation", async ({ page }) => {
+    await loginAs(page, "admin");
+    await page.getByTestId("project-card-wrapper").first().getByTestId("delete-project-button").click({ force: true });
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await shot(page, "admin-21-delete-project-confirm");
+  });
+
+  test("15 edit project modal", async ({ page }) => {
+    await loginAs(page, "admin");
+    await page.getByText("Payments API Stub").click();
+    await expect(page).toHaveURL("/projects/proj-001");
+    await page.getByTestId("edit-project-button").click();
+    await shot(page, "admin-22-edit-project");
+  });
+
+  test("16 batch upload — combined mode (default)", async ({ page }) => {
+    await loginAs(page, "admin");
+    await page.goto("/projects/proj-001/upload");
+    await page.getByTestId("mode-batch").click();
+
+    const fileInput = page.getByTestId("batch-file-input");
+    await fileInput.setInputFiles([
+      {
+        name: "CreateAdviserPOST_Request.txt",
+        mimeType: "text/plain",
+        buffer: Buffer.from('={Method="POST" URL="/advisers"}Body'),
+      },
+      {
+        name: "CreateAdviserPost_Response.txt",
+        mimeType: "text/plain",
+        buffer: Buffer.from('ResponseHeader={StatusCode="201"}Response'),
+      },
+      {
+        name: "GetAdvisers_Request.txt",
+        mimeType: "text/plain",
+        buffer: Buffer.from('={Method="GET" URL="/advisers"}Body'),
+      },
+      {
+        name: "GetAdvisersByID_Response.txt",
+        mimeType: "text/plain",
+        buffer: Buffer.from('ResponseHeader={StatusCode="200"}Response'),
+      },
+    ]);
+    await page.fill("#combined-stub-name", "Wealth Adviser API");
+    await shot(page, "admin-23-batch-upload-combined");
+  });
+
+  test("17 batch upload — separate mode with pairing preview", async ({ page }) => {
+    await loginAs(page, "admin");
+    await page.goto("/projects/proj-001/upload");
+    await page.getByTestId("mode-batch").click();
+    await page.getByLabel(/one stub per file/i).click();
+
+    const fileInput = page.getByTestId("batch-file-input");
+    await fileInput.setInputFiles([
+      {
+        name: "Payments_Request_20260610_100059.txt",
+        mimeType: "text/plain",
+        buffer: Buffer.from('={Method="POST" URL="/api/payment"}Body'),
+      },
+      {
+        name: "Payments_Response_20260610_100059.txt",
+        mimeType: "text/plain",
+        buffer: Buffer.from('ResponseHeader={StatusCode="200"}Response'),
+      },
+      {
+        name: "AccountLookup.postman_collection.json",
+        mimeType: "application/json",
+        buffer: Buffer.from('{"info":{"name":"Account Lookup"},"item":[]}'),
+      },
+    ]);
+    await shot(page, "admin-24-batch-upload-separate");
   });
 });
 

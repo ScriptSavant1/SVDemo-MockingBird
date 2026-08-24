@@ -2,7 +2,7 @@
 <#
 .SYNOPSIS
   Creates the complete Mockingbird project folder and file structure.
-  All files are created empty — paste content from GitHub after running this.
+  All files are created empty - paste content from GitHub after running this.
 
 .USAGE
   .\scripts\scaffold-project.ps1
@@ -36,7 +36,7 @@ function New-Stub {
 }
 
 Write-Host ""
-Write-Host "Mockingbird — project scaffold" -ForegroundColor Cyan
+Write-Host "Mockingbird - project scaffold" -ForegroundColor Cyan
 Write-Host "Root: $Root" -ForegroundColor Cyan
 Write-Host "Mode: $(if ($Force) { 'FORCE (overwrite)' } else { 'SAFE (skip existing)' })" -ForegroundColor Yellow
 Write-Host ""
@@ -61,7 +61,7 @@ Write-Host "Root files" -ForegroundColor Magenta
 Write-Host "`nConfig" -ForegroundColor Magenta
 @(
     "config/example.env"
-    "config/local.env"        # gitignored — fill from example.env
+    "config/local.env"        # gitignored - fill from example.env
 ) | ForEach-Object { New-Stub $_ }
 
 # ── Logs ──────────────────────────────────────────────────────────────────────
@@ -121,7 +121,7 @@ Write-Host "`nScripts" -ForegroundColor Magenta
 ) | ForEach-Object { New-Stub $_ }
 
 # ── Portal ────────────────────────────────────────────────────────────────────
-Write-Host "`nPortal — config / tooling" -ForegroundColor Magenta
+Write-Host "`nPortal - config / tooling" -ForegroundColor Magenta
 @(
     "portal/.gitignore"
     "portal/Dockerfile"
@@ -140,7 +140,7 @@ Write-Host "`nPortal — config / tooling" -ForegroundColor Magenta
     "portal/vite.config.ts"
 ) | ForEach-Object { New-Stub $_ }
 
-Write-Host "`nPortal — source" -ForegroundColor Magenta
+Write-Host "`nPortal - source" -ForegroundColor Magenta
 @(
     "portal/src/App.tsx"
     "portal/src/index.css"
@@ -184,7 +184,7 @@ Write-Host "`nPortal — source" -ForegroundColor Magenta
     "portal/src/utils/formatters.ts"
 ) | ForEach-Object { New-Stub $_ }
 
-Write-Host "`nPortal — tests" -ForegroundColor Magenta
+Write-Host "`nPortal - tests" -ForegroundColor Magenta
 @(
     "portal/tests/api/client.test.ts"
     "portal/tests/components/JobProgress.test.tsx"
@@ -203,7 +203,7 @@ Write-Host "`nPortal — tests" -ForegroundColor Magenta
     "portal/tests/utils/formatters.test.ts"
 ) | ForEach-Object { New-Stub $_ }
 
-Write-Host "`nPortal — e2e" -ForegroundColor Magenta
+Write-Host "`nPortal - e2e" -ForegroundColor Magenta
 @(
     "portal/e2e/capture-screenshots.spec.ts"
     "portal/e2e/create-project.spec.ts"
@@ -221,8 +221,8 @@ Write-Host "`nPortal — e2e" -ForegroundColor Magenta
     "portal/e2e/real/helpers.ts"
 ) | ForEach-Object { New-Stub $_ }
 
-# ── Services — shared ─────────────────────────────────────────────────────────
-Write-Host "`nServices — docker-compose" -ForegroundColor Magenta
+# ── Services - shared ─────────────────────────────────────────────────────────
+Write-Host "`nServices - docker-compose" -ForegroundColor Magenta
 New-Stub "services/docker-compose.yml"
 
 # ── auth-service ──────────────────────────────────────────────────────────────
@@ -232,7 +232,7 @@ Write-Host "`nauth-service" -ForegroundColor Magenta
     "services/auth-service/package.json"
     "services/auth-service/package-lock.json"
     "services/auth-service/tsconfig.json"
-    "services/auth-service/.env.local"         # gitignored — fill with local values
+    "services/auth-service/.env.local"         # gitignored - fill with local values
     "services/auth-service/src/app.ts"
     "services/auth-service/src/server.ts"
     "services/auth-service/src/plugins/database-local.ts"
@@ -303,7 +303,7 @@ Write-Host "`ningestion-service" -ForegroundColor Magenta
     "services/ingestion-service/Dockerfile"
     "services/ingestion-service/pyproject.toml"
     "services/ingestion-service/requirements.txt"
-    "services/ingestion-service/.env"          # gitignored — fill with local values
+    "services/ingestion-service/.env"          # gitignored - fill with local values
     "services/ingestion-service/src/ingestion_service/__init__.py"
     "services/ingestion-service/src/ingestion_service/config.py"
     "services/ingestion-service/src/ingestion_service/database.py"
@@ -360,7 +360,7 @@ Write-Host "`nnotification-service" -ForegroundColor Magenta
 ) | ForEach-Object { New-Stub $_ }
 
 # ── parser-worker ─────────────────────────────────────────────────────────────
-Write-Host "`nparser-worker — core" -ForegroundColor Magenta
+Write-Host "`nparser-worker - core" -ForegroundColor Magenta
 @(
     "services/parser-worker/pyproject.toml"
     "services/parser-worker/requirements.txt"
@@ -374,7 +374,7 @@ Write-Host "`nparser-worker — core" -ForegroundColor Magenta
     "services/parser-worker/src/parser_worker/worker.py"
 ) | ForEach-Object { New-Stub $_ }
 
-Write-Host "`nparser-worker — parsers" -ForegroundColor Magenta
+Write-Host "`nparser-worker - parsers" -ForegroundColor Magenta
 @(
     "services/parser-worker/src/parser_worker/parsers/__init__.py"
     "services/parser-worker/src/parser_worker/parsers/asyncapi.py"
@@ -391,7 +391,7 @@ Write-Host "`nparser-worker — parsers" -ForegroundColor Magenta
     "services/parser-worker/src/parser_worker/parsers/txt_level2.py"
 ) | ForEach-Object { New-Stub $_ }
 
-Write-Host "`nparser-worker — generators" -ForegroundColor Magenta
+Write-Host "`nparser-worker - generators" -ForegroundColor Magenta
 @(
     "services/parser-worker/src/parser_worker/generator/__init__.py"
     "services/parser-worker/src/parser_worker/generator/kafka_springboot.py"
@@ -401,7 +401,7 @@ Write-Host "`nparser-worker — generators" -ForegroundColor Magenta
     "services/parser-worker/src/parser_worker/generator/wiremock.py"
 ) | ForEach-Object { New-Stub $_ }
 
-Write-Host "`nparser-worker — templates (stub-engine REST)" -ForegroundColor Magenta
+Write-Host "`nparser-worker - templates (stub-engine REST)" -ForegroundColor Magenta
 @(
     "services/parser-worker/src/parser_worker/templates/stub-engine/Dockerfile"
     "services/parser-worker/src/parser_worker/templates/stub-engine/docker-compose.yml"
@@ -415,7 +415,7 @@ Write-Host "`nparser-worker — templates (stub-engine REST)" -ForegroundColor M
     "services/parser-worker/src/parser_worker/templates/stub-engine/src/main/resources/wsdl/service.wsdl"
 ) | ForEach-Object { New-Stub $_ }
 
-Write-Host "`nparser-worker — templates (stub-engine-kafka)" -ForegroundColor Magenta
+Write-Host "`nparser-worker - templates (stub-engine-kafka)" -ForegroundColor Magenta
 @(
     "services/parser-worker/src/parser_worker/templates/stub-engine-kafka/Dockerfile"
     "services/parser-worker/src/parser_worker/templates/stub-engine-kafka/pom.xml"
@@ -429,7 +429,7 @@ Write-Host "`nparser-worker — templates (stub-engine-kafka)" -ForegroundColor 
     "services/parser-worker/src/parser_worker/templates/stub-engine-kafka/src/main/resources/stubs.json"
 ) | ForEach-Object { New-Stub $_ }
 
-Write-Host "`nparser-worker — templates (stub-engine-mq)" -ForegroundColor Magenta
+Write-Host "`nparser-worker - templates (stub-engine-mq)" -ForegroundColor Magenta
 @(
     "services/parser-worker/src/parser_worker/templates/stub-engine-mq/Dockerfile"
     "services/parser-worker/src/parser_worker/templates/stub-engine-mq/pom.xml"
@@ -443,7 +443,7 @@ Write-Host "`nparser-worker — templates (stub-engine-mq)" -ForegroundColor Mag
     "services/parser-worker/src/parser_worker/templates/stub-engine-mq/src/main/resources/stubs.json"
 ) | ForEach-Object { New-Stub $_ }
 
-Write-Host "`nparser-worker — tests" -ForegroundColor Magenta
+Write-Host "`nparser-worker - tests" -ForegroundColor Magenta
 @(
     "services/parser-worker/tests/__init__.py"
     "services/parser-worker/tests/test_asyncapi_parser.py"
@@ -474,7 +474,7 @@ Write-Host "`nproject-service" -ForegroundColor Magenta
     "services/project-service/pyproject.toml"
     "services/project-service/requirements.txt"
     "services/project-service/alembic.ini"
-    "services/project-service/.env"           # gitignored — fill with local values
+    "services/project-service/.env"           # gitignored - fill with local values
     "services/project-service/alembic/env.py"
     "services/project-service/alembic/script.py.mako"
     "services/project-service/alembic/versions/001_initial_schema.py"

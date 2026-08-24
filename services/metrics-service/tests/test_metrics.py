@@ -251,6 +251,7 @@ def test_redis_get_latest_returns_none_when_missing():
 def _build_test_app(redis_mock=None, ts_query_mock=None):
     """Build a TestClient with pre-wired app state (skips real DB/AWS)."""
     from metrics_service.main import app
+    from metrics_service.dependencies import CurrentUser, get_current_user
     from fastapi.testclient import TestClient
 
     app.state.redis = redis_mock or MagicMock()
@@ -258,6 +259,12 @@ def _build_test_app(redis_mock=None, ts_query_mock=None):
     app.state.timestream_query_client = ts_query_mock or MagicMock()
     app.state.timestream_database = "mockingbird"
     app.state.timestream_table = "stub_metrics"
+
+    # Auth is required on these routes now — override with a fixed test user
+    # rather than encoding a real JWT, matching the other services' test convention.
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+        id=uuid.UUID(int=0), username="test-user", role="SV_TEAM"
+    )
 
     # Use TestClient with lifespan=False so background scraper doesn't start
     return TestClient(app, raise_server_exceptions=True)
@@ -290,6 +297,44 @@ def test_metrics_current_returns_404_when_not_in_redis():
     client = _build_test_app(redis_mock=mock_redis)
     resp = client.get(f"/api/v1/metrics/{DEPLOYMENT_ID}/current")
     assert resp.status_code == 404
+
+
+def test_metrics_current_requires_auth():
+    """Without dependency_overrides, the real get_current_user runs and 401s."""
+    from metrics_service.main import app
+    from fastapi.testclient import TestClient
+
+    app.state.redis = MagicMock()
+    app.state.timestream_write_client = MagicMock()
+    app.state.timestream_query_client = MagicMock()
+    app.state.timestream_database = "mockingbird"
+    app.state.timestream_table = "stub_metrics"
+    app.dependency_overrides.clear()
+
+    client = TestClient(app, raise_server_exceptions=True)
+    resp = client.get(f"/api/v1/metrics/{DEPLOYMENT_ID}/current")
+    assert resp.status_code == 401
+
+
+def test_get_current_user_ws_returns_none_without_token():
+    from metrics_service.dependencies import get_current_user_ws
+    assert get_current_user_ws(None) is None
+    assert get_current_user_ws("not-a-real-jwt") is None
+
+
+def test_get_current_user_ws_accepts_valid_token():
+    from jose import jwt as jose_jwt
+    from metrics_service import config as metrics_config
+    from metrics_service.dependencies import get_current_user_ws
+
+    token = jose_jwt.encode(
+        {"sub": str(uuid.uuid4()), "username": "ops", "role": "SV_TEAM"},
+        metrics_config.settings.jwt_secret,
+        algorithm=metrics_config.settings.jwt_algorithm,
+    )
+    user = get_current_user_ws(token)
+    assert user is not None
+    assert user.username == "ops"
 
 
 def test_metrics_history_returns_points():

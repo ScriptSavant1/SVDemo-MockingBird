@@ -392,3 +392,46 @@ def test_process_message_suspend_action(tmp_path):
     assert _get_deployment(db)["status"] == "SUSPENDED"
     assert _get_job(db)["status"] == "DONE"
     db.close()
+
+
+# ── run_loop — SQS delete-on-failure regression ──────────────────────────────
+
+
+class _StopLoop(Exception):
+    """Raised on the second receive_message call to break run_loop's while True."""
+
+
+def _run_loop_once(process_message_side_effect):
+    """Drive run_loop for exactly one message, then stop it."""
+    from deployer_worker.worker import run_loop
+
+    message = {"MessageId": "msg-1", "ReceiptHandle": "receipt-1", "Body": "{}"}
+    sqs_client = MagicMock()
+    sqs_client.receive_message.side_effect = [
+        {"Messages": [message]},
+        _StopLoop(),
+    ]
+    db_factory = MagicMock(return_value=MagicMock())
+
+    with patch("deployer_worker.worker.process_message", side_effect=process_message_side_effect):
+        with pytest.raises(_StopLoop):
+            run_loop(
+                sqs_client, db_factory, MagicMock(), GITLAB_PROJECT_ID, GITLAB_REGISTRY,
+                Path("."), "https://sqs.example/queue", "state-bucket", "eu-west-2",
+                "locks-table", "subnet-1", "sg-1", "keypair", "instance-profile", "java:21",
+                poll_wait=0,
+            )
+
+    return sqs_client
+
+
+def test_run_loop_deletes_message_on_success():
+    sqs_client = _run_loop_once(process_message_side_effect=lambda *a, **k: None)
+    sqs_client.delete_message.assert_called_once_with(
+        QueueUrl="https://sqs.example/queue", ReceiptHandle="receipt-1",
+    )
+
+
+def test_run_loop_does_not_delete_message_on_unhandled_exception():
+    sqs_client = _run_loop_once(process_message_side_effect=RuntimeError("boom"))
+    sqs_client.delete_message.assert_not_called()

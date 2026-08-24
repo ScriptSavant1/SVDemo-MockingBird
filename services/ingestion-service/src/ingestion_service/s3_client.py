@@ -16,7 +16,11 @@ def is_local_storage() -> bool:
 
 def upload_local(s3_key: str, data: bytes) -> str:
     """Write bytes to LOCAL_STORAGE_PATH/<s3_key>. Used when S3 is unavailable."""
-    dest = Path(settings.local_storage_path or "./uploads") / s3_key  # type: ignore[arg-type]
+    root = Path(settings.local_storage_path or "./uploads").resolve()
+    dest = (root / s3_key).resolve()
+    if root not in dest.parents and dest != root:
+        # s3_key escaped the storage root (e.g. via a filename like "../../evil.txt")
+        raise ValueError(f"Refusing to write outside local storage root: {s3_key!r}")
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(data)
     return s3_key

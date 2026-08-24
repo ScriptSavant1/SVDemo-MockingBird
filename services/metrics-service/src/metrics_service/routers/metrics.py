@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import logging
+import uuid
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from ..dependencies import CurrentUser, get_current_user
 from ..models import MetricCurrentResponse, MetricHistoryResponse, MetricSnapshot
 from ..redis_pub import get_latest_snapshot
 from ..timestream import query_history
@@ -19,16 +21,20 @@ router = APIRouter(prefix="/api/v1/metrics", tags=["metrics"])
     response_model=MetricCurrentResponse,
     summary="Latest metrics snapshot for a deployment (from Redis cache)",
 )
-def get_current(deployment_id: str, request: Request) -> MetricCurrentResponse:
+def get_current(
+    deployment_id: uuid.UUID,
+    request: Request,
+    _user: CurrentUser = Depends(get_current_user),
+) -> MetricCurrentResponse:
     redis = request.app.state.redis
-    data = get_latest_snapshot(redis, deployment_id)
+    data = get_latest_snapshot(redis, str(deployment_id))
     if data is None:
         raise HTTPException(
             status_code=404,
             detail={"type": "not_found", "title": "No metrics available",
                     "status": 404, "detail": f"No metrics cached for deployment {deployment_id}"},
         )
-    return MetricCurrentResponse(deployment_id=deployment_id, snapshot=MetricSnapshot(**data))
+    return MetricCurrentResponse(deployment_id=str(deployment_id), snapshot=MetricSnapshot(**data))
 
 
 @router.get(
@@ -37,9 +43,10 @@ def get_current(deployment_id: str, request: Request) -> MetricCurrentResponse:
     summary="Historical metrics from Timestream (default last 60 minutes)",
 )
 def get_history(
-    deployment_id: str,
+    deployment_id: uuid.UUID,
     request: Request,
     minutes: int = Query(default=60, ge=1, le=1440),
+    _user: CurrentUser = Depends(get_current_user),
 ) -> MetricHistoryResponse:
     ts_write = request.app.state.timestream_write_client
     # We need the query client — stored separately
@@ -47,9 +54,9 @@ def get_history(
     ts_db = request.app.state.timestream_database
     ts_table = request.app.state.timestream_table
 
-    points = query_history(ts_query, ts_db, ts_table, deployment_id, minutes)
+    points = query_history(ts_query, ts_db, ts_table, str(deployment_id), minutes)
     return MetricHistoryResponse(
-        deployment_id=deployment_id,
+        deployment_id=str(deployment_id),
         points=points,
         query_minutes=minutes,
     )

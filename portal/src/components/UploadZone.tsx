@@ -1,5 +1,6 @@
 import { useState, useRef, type DragEvent, type ChangeEvent } from "react";
 import { clsx } from "clsx";
+import { mergeHttpCaptureFiles } from "@/lib/httpCapturePairing";
 
 const ACCEPTED_EXTENSIONS = [".txt", ".json"];
 
@@ -54,14 +55,7 @@ export function UploadZone({ file, onChange, disabled }: UploadZoneProps) {
   }
 
   async function mergeAndEmit(req: File, resp: File) {
-    const [reqBytes, respBytes] = await Promise.all([req.arrayBuffer(), resp.arrayBuffer()]);
-    const newline = new Uint8Array([0x0a]);
-    const merged = new Uint8Array(reqBytes.byteLength + 1 + respBytes.byteLength);
-    merged.set(new Uint8Array(reqBytes), 0);
-    merged.set(newline, reqBytes.byteLength);
-    merged.set(new Uint8Array(respBytes), reqBytes.byteLength + 1);
-    const combinedName = req.name.replace(/\.[^.]+$/, "") + "_combined.txt";
-    onChange(new File([merged], combinedName, { type: "text/plain" }));
+    onChange(await mergeHttpCaptureFiles(req, resp));
     setSecondFile(resp);
   }
 

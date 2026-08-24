@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mockingbird — User Guide</title>
+<style>
+  :root {
+    --bg: #f7f9fc; --surface: #ffffff; --ink: #1a2433; --ink-soft: #4b5768;
+    --border: #dde3ec; --navy: #003875; --cyan: #00a9e0; --green: #1a7f4e;
+    --amber: #b7791f; --red: #c0392b; --grey: #8a94a3; --radius: 10px;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1620; --surface: #161f2c; --ink: #e8edf5; --ink-soft: #9aa7ba;
+      --border: #2a3648; --navy: #5aa9f0; --cyan: #4fd3ff; --green: #4fce8f;
+      --amber: #e8b95c; --red: #ef6b5c; --grey: #7c8798;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--ink); line-height: 1.55; }
+  .shell { display: flex; min-height: 100vh; }
+  nav.toc { width: 260px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border); padding: 28px 20px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+  nav.toc .brand { font-weight: 700; font-size: 1.05rem; margin-bottom: 2px; }
+  nav.toc .sub { color: var(--ink-soft); font-size: 0.78rem; margin-bottom: 24px; }
+  nav.toc a { display: block; color: var(--ink-soft); text-decoration: none; font-size: 0.85rem; padding: 5px 10px; border-radius: 6px; margin-bottom: 1px; }
+  nav.toc a:hover { background: var(--bg); color: var(--ink); }
+  nav.toc .section-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--grey); margin: 16px 0 6px 10px; }
+  main { flex: 1; max-width: 1000px; padding: 48px 56px 100px; }
+  h1 { font-size: 1.9rem; margin: 0 0 6px; }
+  h2 { font-size: 1.4rem; margin: 52px 0 6px; padding-top: 8px; border-top: 1px solid var(--border); }
+  h2:first-of-type { border-top: none; padding-top: 0; margin-top: 20px; }
+  h3 { font-size: 1.1rem; margin: 30px 0 8px; }
+  p { color: var(--ink-soft); max-width: 74ch; }
+  .lede { font-size: 1.05rem; color: var(--ink-soft); max-width: 70ch; }
+  ol.steps { padding-left: 0; list-style: none; counter-reset: step; max-width: 72ch; }
+  ol.steps > li { counter-increment: step; position: relative; padding-left: 40px; margin-bottom: 14px; color: var(--ink-soft); }
+  ol.steps > li::before { content: counter(step); position: absolute; left: 0; top: -1px; width: 26px; height: 26px; border-radius: 50%; background: var(--navy); color: #fff; font-size: 0.8rem; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+  ol.steps > li strong { color: var(--ink); }
+  ul.plain { color: var(--ink-soft); max-width: 72ch; }
+  code { font-family: var(--mono); font-size: 0.85em; background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 0.83rem; color: var(--ink); }
+  pre code { background: none; padding: 0; }
+  .callout { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--navy); border-radius: 8px; padding: 16px 20px; margin: 20px 0; font-size: 0.92rem; max-width: 72ch; }
+  .callout.warn { border-left-color: var(--amber); }
+  .callout.tip { border-left-color: var(--green); }
+  .callout strong { color: var(--ink); }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.87rem; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--grey); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+  .shot-row { display: flex; gap: 18px; flex-wrap: wrap; margin: 20px 0 28px; align-items: flex-start; }
+  .shot { flex: 1 1 340px; max-width: 480px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .shot img { width: 100%; display: block; border-bottom: 1px solid var(--border); }
+  .shot .cap { padding: 10px 14px; font-size: 0.82rem; color: var(--ink-soft); }
+  .shot .cap strong { color: var(--ink); display: block; font-size: 0.85rem; margin-bottom: 2px; }
+  .shot.full { flex-basis: 100%; max-width: 100%; }
+  .badge { display: inline-block; font-size: 0.72rem; font-weight: 700; padding: 2px 9px; border-radius: 100px; background: color-mix(in srgb, var(--cyan) 18%, transparent); color: var(--cyan); margin-left: 8px; vertical-align: middle; }
+  a.crosslink { color: var(--cyan); text-decoration: none; font-weight: 600; }
+  a.crosslink:hover { text-decoration: underline; }
+  @media (max-width: 860px) { .shell { flex-direction: column; } nav.toc { width: 100%; height: auto; position: static; } }
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">Mockingbird</div>
+    <div class="sub">User Guide</div>
+    <a href="#overview">Overview</a>
+    <a href="#login">Logging in</a>
+    <div class="section-label">Projects</div>
+    <a href="#dashboard">Dashboard</a>
+    <a href="#create-project">Create a project</a>
+    <a href="#edit-archive">Edit &amp; archive</a>
+    <div class="section-label">Building stubs</div>
+    <a href="#upload-single">Upload — single spec</a>
+    <a href="#upload-batch">Upload — batch</a>
+    <a href="#formats">Supported formats</a>
+    <a href="#ai-generate">Generate with AI</a>
+    <a href="#job-status">Job status</a>
+    <div class="section-label">Testing &amp; deploying</div>
+    <a href="#local-test">Test locally first</a>
+    <a href="#deploy">Deploy to AWS</a>
+    <a href="#deployment-page">Deployment page</a>
+    <a href="#suspend-redeploy">Suspend &amp; redeploy</a>
+    <div class="section-label">Reports</div>
+    <a href="#reports">Reports hub &amp; downloads</a>
+    <div class="section-label">Reference</div>
+    <a href="ADMIN_GUIDE.html">Admin Guide ↗</a>
+    <a href="ARCHITECTURE.html">Architecture ↗</a>
+    <a href="MASTER_GUIDE.html">Deployment setup ↗</a>
+  </nav>
+
+  <main>
+    <h1 id="overview">Mockingbird — User Guide</h1>
+    <p class="lede">
+      A complete walkthrough of everything you can do in the Mockingbird portal as
+      an <strong>SV_TEAM</strong> user — creating projects, uploading specs, generating
+      stubs, testing them locally, and deploying to AWS. Every screenshot below is
+      from the actual running application.
+    </p>
+
+    <div class="callout">
+      <strong>Your role:</strong> SV_TEAM users can create projects, upload specs,
+      generate and deploy stubs, and view reports — everything in this guide.
+      User management and the audit log are ADMIN-only; if you need those, see the
+      <a class="crosslink" href="ADMIN_GUIDE.html">Admin Guide</a> or ask an admin.
+    </div>
+
+    <h2 id="login">Logging in</h2>
+    <p>Open the portal URL your team gave you and sign in with your username and password.</p>
+    <div class="shot-row">
+      <div class="shot">
+        <img src="screenshots/user-01-login.png" alt="Mockingbird login page">
+        <div class="cap"><strong>Login page</strong></div>
+      </div>
+      <div class="shot">
+        <img src="screenshots/user-02-dashboard.png" alt="Dashboard after logging in as a regular user, no Admin link visible">
+        <div class="cap"><strong>Dashboard after login</strong>Notice there's no "Admin" link in the top nav — that's ADMIN-only.</div>
+      </div>
+    </div>
+
+    <h2 id="dashboard">Dashboard — your projects</h2>
+    <p>
+      The dashboard lists every project you have access to, with live status badges,
+      search, status filters, and a grid/list view toggle.
+    </p>
+    <div class="shot-row">
+      <div class="shot full">
+        <img src="screenshots/admin-02-dashboard.png" alt="Dashboard showing project cards with status badges, search, and filters">
+        <div class="cap"><strong>Dashboard</strong>Search by name/team, filter by status (Draft/Live/Suspended…), switch between grid and list view with the icons top-right.</div>
+      </div>
+    </div>
+    <ul class="plain">
+      <li><strong>Search</strong> — filters by project name or team as you type.</li>
+      <li><strong>Status pills</strong> — click a status (e.g. <code>LIVE</code>) to filter the list to just those projects.</li>
+      <li><strong>Grid / List toggle</strong> — the two icons top-right of the search bar switch views.</li>
+      <li>Archived projects are hidden from this list automatically — see <a href="#edit-archive">Edit &amp; archive</a>.</li>
+    </ul>
+
+    <h2 id="create-project">Creating a project</h2>
+    <ol class="steps">
+      <li>Click <strong>New Project</strong> on the dashboard.</li>
+      <li>Fill in the project name, team, environment (TEST/STAGING/PROD), and expected TPS — this sizes the AWS instance used when you deploy.</li>
+      <li>Click <strong>Create</strong>.</li>
+    </ol>
+    <div class="shot-row">
+      <div class="shot">
+        <img src="screenshots/admin-03-create-project-empty.png" alt="New project form, empty">
+        <div class="cap"><strong>New Project form</strong></div>
+      </div>
+      <div class="shot">
+        <img src="screenshots/admin-04-create-project-filled.png" alt="New project form, filled in">
+        <div class="cap"><strong>Filled in and ready to submit</strong></div>
+      </div>
+    </div>
+
+    <h2 id="edit-archive">Editing &amp; archiving a project</h2>
+    <p>
+      From a project's detail page, click <strong>Edit</strong> to change its name, team,
+      environment, TPS target, or description. Click <strong>Archive</strong> to hide a
+      finished project from the dashboard without deleting anything — archived projects
+      and their stubs stay in the system and can be found again by searching directly.
+    </p>
+    <div class="shot-row">
+      <div class="shot">
+        <img src="screenshots/admin-22-edit-project.png" alt="Edit project modal">
+        <div class="cap"><strong>Edit project</strong></div>
+      </div>
+      <div class="shot">
+        <img src="screenshots/admin-06-project-detail.png" alt="Project detail page showing Edit, Archive, Generate with AI, Upload Spec buttons">
+        <div class="cap"><strong>Project detail</strong>Edit and Archive are top-right; every stub in the project is listed below.</div>
+      </div>
+    </div>
+    <div class="callout tip">
+      Need a project permanently and completely removed (not just hidden)? That's an
+      ADMIN-only action — see <a class="crosslink" href="ADMIN_GUIDE.html#delete-project">Deleting a project</a> in the Admin Guide.
+    </div>
+
+    <h2 id="upload-single">Uploading a spec — single file</h2>
+    <p>
+      Open a project and click <strong>Upload Spec</strong>. Choose <strong>Single spec</strong>
+      mode for one file. The format is auto-detected — you never need to tell Mockingbird
+      what kind of file you're giving it.
+    </p>
+    <div class="shot-row">
+      <div class="shot">
+        <img src="screenshots/admin-07-upload-empty.png" alt="Upload page, empty drop zone">
+        <div class="cap"><strong>Upload page</strong></div>
+      </div>
+      <div class="shot">
+        <img src="screenshots/admin-08-upload-file-selected.png" alt="Upload page with a file selected">
+        <div class="cap"><strong>File selected, ready to upload</strong></div>
+      </div>
+    </div>
+    <div class="callout">
+      <strong>Got a CA LISA request and response as two separate .txt files?</strong>
+      After picking the first file, an "+ Add response file" slot appears — pick the
+      second file and Mockingbird combines them automatically before uploading. You
+      don't need to merge them yourself.
+    </div>
+
+    <h2 id="upload-batch">Uploading specs — batch mode</h2>
+    <p>
+      Have many files at once? Switch to <strong>Multiple files (batch)</strong> mode.
+      The first choice you'll make is <strong>how those files should become stubs</strong> —
+      this matters more than it might look, because it decides how many EC2 instances
+      and URLs you get when you deploy.
+    </p>
+
+    <h3>One stub for all files (recommended default)</h3>
+    <p>
+      Use this when the files describe <strong>one downstream system with several
+      operations</strong> — e.g. a client's <code>CreateAdviser</code> and
+      <code>GetAdvisers</code> endpoints. This is the common case: a real microservice
+      usually exposes several endpoints behind one base URL, so its stub should too.
+      Request/response pairs (e.g. <code>*_Request_*.txt</code> / <code>*_Response_*.txt</code>)
+      are detected and paired automatically — you don't need to pair them by hand, and you
+      don't need to zip them yourself either.
+    </p>
+    <div class="shot-row">
+      <div class="shot full">
+        <img src="screenshots/admin-23-batch-upload-combined.png" alt="Batch upload in combined mode, showing four Wealth adviser files selected and a stub name field, all becoming one stub">
+        <div class="cap"><strong>Combined mode</strong>Four files — two request/response pairs for two different operations of the same client — become <strong>one</strong> stub serving both endpoints.</div>
+      </div>
+    </div>
+    <div class="callout tip">
+      <strong>Result:</strong> one deployable stub, one URL, serving every endpoint from
+      every file in the batch — exactly mirroring how the real service you're standing in
+      for actually works.
+    </div>
+
+    <h3>One stub per file</h3>
+    <p>
+      Switch to this mode only when the files are <strong>genuinely unrelated,
+      independently deployable services</strong> — e.g. you're setting up stubs for three
+      completely different downstream dependencies in one go. Each file (or matched
+      request/response pair) becomes its own separate stub with its own URL when deployed.
+    </p>
+    <div class="shot-row">
+      <div class="shot full">
+        <img src="screenshots/admin-24-batch-upload-separate.png" alt="Batch upload in separate mode showing a detected request/response pair preview and a standalone file, each becoming its own stub">
+        <div class="cap"><strong>Separate mode</strong>Two files matched as a request/response pair become one stub; the third (a Postman collection) becomes its own separate stub — three unrelated services, three stubs.</div>
+      </div>
+    </div>
+    <ul class="plain">
+      <li>One file with multiple endpoints (a Postman collection or OpenAPI spec) always becomes <strong>one stub serving all those endpoints</strong>, regardless of which batch mode you pick.</li>
+      <li>In "one stub per file" mode, a bad file doesn't block the rest of the batch — each item succeeds or fails independently.</li>
+    </ul>
+
+    <h2 id="formats">Supported spec formats</h2>
+    <table>
+      <tr><th>Format</th><th>File type</th><th>Notes</th></tr>
+      <tr><td>Raw HTTP pair (Level 1 / 2)</td><td>.txt</td><td>Simple or multi-scenario request/response captures</td></tr>
+      <tr><td>Stateful multi-step</td><td>.txt</td><td>Sequences like login → fetch → logout</td></tr>
+      <tr><td>CA LISA HTTP capture</td><td>.txt (pair) or .zip</td><td>Auto-paired if request/response are separate files</td></tr>
+      <tr><td>Postman collection</td><td>.json</td><td>Export as <strong>Collection v2.1</strong> with saved responses</td></tr>
+      <tr><td>OpenAPI / Swagger</td><td>.yaml / .json</td><td>Must start with <code>openapi:</code> or <code>swagger:</code></td></tr>
+      <tr><td>Kafka</td><td>.json</td><td><code>_mockingbird_kafka</code> native format</td></tr>
+      <tr><td>IBM MQ</td><td>.json</td><td><code>_mockingbird_mq</code> native format — consumer-reply or producer</td></tr>
+      <tr><td>AsyncAPI</td><td>.yaml / .json</td><td>Must start with <code>asyncapi:</code></td></tr>
+    </table>
+    <p style="font-size:0.85rem;">Full field-level examples for each format are in <a class="crosslink" href="LOCAL_DEVELOPMENT.md">LOCAL_DEVELOPMENT.md ↗</a> Part C.</p>
+
+    <h2 id="ai-generate">Generating stubs with AI</h2>
+    <p>
+      No spec file at all? Describe the API in plain English and Claude drafts a
+      Postman collection you can review before creating stubs from it.
+    </p>
+    <div class="shot-row">
+      <div class="shot">
+        <img src="screenshots/admin-19-ai-generate-empty.png" alt="AI generate page with description textarea">
+        <div class="cap"><strong>Describe your API</strong>From a project page, click "Generate with AI".</div>
+      </div>
+      <div class="shot">
+        <img src="screenshots/admin-20-ai-generate-result.png" alt="AI generate result showing detected intent, estimated stubs, and a stub name field">
+        <div class="cap"><strong>Review the result</strong>Check the detected intent and stub count, adjust the name, then Create Stubs — or Regenerate if it's not right.</div>
+      </div>
+    </div>
+    <p style="font-size:0.85rem;">Rate-limited to protect API spend — you'll see a clear message if you hit the hourly limit.</p>
+
+    <h2 id="job-status">Tracking parse &amp; generate progress</h2>
+    <p>
+      Uploading (or creating stubs from an AI-generated spec) immediately queues parsing
+      and generation in the background — you're taken to a job status page that updates
+      automatically until the stub project is built. Nothing more to do here; it's fully automatic.
+    </p>
+    <div class="shot-row">
+      <div class="shot">
+        <img src="screenshots/admin-09-job-status.png" alt="Job status page showing progress through parse and generate steps">
+        <div class="cap"><strong>Job status</strong></div>
+      </div>
+    </div>
+
+    <h2 id="local-test">Test a stub locally before trusting it</h2>
+    <p>Prove the generated stub behaves correctly on your own machine before deploying it.</p>
+    <ol class="steps">
+      <li>On the project page, once a stub shows a <strong>Download Stub Project</strong> button, click it. You get a complete, runnable Spring Boot project — <code>pom.xml</code>, <code>Dockerfile</code>, Java source, and the WireMock mappings already baked in.</li>
+      <li>Unzip it, then run it directly:
+        <pre><code>cd stub-engine
+mvn spring-boot:run</code></pre>
+        or via Docker:
+        <pre><code>docker build -t my-stub .
+docker run -p 8080:8080 my-stub</code></pre>
+      </li>
+      <li>Hit it with <code>curl</code>, Postman, or your application under test at <code>http://localhost:8080</code> and confirm it behaves as expected.</li>
+    </ol>
+
+    <h2 id="deploy">Deploying to AWS</h2>
+    <p>
+      Once you're satisfied locally, click <strong>Deploy</strong> on the project page.
+      This is the one manual step in the whole pipeline — everything after it is automatic:
+      GitLab CI builds the image, Terraform provisions a c6i.2xlarge EC2 instance, health
+      checks poll until it's ready, and you get a live URL and API key. Typically about
+      4 minutes end to end.
+    </p>
+
+    <h2 id="deployment-page">The deployment page</h2>
+    <p>Once deployed, click through to a stub's deployment page for three tabs:</p>
+    <div class="shot-row">
+      <div class="shot">
+        <img src="screenshots/admin-16-deployment-overview.png" alt="Deployment overview tab showing URL, API key, and live metrics panel">
+        <div class="cap"><strong>Overview</strong>Live URL, API key (with a Copy button), and a real-time TPS chart once traffic starts.</div>
+      </div>
+      <div class="shot">
+        <img src="screenshots/admin-17-deployment-metrics.png" alt="Deployment metrics history tab with time range buttons">
+        <div class="cap"><strong>Metrics History</strong>Historical TPS/latency/error-rate over 1h / 6h / 24h ranges.</div>
+      </div>
+    </div>
+
+    <h2 id="suspend-redeploy">Suspend &amp; redeploy</h2>
+    <p>
+      Done with a deployment for now? Click <strong>Suspend</strong> — this terminates the
+      EC2 instance (so it stops costing money) but keeps the stub definition. Click
+      <strong>Redeploy</strong> later and it's live again in about 4 minutes, with no
+      re-upload and no re-parsing needed.
+    </p>
+
+    <h2 id="reports">Reports</h2>
+    <p>
+      PDF, Excel, and PowerPoint usage reports are generated per deployment. Reach them
+      two ways: the <strong>Reports</strong> tab on a deployment page, or the top-level
+      <strong>Reports</strong> nav link for a cross-project view of everything that's deployed.
+    </p>
+    <div class="shot-row">
+      <div class="shot">
+        <img src="screenshots/admin-15-reports-hub.png" alt="Reports hub listing deployed projects">
+        <div class="cap"><strong>Reports hub</strong>Every deployed project, one click from generating or downloading its reports.</div>
+      </div>
+      <div class="shot">
+        <img src="screenshots/admin-18-deployment-reports.png" alt="Deployment reports tab with a generated report row and PDF/Excel/PPT download buttons">
+        <div class="cap"><strong>Reports tab</strong>Click Generate Report, then download in PDF, Excel, or PowerPoint once it's ready.</div>
+      </div>
+    </div>
+
+    <p style="margin-top:56px; font-size:0.8rem; color:var(--grey);">
+      Screenshots captured from the running portal against the current build. If the UI
+      looks different from these images, the app has moved on since this was written —
+      trust the running app over this document.
+    </p>
+  </main>
+</div>
+</body>
+</html>

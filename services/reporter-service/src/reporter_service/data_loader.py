@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import statistics
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -25,10 +26,15 @@ def _query_timestream(
     deployment_id: str,
     hours: int,
 ) -> list[MetricPoint]:
+    # deployment_id is re-validated as a UUID here (not just trusted from the
+    # caller) before being interpolated — the Timestream Query API has no
+    # parameterized-query support in boto3, so a validated UUID (hex digits +
+    # hyphens only) is the injection defense.
+    safe_deployment_id = str(uuid.UUID(str(deployment_id)))
     sql = (
         f"SELECT time, tps, latency_avg_ms, error_rate "
         f'FROM "{ts_database}"."{ts_table}" '
-        f"WHERE deployment_id = '{deployment_id}' "
+        f"WHERE deployment_id = '{safe_deployment_id}' "
         f"AND time between ago({hours}h) and now() "
         f"ORDER BY time ASC"
     )

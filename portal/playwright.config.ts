@@ -2,6 +2,11 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e",
+  // e2e/real/** is the real-backend suite (see playwright.real.config.ts) — it
+  // makes unmocked API calls and must not run under this mocked config.
+  // ui-audit.spec.ts is also real-backend-only (see its own header comment)
+  // despite living in e2e/ directly, for the same reason.
+  testIgnore: ["**/real/**", "**/ui-audit.spec.ts"],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
