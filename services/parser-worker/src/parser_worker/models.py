@@ -87,7 +87,16 @@ class ParsedScenario(BaseModel):
     xpath_namespaces: dict[str, str] = Field(default_factory=dict)
 
     def has_dynamic_placeholders(self) -> bool:
-        return bool(self.body and TEMPLATE_PLACEHOLDER.search(self.body))
+        """True if a {{...}} template placeholder appears anywhere WireMock will
+        render it — the body, or a response header (e.g. an echoed request
+        header value). Without this covering headers too, a mapping whose only
+        placeholder lives in a header gets no "transformers": ["response-template"]
+        entry, and WireMock serves the literal unresolved "{{...}}" string
+        instead of the real value.
+        """
+        if self.body and TEMPLATE_PLACEHOLDER.search(self.body):
+            return True
+        return any(TEMPLATE_PLACEHOLDER.search(v) for v in self.response_headers.values())
 
 
 class ParsedStub(BaseModel):

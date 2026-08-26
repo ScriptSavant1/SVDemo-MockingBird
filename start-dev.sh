@@ -61,11 +61,14 @@ PIDS+=($!)
 popd >/dev/null
 
 # 3. ingestion-service
+# Shares project-service's SQLite DB (project lookups on upload query that DB
+# directly, not via HTTP) and must NOT override JWT_SECRET — it has to match
+# the one auth-service actually signs with, which comes from ingestion-service's
+# own .env.
 echo "  Starting ingestion-service on port 8003..."
 pushd "$ROOT/services/ingestion-service" >/dev/null
-DATABASE_URL="sqlite:///./ingestion.db" \
+DATABASE_URL="sqlite:///$ROOT/services/project-service/mockingbird.db" \
 LOCAL_STORAGE_PATH="./uploads" \
-JWT_SECRET="local-dev-secret" \
     venv/bin/python -m uvicorn ingestion_service.main:app \
     --host 0.0.0.0 --port 8003 --reload \
     > "$ROOT/logs/ingestion-service.log" 2>&1 &

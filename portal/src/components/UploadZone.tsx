@@ -2,7 +2,9 @@ import { useState, useRef, type DragEvent, type ChangeEvent } from "react";
 import { clsx } from "clsx";
 import { mergeHttpCaptureFiles } from "@/lib/httpCapturePairing";
 
-const ACCEPTED_EXTENSIONS = [".txt", ".json"];
+// Format is detected server-side from content, not extension — this list only
+// controls what the browser's file picker shows/allows.
+const ACCEPTED_EXTENSIONS = [".txt", ".json", ".xml"];
 
 interface UploadZoneProps {
   file: File | null;
@@ -119,14 +121,15 @@ export function UploadZone({ file, onChange, disabled }: UploadZoneProps) {
               Drop your spec file here, or click to browse
             </p>
             <p className="mt-1 text-xs text-gray-400">
-              .txt (HTTP pairs) · .json (Postman v2.1)
+              .txt / .xml (HTTP pairs, REST or SOAP) · .json (Postman v2.1)
             </p>
           </>
         )}
       </div>
 
-      {/* Second file slot — only shown once first .txt is selected */}
-      {file && file.name.endsWith(".txt") && !isCombined && (
+      {/* Second file slot — only shown once a raw HTTP-capture file is selected
+          (not a self-contained Postman/OpenAPI .json, which doesn't need pairing) */}
+      {file && !file.name.toLowerCase().endsWith(".json") && !isCombined && (
         <div
           className={clsx(
             "rounded-lg border-2 border-dashed px-4 py-4 text-center transition-colors",
@@ -141,7 +144,7 @@ export function UploadZone({ file, onChange, disabled }: UploadZoneProps) {
           <input
             ref={secondInputRef}
             type="file"
-            accept=".txt"
+            accept=".txt,.xml"
             className="hidden"
             onChange={handleSecondChange}
             disabled={disabled}
@@ -149,7 +152,7 @@ export function UploadZone({ file, onChange, disabled }: UploadZoneProps) {
           />
           <p className="text-xs text-gray-500">
             <span className="font-medium text-[#003875]">+ Add response file</span>
-            {" "}— if your CA LISA request and response are in separate .txt files, add the second one here to auto-combine them.
+            {" "}— if your captured request and response (REST or SOAP) are in separate files, add the second one here to auto-combine them.
           </p>
         </div>
       )}

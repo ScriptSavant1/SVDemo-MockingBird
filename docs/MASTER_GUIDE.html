@@ -278,8 +278,9 @@ curl http://localhost:8003/health</code></pre>
     <p>
       Open the project, click <strong>Upload Spec</strong>. Choose <strong>Single spec</strong>
       for one file (or a request+response pair), or <strong>Multiple files (batch)</strong>
-      to upload many files at once — each becomes its own stub, generated in parallel, with
-      per-file progress.
+      to upload many files at once — by default they combine into one stub serving every
+      endpoint (matching how the real service works), with a per-file option available for
+      genuinely unrelated services.
     </p>
     <div class="shot-row">
       <div class="shot">

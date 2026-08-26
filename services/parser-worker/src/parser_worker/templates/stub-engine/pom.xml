@@ -21,17 +21,58 @@
   <properties>
     <java.version>21</java.version>
     <wiremock.version>3.5.2</wiremock.version>
+    <!-- WireMock 3.5.2 requires Jetty 11 (imports jetty-bom 11.0.20) and looks up its
+         Jetty11HttpServerFactory via ServiceLoader at startup. spring-boot-starter-parent
+         3.3.0 manages jetty-server to 12.0.9 (its default for spring-boot-starter-jetty
+         users), which silently wins for that one artifact and leaves the rest of the
+         Jetty stack (jetty-servlet, jetty-webapp, http2-server, ...) on 11.0.20 — a
+         binary-incompatible mixed classpath. Symptom: FatalStartupException "Jetty 11 is
+         not present" at runtime, NOT a compile error, so this only surfaces when the
+         embedded server actually tries to start. Pinned below to keep the whole Jetty
+         stack on the version WireMock actually ships against.
+    -->
+    <!-- NOT named jetty.version — spring-boot-dependencies already uses that property
+         name internally for its own Jetty BOM management; reusing it here clobbers
+         Spring's value and breaks unrelated managed artifacts (e.g. jetty-ee10-bom). -->
+    <wiremock.jetty.version>11.0.20</wiremock.jetty.version>
   </properties>
 
+  <!-- Re-import WireMock's own Jetty BOM so the WHOLE Jetty stack resolves to the
+       version it actually ships against (11.0.20), not just jetty-server. Pinning
+       individual artifacts one at a time is fragile — spring-boot-dependencies
+       separately manages jetty-http, jetty-io, jetty-security, jetty-util, jetty-xml,
+       jetty-proxy, jetty-client, and the alpn artifacts to 12.0.9, all of which would
+       otherwise need pinning too. A same-pom dependencyManagement import takes
+       precedence over the inherited parent's, so this wins for every GA it covers. -->
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.eclipse.jetty</groupId>
+        <artifactId>jetty-bom</artifactId>
+        <version>${wiremock.jetty.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
   <dependencies>
-    <!-- Spring Boot lifecycle management, health checks, config -->
+    <!-- Spring's OWN embedded servlet container (port 8081: actuator + Spring-WS SOAP/WSDL
+         routing) — needs to be Tomcat, not Jetty. WireMock manages its own independent
+         Jetty 11 instance directly via WireMockServer (port 8080), so if Spring's web
+         server were also Jetty-based, Spring Boot's auto-configuration would want Jetty 12
+         (EE10 servlet packaging) while WireMock needs Jetty 11, and no single version
+         satisfies both. Tomcat shares no classes with either Jetty major version, so this
+         sidesteps the conflict entirely instead of trying to reconcile two Jetty majors on
+         one classpath. spring-boot-starter-web supersedes the plain spring-boot-starter. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter</artifactId>
+      <artifactId>spring-boot-starter-web</artifactId>
     </dependency>
 
     <!-- WireMock as embedded HTTP stub server (NOT standalone JAR) -->
-    <!-- Includes its own Jetty server — Spring Boot manages the lifecycle -->
+    <!-- Pulls in Jetty (11.0.20, pinned above) as a transitive compile dependency —
+         Spring Boot manages the WireMockServer lifecycle via WireMockConfig. -->
     <dependency>
       <groupId>org.wiremock</groupId>
       <artifactId>wiremock</artifactId>
@@ -83,6 +124,11 @@
   </dependencies>
 
   <build>
+    <!-- Fixed output name (app.jar, not {{project_id}}-stub-1.0.0.jar) so the
+         Dockerfile can COPY it by a literal path instead of a glob — the
+         artifactId is a per-project slug and would never reliably match a
+         fixed pattern. -->
+    <finalName>app</finalName>
     <plugins>
       <plugin>
         <groupId>org.springframework.boot</groupId>

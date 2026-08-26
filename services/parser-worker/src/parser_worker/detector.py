@@ -79,7 +79,7 @@ def detect_and_parse(file_path: Path) -> tuple[BaseParser | None, object, object
                     "File format not recognised. Supported formats: "
                     "Mockingbird TXT (Level 1 / Level 2 / Stateful / SOAP), "
                     "Postman v2.1 collection, OpenAPI / Swagger, "
-                    "CA LISA HTTP capture (.txt pair or .zip), "
+                    "CA LISA HTTP capture (.txt/.xml/.json pair or .zip), "
                     "Mockingbird JSON (native format)."
                 )
             )],
@@ -118,26 +118,32 @@ def _detect_and_parse_zip(
         )
         return None, result, None
 
+    # CA LISA captures arrive as .txt most often, but the same content shows up
+    # with .xml or .json extensions too (e.g. a SOAP capture saved as .xml) —
+    # format is decided by content-sniffing below, not by extension, so accept
+    # any of the plausible plaintext-capture extensions here.
+    _CAPTURE_EXTENSIONS = (".txt", ".xml", ".json")
+
     try:
         with zipfile.ZipFile(file_path, "r") as zf:
-            txt_files = [
+            capture_files = [
                 n for n in zf.namelist()
-                if n.lower().endswith(".txt") and not n.startswith("__MACOSX")
+                if n.lower().endswith(_CAPTURE_EXTENSIONS) and not n.startswith("__MACOSX")
             ]
 
-            if not txt_files:
+            if not capture_files:
                 result = ValidationResult(
                     valid=False,
                     errors=[ValidationError(
-                        message="ZIP contains no .txt files. "
-                                "Expected CA LISA *_Request_*.txt and *_Response_*.txt files."
+                        message="ZIP contains no .txt/.xml/.json files. "
+                                "Expected CA LISA *_Request_* and *_Response_* files."
                     )],
                 )
                 return None, result, None
 
             # Read all text files
             file_contents: dict[str, str] = {}
-            for name in txt_files:
+            for name in capture_files:
                 raw = zf.read(name)
                 file_contents[name] = raw.decode("utf-8", errors="replace")
 
@@ -160,10 +166,19 @@ def _detect_and_parse_zip(
             response_files[name] = content
         else:
             # Fallback: detect from content
-            from .parsers.ca_lisa_parser import _REQUEST_RE, _ESP_RESPONSE_RE, _WEALTH_RESPONSE_LABEL_RE
+            from .parsers.ca_lisa_parser import (
+                _BARE_RESPONSE_RE,
+                _INLINE_RESPONSE_RE,
+                _LABELLED_RESPONSE_LABEL_RE,
+                _REQUEST_RE,
+            )
             if _REQUEST_RE.search(content):
                 request_files[name] = content
-            elif _ESP_RESPONSE_RE.search(content) or _WEALTH_RESPONSE_LABEL_RE.search(content):
+            elif (
+                _INLINE_RESPONSE_RE.search(content)
+                or _BARE_RESPONSE_RE.search(content)
+                or _LABELLED_RESPONSE_LABEL_RE.search(content)
+            ):
                 response_files[name] = content
 
     if not request_files:
@@ -171,7 +186,7 @@ def _detect_and_parse_zip(
             valid=False,
             errors=[ValidationError(
                 message="No request files found in ZIP. "
-                        "Expected filenames containing 'Request' (e.g., *_Request_*.txt)."
+                        "Expected filenames containing 'Request' (e.g., *_Request_*.txt / .xml / .json)."
             )],
         )
         return None, result, None
@@ -181,7 +196,7 @@ def _detect_and_parse_zip(
             valid=False,
             errors=[ValidationError(
                 message="No response files found in ZIP. "
-                        "Expected filenames containing 'Response' (e.g., *_Response_*.txt)."
+                        "Expected filenames containing 'Response' (e.g., *_Response_*.txt / .xml / .json)."
             )],
         )
         return None, result, None

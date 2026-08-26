@@ -1,7 +1,9 @@
 import { useRef, type DragEvent, type ChangeEvent } from "react";
 import { clsx } from "clsx";
 
-const ACCEPTED_EXTENSIONS = [".txt", ".json"];
+// Format is detected server-side from content, not extension — this list only
+// controls what the browser's file picker shows/allows.
+const ACCEPTED_EXTENSIONS = [".txt", ".json", ".xml"];
 
 export interface BatchFile {
   file: File;
@@ -74,7 +76,7 @@ export function BatchUploadZone({ files, onChange, disabled }: BatchUploadZonePr
           Drop multiple spec files here, or click to browse
         </p>
         <p className="mt-1 text-xs text-gray-400">
-          Each file becomes its own stub — e.g. 6 .txt files → 6 services
+          .txt / .xml (REST or SOAP HTTP pairs) · .json (Postman v2.1)
         </p>
       </div>
 

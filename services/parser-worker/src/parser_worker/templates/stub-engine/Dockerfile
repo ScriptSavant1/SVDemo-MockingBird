@@ -1,10 +1,15 @@
-# JAVA_BASE_IMAGE is set in config/local.env → passed via:
-#   docker build --build-arg JAVA_BASE_IMAGE=<your-registry>/java:21 .
-# OR via GitLab CI (read from $JAVA_BASE_IMAGE CI variable).
-# Default falls back to the public eclipse-temurin image for local development.
-ARG JAVA_BASE_IMAGE=eclipse-temurin:21-jre-alpine
+# Two separate base images: the builder stage needs a full JDK (javac) to run
+# `mvn package`; the runtime stage only needs a JRE to run the built jar. Using
+# a JRE image for both (as this file previously did) breaks the build — Maven's
+# compiler plugin has no `javac` to invoke on a JRE-only image.
+#   docker build --build-arg JAVA_BUILD_IMAGE=<your-registry>/java:21-jdk \
+#                --build-arg JAVA_RUNTIME_IMAGE=<your-registry>/java:21-jre .
+# OR via GitLab CI (read from $JAVA_BUILD_IMAGE / $JAVA_RUNTIME_IMAGE CI variables).
+# Defaults fall back to the public eclipse-temurin images for local development.
+ARG JAVA_BUILD_IMAGE=eclipse-temurin:21-jdk-alpine
+ARG JAVA_RUNTIME_IMAGE=eclipse-temurin:21-jre-alpine
 
-FROM ${JAVA_BASE_IMAGE} AS builder
+FROM ${JAVA_BUILD_IMAGE} AS builder
 
 WORKDIR /build
 
@@ -23,14 +28,18 @@ COPY src/ src/
 RUN mvn package -B -DskipTests -q
 
 # ── Runtime stage ────────────────────────────────────────────────────────────
-FROM ${JAVA_BASE_IMAGE}
+FROM ${JAVA_RUNTIME_IMAGE}
 
 WORKDIR /app
 
 # JVM tuning for 10K+ TPS on c6i.2xlarge (8 vCPU, 16 GB)
 ENV JAVA_OPTS="-Xmx12g -XX:+UseG1GC -XX:MaxGCPauseMillis=10 -XX:+UseStringDeduplication"
 
-COPY --from=builder /build/target/stub-engine-*.jar app.jar
+# Built jar is named app.jar directly (see pom.xml's <finalName>) rather than matched
+# by a glob — the artifactId is a per-project slug ({{project_id}}-stub), never
+# literally "stub-engine", so a `stub-engine-*.jar` glob here would match nothing
+# and fail the build for every real generated project.
+COPY --from=builder /build/target/app.jar app.jar
 
 RUN mkdir -p /app/mappings /app/__files
 

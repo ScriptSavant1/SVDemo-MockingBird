@@ -12,6 +12,7 @@ import re
 import zipfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote_plus
 
 from parser_worker.models import ParsedFile, ParsedScenario, ParsedStub
 
@@ -20,6 +21,21 @@ def _sanitise(name: str) -> str:
     """Make a filename-safe slug from an arbitrary string."""
     slug = re.sub(r"[^\w\-]", "_", name).strip("_")
     return slug[:80] or "stub"
+
+
+def _header_matcher(name: str, value: str) -> dict[str, Any]:
+    """Build a WireMock header matcher, case-insensitive for Content-Type.
+
+    See the identical helper (and full rationale) in
+    parser_worker/generator/wiremock.py — Jetty (WireMock's underlying HTTP
+    server) normalises the Content-Type charset parameter's casing before
+    matching, so a verbatim-captured value never matches live traffic
+    otherwise. Verified against a real WireMock instance.
+    """
+    matcher: dict[str, Any] = {"equalTo": value}
+    if name.lower() == "content-type":
+        matcher["caseInsensitive"] = True
+    return matcher
 
 
 def _build_request_pattern(stub: ParsedStub) -> dict[str, Any]:
@@ -37,7 +53,11 @@ def _build_request_pattern(stub: ParsedStub) -> dict[str, Any]:
         for part in qs.split("&"):
             if "=" in part:
                 k, v = part.split("=", 1)
-                qparams[k] = {"equalTo": v}
+                # WireMock decodes incoming query strings (application/x-www-form-urlencoded
+                # rules: '+' -> space, %XX -> byte) before matching queryParameters, so the
+                # stored matcher must be decoded the same way — see the identical fix in
+                # parser_worker/generator/wiremock.py._set_url_and_query for the full story.
+                qparams[unquote_plus(k)] = {"equalTo": unquote_plus(v)}
         if qparams:
             block["queryParameters"] = qparams
     else:
@@ -45,7 +65,7 @@ def _build_request_pattern(stub: ParsedStub) -> dict[str, Any]:
 
     # Required headers to match
     if req.required_headers:
-        block["headers"] = {k: {"equalTo": v} for k, v in req.required_headers.items()}
+        block["headers"] = {k: _header_matcher(k, v) for k, v in req.required_headers.items()}
 
     return block
 

@@ -9,7 +9,8 @@ import org.springframework.ws.server.EndpointInterceptor;
 import org.springframework.ws.soap.security.wss4j2.Wss4jSecurityInterceptor;
 import org.springframework.ws.soap.security.wss4j2.callback.SimplePasswordValidationCallbackHandler;
 
-import java.util.Properties;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * WS-Security UsernameToken validation for SOAP stubs.
@@ -48,8 +49,8 @@ public class WsSecurityConfig {
         // Validate the UsernameToken present in the WS-Security SOAP header
         interceptor.setValidationActions(WSHandlerConstants.USERNAME_TOKEN);
 
-        Properties users = new Properties();
-        users.setProperty(username, password != null ? password : "");
+        Map<String, String> users = new HashMap<>();
+        users.put(username, password != null ? password : "");
 
         SimplePasswordValidationCallbackHandler callbackHandler =
                 new SimplePasswordValidationCallbackHandler();

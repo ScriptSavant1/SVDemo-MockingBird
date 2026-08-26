@@ -33,12 +33,16 @@ Start-Service "project-service" @(
     ".\venv\Scripts\python.exe -m uvicorn project_service.main:app --host 0.0.0.0 --port 8001 --reload"
 )
 
-# 3. ingestion-service (Python + SQLite + local file storage - no S3 needed)
+# 3. ingestion-service (Python + local file storage - no S3 needed)
+# DATABASE_URL and JWT_SECRET are intentionally NOT overridden here: ingestion-service
+# shares project-service's SQLite DB (project lookups on upload query that DB directly,
+# not via HTTP) and must sign/verify with the same JWT_SECRET as auth-service. Both are
+# already correct in services/ingestion-service/.env — setting them here as OS env vars
+# would take priority over that .env file and silently point ingestion-service at its own
+# empty DB / a mismatched secret instead.
 Start-Service "ingestion-service" @(
     "Set-Location '$root\services\ingestion-service'",
-    "`$env:DATABASE_URL = 'sqlite:///./ingestion.db'",
     "`$env:LOCAL_STORAGE_PATH = '.\uploads'",
-    "`$env:JWT_SECRET = 'local-dev-secret'",
     "Write-Host '[ingestion-service] Starting on http://localhost:8003' -ForegroundColor Green",
     ".\venv\Scripts\python.exe -m uvicorn ingestion_service.main:app --host 0.0.0.0 --port 8003 --reload"
 )

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from urllib.parse import unquote_plus
 
 from ..models import (
     DelayType, MatchType, ParsedFile, ParsedScenario, ParsedStub,
@@ -52,8 +53,10 @@ def _build_mapping(stub: ParsedStub, scenario: ParsedScenario, priority: int) ->
         response_block["headers"] = scenario.response_headers
     if scenario.body:
         response_block["body"] = scenario.body
-        if scenario.has_dynamic_placeholders():
-            response_block["transformers"] = ["response-template"]
+    # Checked independently of body: a placeholder can live only in a response
+    # header (e.g. echoing back a request header) with no body at all.
+    if scenario.has_dynamic_placeholders():
+        response_block["transformers"] = ["response-template"]
     if scenario.fault:
         response_block["fault"] = scenario.fault.value
     _apply_delay(response_block, scenario)
@@ -114,7 +117,13 @@ def _set_url_and_query(block: dict, url: str, has_path_params: bool) -> None:
         for part in qs.split("&"):
             if "=" in part:
                 k, v = part.split("=", 1)
-                qparams[k] = {"equalTo": v}
+                # WireMock decodes incoming query strings (application/x-www-form-urlencoded
+                # rules: '+' -> space, %XX -> byte) before matching queryParameters, so the
+                # stored matcher must be decoded the same way — storing the raw captured text
+                # (e.g. a literal "SUP+FLAGS") would never match the decoded "SUP FLAGS"
+                # WireMock actually sees on a real request. Found by loading a generated
+                # mapping into a real WireMock instance and testing it.
+                qparams[unquote_plus(k)] = {"equalTo": unquote_plus(v)}
         if qparams:
             block["queryParameters"] = qparams
     else:
@@ -124,7 +133,25 @@ def _set_url_and_query(block: dict, url: str, has_path_params: bool) -> None:
 def _apply_header_matchers(block: dict, required_headers: dict[str, str]) -> None:
     real_headers = {k: v for k, v in required_headers.items() if v != "*"}
     if real_headers:
-        block["headers"] = {k: {"equalTo": v} for k, v in real_headers.items()}
+        block["headers"] = {k: _header_matcher(k, v) for k, v in real_headers.items()}
+
+
+def _header_matcher(name: str, value: str) -> dict:
+    """Build a WireMock header matcher, case-insensitive for Content-Type.
+
+    Media type and parameter names in Content-Type are case-insensitive per
+    RFC 7231 3.1.1.1, and in practice the underlying HTTP server (Jetty, in
+    WireMock's case) normalises the charset parameter's casing before this
+    matcher ever runs — verified by loading a captured mapping into a real
+    WireMock instance: a verbatim-captured "charset=utf-8" never matched a
+    live request, regardless of the case the client actually sent. An exact
+    case match on this header carries no real distinguishing meaning, so it's
+    matched case-insensitively rather than case-exact like other headers.
+    """
+    matcher: dict = {"equalTo": value}
+    if name.lower() == "content-type":
+        matcher["caseInsensitive"] = True
+    return matcher
 
 
 def _apply_body_matcher(

@@ -6,14 +6,14 @@ import { loginAs, mockProject, mockUpload, mockJob, MOCK_PROJECTS } from "./fixt
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ID = MOCK_PROJECTS[0].id; // "proj-001"
 
-// Path to a real CA LISA sample file in the repo
-const ESP_REQUEST = path.resolve(
+// Path to a real CA LISA sample file in the repo (inline variant)
+const SAMPLE_REQUEST = path.resolve(
   __dirname,
-  "../../Sample_SV_Files/ESP/1781082059482RTCAERv01_Request_20260610_100059.txt"
+  "../../Sample_SV_Files/ESP/JSON/1781082059482RTCAERv01_Request_20260610_100059.txt"
 );
-const ESP_RESPONSE = path.resolve(
+const SAMPLE_RESPONSE = path.resolve(
   __dirname,
-  "../../Sample_SV_Files/ESP/1781082059500RTCAERv01_Success1Response_20260610_100059.txt"
+  "../../Sample_SV_Files/ESP/JSON/1781082059500RTCAERv01_Success1Response_20260610_100059.txt"
 );
 
 test.describe("Upload Spec File", () => {
@@ -37,7 +37,7 @@ test.describe("Upload Spec File", () => {
 
     // Find the hidden file input inside UploadZone and set a file
     const fileInput = page.locator('input[type="file"]');
-    await fileInput.setInputFiles(ESP_REQUEST);
+    await fileInput.setInputFiles(SAMPLE_REQUEST);
 
     const submitBtn = page.getByRole("button", { name: /upload & generate/i });
     await expect(submitBtn).toBeEnabled();
@@ -59,7 +59,7 @@ test.describe("Upload Spec File", () => {
     await page.goto(`/projects/${PROJECT_ID}/upload`);
 
     const fileInput = page.locator('input[type="file"]');
-    await fileInput.setInputFiles(ESP_REQUEST);
+    await fileInput.setInputFiles(SAMPLE_REQUEST);
 
     await page.getByRole("button", { name: /upload & generate/i }).click();
 
@@ -76,7 +76,7 @@ test.describe("Upload Spec File", () => {
     await page.goto(`/projects/${PROJECT_ID}/upload`);
 
     const fileInput = page.locator('input[type="file"]');
-    await fileInput.setInputFiles(ESP_REQUEST);
+    await fileInput.setInputFiles(SAMPLE_REQUEST);
 
     await page.getByRole("button", { name: /upload & generate/i }).click();
 
@@ -89,8 +89,8 @@ test.describe("Upload Spec File", () => {
     await page.goto(`/projects/${PROJECT_ID}/upload`);
 
     const nameInput = page.getByPlaceholder("e.g. Payment API stub");
-    await nameInput.fill("My ESP Stub");
-    await expect(nameInput).toHaveValue("My ESP Stub");
+    await nameInput.fill("My Custom Stub");
+    await expect(nameInput).toHaveValue("My Custom Stub");
   });
 
   test("cancel navigates back to project page", async ({ page }) => {
@@ -100,7 +100,7 @@ test.describe("Upload Spec File", () => {
     await expect(page).toHaveURL(`/projects/${PROJECT_ID}`);
   });
 
-  test("upload with CA LISA ESP combined file (request + response)", async ({ page }) => {
+  test("upload with CA LISA combined file (request + response)", async ({ page }) => {
     await mockUpload(page, PROJECT_ID, { valid: true });
     await mockJob(page, "job-001", "DONE");
 
@@ -115,11 +115,11 @@ test.describe("Upload Spec File", () => {
     await page.goto(`/projects/${PROJECT_ID}/upload`);
 
     // Name the stub explicitly
-    await page.fill('[id="stub-name"]', "ESP Account Enquiry Stub");
+    await page.fill('[id="stub-name"]', "Account Enquiry Stub");
 
     // Attach the request file (combined with response in a real scenario, but we're mocking the API)
     const fileInput = page.locator('input[type="file"]');
-    await fileInput.setInputFiles(ESP_REQUEST);
+    await fileInput.setInputFiles(SAMPLE_REQUEST);
 
     await page.getByRole("button", { name: /upload & generate/i }).click();
 

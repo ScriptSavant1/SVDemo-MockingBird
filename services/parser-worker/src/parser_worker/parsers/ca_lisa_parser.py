@@ -1,13 +1,26 @@
 """CA LISA / IBM Rational Test Workbench recorded HTTP capture file parser.
 
-Supports two recording variants that CA LISA / IBM RTWS produce:
+Format is detected purely from file CONTENT — never from filename or client
+name. Different capture tools (and different teams' export settings) produce
+two structural variants; which client produced a given file is irrelevant to
+this parser, and no client name should ever appear in code here.
 
-  ESP variant (no section labels — body appended directly after header block):
+  Inline variant (no section labels — body appended directly after header block):
     ={Method="POST" URL="/api/..." httpDetails={Version="1.1" httpHeaders={...}}}BODY
     ResponseHeader={StatusCode="200" ...}
     Response..BODY
 
-  Wealth / labelled variant (explicit section labels):
+    Two looser sub-cases also occur:
+    - (manually reformatted captures) the outer ={...} block closes early,
+      right after URL=, and httpDetails={...} appears as a sibling block
+      afterwards instead of nested inside. See _consume_sibling_kv — headers
+      are merged in either layout.
+    - (some capture tools) the response omits the "ResponseHeader" label
+      entirely, exporting a bare ={StatusCode="200" ...}BODY block that is
+      structurally identical to a request block except for StatusCode=
+      instead of Method=. See _BARE_RESPONSE_RE.
+
+  Labelled variant (explicit section labels):
     12-Jun-2026 13:32:21            ← optional date line — ignored
     RequestHeader:
     ={Method="POST" URL="/api/..." httpDetails={...}}
@@ -18,12 +31,22 @@ Supports two recording variants that CA LISA / IBM RTWS produce:
     Response:
     BODY
 
+Body content is opaque to this parser by design: JSON (objects, arrays,
+nested/mixed), XML/SOAP (any namespace prefix, repeated sibling elements,
+attributes, SOAP Fault bodies), or plain text are all captured verbatim and
+passed straight through to the WireMock mapping — no schema is assumed, so
+whatever shape the real service returns is what gets replayed. The one
+inference this parser does make: if a captured response has no Content-Type
+header at all, one is guessed from the body's leading character (see
+_infer_content_type) so replayed responses aren't served content-type-less.
+
 Single-file upload:
     Concatenate the request file and the response file into one file.
     The parser splits on the first ResponseHeader= / ResponseHeader: occurrence.
 
 ZIP upload:
-    Zip a folder containing *_Request_*.txt and *_Response_*.txt pairs.
+    Zip a folder containing *_Request_*.txt and *_Response_*.txt pairs
+    (.txt, .json, or .xml — extension doesn't affect detection).
     The detector pairs them automatically by filename pattern.
 
 CA LISA variable substitution:
@@ -51,21 +74,35 @@ from .base import BaseParser
 
 # ── detection patterns ────────────────────────────────────────────────────────
 
-# ESP request: ={Method="VERB" ...
+# Inline-variant request: ={Method="VERB" ...
 _REQUEST_RE = re.compile(r'=\{Method="(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)"')
-# ESP response: ResponseHeader={StatusCode=
-_ESP_RESPONSE_RE = re.compile(r'ResponseHeader=\{StatusCode=')
-# Wealth response: standalone "ResponseHeader:" label line
-_WEALTH_RESPONSE_LABEL_RE = re.compile(r'^ResponseHeader:\s*$', re.MULTILINE)
-# Wealth request: standalone "RequestHeader:" label line
-_WEALTH_REQUEST_LABEL_RE = re.compile(r'^RequestHeader:\s*$', re.MULTILINE)
+# Inline-variant response: ResponseHeader={StatusCode=
+_INLINE_RESPONSE_RE = re.compile(r'ResponseHeader=\{StatusCode=')
+# Inline-variant response, bare sub-form: some capture tools omit the
+# "ResponseHeader" label entirely and export just ={StatusCode=...} — a block
+# structurally identical to a request block except it carries StatusCode=
+# instead of Method=. Distinguish purely by that content, not by any label.
+_BARE_RESPONSE_RE = re.compile(r'=\{StatusCode="')
+# Labelled-variant response: standalone "ResponseHeader:" label line
+_LABELLED_RESPONSE_LABEL_RE = re.compile(r'^ResponseHeader:\s*$', re.MULTILINE)
+# Labelled-variant request: standalone "RequestHeader:" label line
+_LABELLED_REQUEST_LABEL_RE = re.compile(r'^RequestHeader:\s*$', re.MULTILINE)
 # CA LISA variable: %%VarName%%  (also catches single-% prefix artefacts like %VarName%%)
 _CALISA_VAR_RE = re.compile(r'%{1,2}([A-Za-z][A-Za-z0-9_\-]*)%{1,2}')
-# Wealth date header line: "12-Jun-2026 13:32:21"
+# Labelled-variant date header line: "12-Jun-2026 13:32:21"
 _DATE_LINE_RE = re.compile(r'^\d{1,2}-[A-Za-z]{3}-\d{4}\s+\d{2}:\d{2}:\d{2}\s*$')
 # Status code in filename: Error400, Error500
 _FILENAME_ERROR_CODE_RE = re.compile(r'[Ee]rror(\d{3})')
 _FILENAME_SUCCESS_RE = re.compile(r'[Ss]uccess|\bOK\b', re.IGNORECASE)
+# A top-level "Key=" token — used to detect sibling header fields that follow
+# an already-closed block (see _consume_sibling_kv). No \A/^ anchor: matched via
+# Pattern.match(text, pos), which already anchors to `pos` on its own — \A would
+# instead anchor to absolute index 0 of the whole string and never match at pos > 0.
+_TOP_LEVEL_KEY_RE = re.compile(r'([A-Za-z][A-Za-z0-9_\-]*)\s*=\s*')
+# Body sniffing for Content-Type inference — SOAP envelopes use varying prefixes
+# (soapenv:, soap:, soap12:, SOAP-ENV:, or none with a default xmlns), so match
+# structurally on the local name rather than any one prefix.
+_SOAP_ENVELOPE_RE = re.compile(r'<(?:[\w.-]+:)?Envelope[\s>]', re.IGNORECASE)
 
 
 class CALISAParser(BaseParser):
@@ -78,8 +115,9 @@ class CALISAParser(BaseParser):
     def can_handle(self, content: str, filename: str) -> bool:
         return bool(
             _REQUEST_RE.search(content)
-            or _ESP_RESPONSE_RE.search(content)
-            or _WEALTH_RESPONSE_LABEL_RE.search(content)
+            or _INLINE_RESPONSE_RE.search(content)
+            or _BARE_RESPONSE_RE.search(content)
+            or _LABELLED_RESPONSE_LABEL_RE.search(content)
         )
 
     def validate(self, content: str) -> ValidationResult:
@@ -87,14 +125,16 @@ class CALISAParser(BaseParser):
 
         has_request = bool(_REQUEST_RE.search(content))
         has_response = bool(
-            _ESP_RESPONSE_RE.search(content)
-            or _WEALTH_RESPONSE_LABEL_RE.search(content)
+            _INLINE_RESPONSE_RE.search(content)
+            or _BARE_RESPONSE_RE.search(content)
+            or _LABELLED_RESPONSE_LABEL_RE.search(content)
         )
 
         if not has_request and not has_response:
             errors.append(ValidationError(
                 message="No CA LISA HTTP capture content found. "
-                        "File must contain a request (={Method=) or response (ResponseHeader=) block.",
+                        "File must contain a request (={Method=) or response "
+                        "(ResponseHeader={ or a bare ={StatusCode=) block.",
             ))
             return ValidationResult(valid=False, format_detected=self.format_name, errors=errors)
 
@@ -163,24 +203,24 @@ def _parse_ca_lisa_content(
 ) -> list[ParsedStub]:
     """Parse combined request+response CA LISA content into ParsedStubs."""
     variant = _detect_variant(content)
-    if variant == "wealth":
-        return _parse_wealth_content(content, source_name, hint_filename)
-    return _parse_esp_content(content, source_name, hint_filename)
+    if variant == "labelled":
+        return _parse_labelled_content(content, source_name, hint_filename)
+    return _parse_inline_content(content, source_name, hint_filename)
 
 
 def _detect_variant(content: str) -> str:
-    """Return 'wealth' if content uses section labels; 'esp' otherwise."""
-    if _WEALTH_REQUEST_LABEL_RE.search(content) or _WEALTH_RESPONSE_LABEL_RE.search(content):
-        return "wealth"
-    return "esp"
+    """Return 'labelled' if content uses section labels; 'inline' otherwise."""
+    if _LABELLED_REQUEST_LABEL_RE.search(content) or _LABELLED_RESPONSE_LABEL_RE.search(content):
+        return "labelled"
+    return "inline"
 
 
-# ── Wealth variant ────────────────────────────────────────────────────────────
+# ── labelled variant ──────────────────────────────────────────────────────────
 
-def _parse_wealth_content(
+def _parse_labelled_content(
     content: str, source_name: str, hint_filename: str
 ) -> list[ParsedStub]:
-    """Parse the labelled (Wealth) CA LISA format."""
+    """Parse the labelled CA LISA format (explicit RequestHeader:/ResponseHeader: sections)."""
     lines = content.splitlines()
 
     req_label_idx: Optional[int] = None
@@ -195,17 +235,17 @@ def _parse_wealth_content(
             break
 
     if req_label_idx is None:
-        raise ValueError("No 'RequestHeader:' label found in Wealth-format CA LISA file")
+        raise ValueError("No 'RequestHeader:' label found in labelled-format CA LISA file")
     if resp_label_idx is None:
         raise ValueError(
             "No 'ResponseHeader:' label found. "
             "Combine request and response files into one file before uploading."
         )
 
-    req_block_text, req_body = _extract_wealth_section(
+    req_block_text, req_body = _extract_labelled_section(
         lines, req_label_idx, "Request:", end_line=resp_label_idx
     )
-    resp_block_text, resp_body = _extract_wealth_section(
+    resp_block_text, resp_body = _extract_labelled_section(
         lines, resp_label_idx, "Response:"
     )
 
@@ -233,6 +273,7 @@ def _parse_wealth_content(
     ):
         uses_template = True
 
+    resolved_headers = _ensure_content_type(resolved_headers, resolved_body or "")
     stub_name = _stub_name_from_source(source_name)
 
     scenario = ParsedScenario(
@@ -254,7 +295,7 @@ def _parse_wealth_content(
     return [stub]
 
 
-def _extract_wealth_section(
+def _extract_labelled_section(
     lines: list[str],
     label_idx: int,
     body_label: str,
@@ -262,7 +303,7 @@ def _extract_wealth_section(
 ) -> tuple[str, str]:
     """Extract the CA LISA block text and the body from a labelled section.
 
-    CA LISA Wealth format often omits the outer closing brace of the ={...}
+    The labelled variant often omits the outer closing brace of the ={...}
     block, so brace-depth counting is unreliable.  Instead we use the body
     section label (e.g. "Request:" or "Response:") as the hard boundary
     between the header block and the body.
@@ -303,32 +344,45 @@ def _extract_wealth_section(
     return block_text, body
 
 
-# ── ESP variant ───────────────────────────────────────────────────────────────
+# ── inline variant ────────────────────────────────────────────────────────────
 
-def _parse_esp_content(
+def _parse_inline_content(
     content: str, source_name: str, hint_filename: str
 ) -> list[ParsedStub]:
-    """Parse the raw (ESP) CA LISA format.
+    """Parse the inline (unlabelled) CA LISA format.
 
-    Splits on ResponseHeader= to separate request and response sections.
-    Multiple pairs in one file (e.g., from ZIP concatenation) are each parsed.
+    Splits on the response marker to separate request and response sections:
+    either "ResponseHeader={" (most captures) or a bare "={StatusCode=" (some
+    tools omit the label entirely). Multiple pairs in one file (e.g., from ZIP
+    concatenation) are each parsed.
     """
-    # Split into request-part and response-part on "ResponseHeader="
-    split_match = re.search(r'(?=ResponseHeader=\{)', content)
-    if split_match is None:
+    # Split on whichever response marker appears first. Searching both
+    # independently and taking the earliest match (rather than one combined
+    # regex) sidesteps overlap: _BARE_RESPONSE_RE also matches the "={StatusCode="
+    # tail of "ResponseHeader={StatusCode=", but that occurrence is always later
+    # than _INLINE_RESPONSE_RE's match on the same content, so min() still picks
+    # the correct (earlier) split point when a "ResponseHeader=" label is present.
+    candidates = [
+        m.start()
+        for m in (_INLINE_RESPONSE_RE.search(content), _BARE_RESPONSE_RE.search(content))
+        if m is not None
+    ]
+    if not candidates:
         raise ValueError(
-            "Cannot find 'ResponseHeader={' in ESP-format CA LISA content. "
+            "Cannot find a response block ('ResponseHeader={' or a bare '={StatusCode=') "
+            "in inline-variant CA LISA content. "
             "Make sure the response file is concatenated after the request file."
         )
+    split_pos = min(candidates)
 
-    request_part = content[: split_match.start()]
-    response_part = content[split_match.start() :]
+    request_part = content[:split_pos]
+    response_part = content[split_pos:]
 
     # Parse request
-    method, url, req_headers, req_body = _parse_esp_request(request_part)
+    method, url, req_headers, req_body = _parse_inline_request(request_part)
 
     # Parse response
-    status_code, resp_headers, resp_body = _parse_esp_response(
+    status_code, resp_headers, resp_body = _parse_inline_response(
         response_part, hint_filename or source_name
     )
 
@@ -343,6 +397,7 @@ def _parse_esp_content(
     ):
         uses_template = True
 
+    resolved_headers = _ensure_content_type(resolved_headers, resolved_body or "")
     stub_name = _stub_name_from_source(source_name)
 
     scenario = ParsedScenario(
@@ -364,8 +419,8 @@ def _parse_esp_content(
     return [stub]
 
 
-def _parse_esp_request(text: str) -> tuple[str, str, dict[str, str], str]:
-    """Return (method, url, request_headers, request_body) from ESP request text."""
+def _parse_inline_request(text: str) -> tuple[str, str, dict[str, str], str]:
+    """Return (method, url, request_headers, request_body) from inline-variant request text."""
     text = text.strip()
 
     # Strip leading = before the block
@@ -373,33 +428,41 @@ def _parse_esp_request(text: str) -> tuple[str, str, dict[str, str], str]:
         text = text[1:].lstrip()
 
     if not text.startswith("{"):
-        raise ValueError("ESP request: expected '{' after '='")
+        raise ValueError("Inline-variant request: expected '{' after '='")
 
     block_end = _find_block_end(text, 0)
     block_text = text[:block_end]
-    body = text[block_end:].strip()
 
     parsed = _parse_kvblock(block_text)
+    block_end = _consume_sibling_kv(text, block_end, parsed)
+    body = text[block_end:].strip()
+
     method = parsed.get("Method", "GET")
     url = parsed.get("URL", "/")
     headers = _extract_http_headers(parsed)
     return method, url, headers, body
 
 
-def _parse_esp_response(
+def _parse_inline_response(
     text: str, filename_hint: str
 ) -> tuple[int, dict[str, str], str]:
-    """Return (status_code, response_headers, response_body) from ESP response text."""
+    """Return (status_code, response_headers, response_body) from inline-variant response text.
+
+    Accepts both sub-forms: labelled "ResponseHeader={...}" and the bare
+    "={StatusCode=...}" block some tools export with no label at all.
+    """
     text = text.strip()
 
-    # ResponseHeader={...}
-    if not text.startswith("ResponseHeader="):
-        raise ValueError("ESP response: expected 'ResponseHeader={' at start")
+    if not (text.startswith("ResponseHeader=") or text.startswith("=")):
+        raise ValueError(
+            "Inline-variant response: expected 'ResponseHeader={' or a bare '={StatusCode=' at start"
+        )
 
     brace_start = text.index("{")
     block_end = _find_block_end(text, brace_start)
     block_text = text[brace_start:block_end]
     parsed = _parse_kvblock(block_text)
+    block_end = _consume_sibling_kv(text, block_end, parsed)
 
     raw_status = str(parsed.get("StatusCode", "200"))
     status_code = _infer_status_code(raw_status, filename_hint)
@@ -447,6 +510,44 @@ def _find_block_end(text: str, start: int) -> int:
     return n
 
 
+def _consume_sibling_kv(text: str, start: int, parsed: dict[str, Any]) -> int:
+    """Absorb additional top-level Key="value" / Key={...} tokens after `start`,
+    merging them into `parsed`. Returns the index where the real body begins.
+
+    Most CA LISA captures nest everything (httpDetails, MessageType, etc.) inside
+    one well-formed block, so _find_block_end's first match already covers the
+    whole header and this is a no-op. Some captures — seen in manually reformatted
+    SOAP/XML files — close that outer block early (right after URL=) and emit
+    httpDetails (and therefore httpHeaders / SOAPAction) as a separate sibling
+    block instead of nesting it. Without this, those siblings get silently
+    swallowed into what looks like the body, and headers like SOAPAction — often
+    the only thing distinguishing SOAP operations sharing one URL — go missing.
+    """
+    i = start
+    n = len(text)
+    while True:
+        j = i
+        while j < n and text[j] in " \t\n\r}":
+            j += 1
+        m = _TOP_LEVEL_KEY_RE.match(text, j)
+        if not m:
+            return j
+        key = m.group(1)
+        val_start = m.end()
+        if val_start < n and text[val_start] == "{":
+            block_end = _find_block_end(text, val_start)
+            parsed[key] = _parse_kvblock(text[val_start:block_end])
+            i = block_end
+        elif val_start < n and text[val_start] == '"':
+            end_quote = text.find('"', val_start + 1)
+            if end_quote == -1:
+                return j
+            parsed[key] = text[val_start + 1 : end_quote]
+            i = end_quote + 1
+        else:
+            return j
+
+
 def _parse_kvblock(text: str) -> dict[str, Any]:
     """Parse a CA LISA key=value block.
 
@@ -457,7 +558,7 @@ def _parse_kvblock(text: str) -> dict[str, Any]:
     text = text.strip()
     if text.startswith("{"):
         # Strip outer braces. CA LISA sometimes omits the matching closing brace
-        # (e.g. Wealth format outer block), so only strip closing } when it actually
+        # (e.g. the labelled variant's outer block), so only strip closing } when it actually
         # closes the opening { (using _find_block_end rather than just checking endswith).
         close = _find_block_end(text, 0)
         if close == len(text):
@@ -598,6 +699,44 @@ def _infer_status_code(raw_status: str, filename_hint: str) -> int:
     return 200
 
 
+# ── content-type inference ────────────────────────────────────────────────────
+
+def _infer_content_type(body: str) -> Optional[str]:
+    """Guess a Content-Type from a response body when the capture recorded none.
+
+    Some captures (hand-trimmed or minimal exports) omit headers entirely,
+    including Content-Type. Without it, WireMock serves the replayed body with
+    no Content-Type header at all, which trips up strict clients on both
+    sides: REST clients expecting application/json, and SOAP clients expecting
+    text/xml or application/soap+xml. This only fires when nothing was
+    captured — an explicit Content-Type header always wins.
+
+    Structural sniff only (leading character / root element), same principle
+    as the rest of this parser: no assumption about which client, service, or
+    schema produced the body — just "does this look like JSON or XML".
+    """
+    stripped = body.lstrip()
+    if not stripped:
+        return None
+    if stripped[0] in "{[":
+        return "application/json"
+    if stripped.startswith("<"):
+        if _SOAP_ENVELOPE_RE.search(stripped):
+            return "text/xml;charset=utf-8"
+        return "application/xml"
+    return None
+
+
+def _ensure_content_type(headers: dict[str, str], body: str) -> dict[str, str]:
+    """Add an inferred Content-Type to `headers` if one wasn't captured."""
+    if not body or any(k.lower() == "content-type" for k in headers):
+        return headers
+    inferred = _infer_content_type(body)
+    if not inferred:
+        return headers
+    return {**headers, "Content-Type": inferred}
+
+
 # ── misc helpers ──────────────────────────────────────────────────────────────
 
 def _stub_name_from_source(source: str) -> str:
@@ -606,6 +745,6 @@ def _stub_name_from_source(source: str) -> str:
     name = os.path.basename(source)
     # Strip extensions and timestamp suffixes like _20260610_100059
     name = re.sub(r'_\d{8}_\d{6}', '', name)
-    name = re.sub(r'\.(txt|zip)$', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'\.(txt|json|xml|zip)$', '', name, flags=re.IGNORECASE)
     name = re.sub(r'[_\-]+', ' ', name).strip()
     return name or "CA LISA Stub"

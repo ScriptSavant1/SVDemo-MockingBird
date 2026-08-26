@@ -1,9 +1,7 @@
 package com.mockingbird.stubs;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
-import com.github.tomakehurst.wiremock.common.ClasspathFileSource;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
-import com.github.tomakehurst.wiremock.extension.responsetemplating.ResponseTemplateTransformer;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.binder.MeterBinder;
 import jakarta.annotation.PreDestroy;
@@ -14,7 +12,15 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.Comparator;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -38,27 +44,50 @@ public class WireMockConfig implements ApplicationRunner {
     private boolean responseTemplatingEnabled;
 
     private WireMockServer wireMockServer;
+    private Path extractedMappingsRoot;
 
     @Override
-    public void run(ApplicationArguments args) {
+    public void run(ApplicationArguments args) throws IOException {
         int acceptors = Runtime.getRuntime().availableProcessors();
         int asyncThreads  = acceptors * 4;
+
+        extractedMappingsRoot = extractMappingsToTempDir();
 
         WireMockConfiguration config = WireMockConfiguration.options()
                 .port(stubPort)
                 // Jetty tuning for high TPS on c6i.2xlarge (8 vCPU, 16 GB)
                 .jettyAcceptors(acceptors)
                 .jettyAcceptQueueSize(1000)
-                .asyncResponseEnabled(true)
-                .asyncResponseThreads(asyncThreads)
-                // Mappings baked into JAR under resources/mappings/
-                .fileSource(new ClasspathFileSource("/"))
+                .asynchronousResponseEnabled(true)
+                .asynchronousResponseThreads(asyncThreads)
+                // Point at a real filesystem directory extracted from the classpath (see
+                // extractMappingsToTempDir), not a ClasspathFileSource. Two independent
+                // reasons ClasspathFileSource doesn't work here:
+                //  1. ClasspathFileSource resolves its root via ClassLoader.getResource(path).
+                //     An empty-string root is ambiguous once there's more than one classpath
+                //     entry (every jar/dir "has" ""), so it resolves to whichever entry
+                //     happens to be first — not necessarily this app's own classes/mappings.
+                //     A "/" root is worse: ClassLoader.getResource("/"), unlike
+                //     Class.getResource("/"), does not treat a leading slash as
+                //     classpath-root-relative — it returns null, silently falling back to
+                //     `new File("/")`, the OS filesystem root.
+                //  2. Even with a correct root, ClasspathFileSource opens it via
+                //     java.util.zip.ZipFile when running from a packaged jar. Spring Boot
+                //     3.2+'s executable jar layout addresses nested dependency/resource jars
+                //     via a custom "nested:" URI scheme that plain ZipFile cannot open —
+                //     confirmed by running the actual packaged jar this generator produces:
+                //     it throws trying to parse a "nested:...jar" path as a filesystem path.
+                // Extracting to a real temp directory via Spring's own resource resolver
+                // (which already understands both plain classpath dirs and nested jars)
+                // sidesteps both problems identically in dev and packaged-jar deployments.
+                .usingFilesUnderDirectory(extractedMappingsRoot.toString())
                 // Disable admin API in production (re-enable by setting stub.admin-api.enabled=true)
-                .disableRequestJournal();   // Saves memory — journal not needed at 10K TPS
-
-        if (responseTemplatingEnabled) {
-            config.extensions(new ResponseTemplateTransformer(true));
-        }
+                .disableRequestJournal()   // Saves memory — journal not needed at 10K TPS
+                // WireMock 3.x built-in Handlebars templating for {{request...}} placeholders
+                // in response bodies/headers — replaces manually constructing a
+                // ResponseTemplateTransformer, whose only constructor in 3.x takes
+                // (TemplateEngine, boolean, FileSource, List<TemplateModelDataProviderExtension>).
+                .globalTemplating(responseTemplatingEnabled);
 
         wireMockServer = new WireMockServer(config);
         wireMockServer.start();
@@ -66,6 +95,37 @@ public class WireMockConfig implements ApplicationRunner {
         log.info("WireMock stub server started on port {} ({} acceptors, {} async threads)",
                 stubPort, acceptors, asyncThreads);
         log.info("Loaded {} stub mappings", wireMockServer.listAllStubMappings().getMappings().size());
+    }
+
+    /**
+     * Copy classpath:/mappings/*.json into a real temp directory (as
+     * {tempDir}/mappings/*.json — WireMock expects "mappings" to be a child of the
+     * root it's given, not the root itself) and return the temp directory.
+     *
+     * Uses Spring's PathMatchingResourcePatternResolver, which already knows how to
+     * enumerate classpath resources correctly whether running exploded (mvn
+     * spring-boot:run) or from inside a packaged jar (including Spring Boot 3.2+'s
+     * nested-jar layout) — the exact cases where WireMock's own ClasspathFileSource
+     * falls over (see the comment in run() above).
+     */
+    private Path extractMappingsToTempDir() throws IOException {
+        Path tempRoot = Files.createTempDirectory("mockingbird-stub-mappings");
+        Path mappingsDir = tempRoot.resolve("mappings");
+        Files.createDirectories(mappingsDir);
+
+        PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
+        Resource[] resources = resolver.getResources("classpath*:mappings/*.json");
+        for (Resource resource : resources) {
+            String filename = resource.getFilename();
+            if (filename == null) {
+                continue;
+            }
+            try (InputStream in = resource.getInputStream()) {
+                Files.copy(in, mappingsDir.resolve(filename), StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
+        log.info("Extracted {} mapping file(s) from classpath to {}", resources.length, mappingsDir);
+        return tempRoot;
     }
 
     @Bean
@@ -90,6 +150,19 @@ public class WireMockConfig implements ApplicationRunner {
         if (wireMockServer != null && wireMockServer.isRunning()) {
             wireMockServer.stop();
             log.info("WireMock stub server stopped.");
+        }
+        if (extractedMappingsRoot != null) {
+            try (var paths = Files.walk(extractedMappingsRoot)) {
+                paths.sorted(Comparator.reverseOrder()).forEach(p -> {
+                    try {
+                        Files.deleteIfExists(p);
+                    } catch (IOException ignored) {
+                        // Best-effort cleanup — the OS temp dir gets reclaimed eventually anyway.
+                    }
+                });
+            } catch (IOException ignored) {
+                // Best-effort cleanup.
+            }
         }
     }
 

@@ -355,7 +355,7 @@ export function UploadPage() {
                   <input
                     id="combined-stub-name"
                     type="text"
-                    placeholder="e.g. Wealth Adviser API"
+                    placeholder="e.g. Payments Client API"
                     value={combinedStubName}
                     onChange={(e) => setCombinedStubName(e.target.value)}
                     disabled={batchRunning}

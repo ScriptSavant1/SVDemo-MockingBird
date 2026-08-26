@@ -151,3 +151,138 @@ class TestDynamicResponseGeneration:
         assert "urlPattern" in mapping["request"]
         assert "{customerId}" not in mapping["request"]["urlPattern"]
         assert "[^/]+" in mapping["request"]["urlPattern"]
+
+    def test_adds_transformer_for_placeholder_that_lives_only_in_a_header(self, tmp_output):
+        """Regression test: found by loading a real generated mapping into an
+        actual WireMock instance. A CA LISA capture that echoes a request
+        header back via %%X-Interaction-Id%% produces a response with the
+        {{...}} placeholder ONLY in response_headers, not body. Before the
+        fix, has_dynamic_placeholders() only scanned body, so this mapping got
+        no "transformers" entry — WireMock would then serve the literal
+        unresolved "{{request.headers.X-Interaction-Id}}" string instead of
+        the real value.
+        """
+        from parser_worker.models import (
+            HttpMethod, MatchCondition, MatchType, ParsedFile,
+            ParsedRequestSpec, ParsedScenario, ParsedStub,
+        )
+
+        scenario = ParsedScenario(
+            name="default",
+            match=MatchCondition(type=MatchType.ALWAYS),
+            status=200,
+            response_headers={"x-interaction-id": "{{request.headers.X-Interaction-Id}}"},
+            body=None,
+        )
+        stub = ParsedStub(
+            name="Header Echo",
+            request=ParsedRequestSpec(method=HttpMethod.GET, url="/api/v1/echo"),
+            scenarios=[scenario],
+        )
+        parsed = ParsedFile(format="ca-lisa-http-pair", source_file="test.txt", stubs=[stub])
+
+        files = generate_wiremock_mappings(parsed, tmp_output)
+        mapping = json.loads(files[0].read_text())
+        assert "response-template" in mapping["response"].get("transformers", [])
+
+
+class TestQueryParameterDecoding:
+    """Regression tests: found by loading a real generated mapping into an
+    actual WireMock instance and firing a real HTTP request at it. WireMock
+    URL-decodes incoming query strings (application/x-www-form-urlencoded
+    rules: '+' -> space, %XX -> byte) before comparing against queryParameters
+    matchers, so a stored matcher built from the raw, still-encoded capture
+    text never matches a real request — even though the mapping "looked"
+    correct in the generated JSON.
+    """
+
+    def _stub_with_url(self, url: str):
+        from parser_worker.models import (
+            HttpMethod, MatchCondition, MatchType, ParsedFile,
+            ParsedRequestSpec, ParsedScenario, ParsedStub,
+        )
+
+        scenario = ParsedScenario(
+            name="default", match=MatchCondition(type=MatchType.ALWAYS),
+            status=200, body='{"ok":true}',
+        )
+        stub = ParsedStub(
+            name="Query Test",
+            request=ParsedRequestSpec(method=HttpMethod.GET, url=url),
+            scenarios=[scenario],
+        )
+        return ParsedFile(format="ca-lisa-http-pair", source_file="test.txt", stubs=[stub])
+
+    def test_plus_sign_decoded_to_space(self, tmp_output):
+        parsed = self._stub_with_url("/api/enquire?aggregate=SUP+FLAGS")
+        files = generate_wiremock_mappings(parsed, tmp_output)
+        mapping = json.loads(files[0].read_text())
+        assert mapping["request"]["urlPath"] == "/api/enquire"
+        assert mapping["request"]["queryParameters"]["aggregate"]["equalTo"] == "SUP FLAGS"
+
+    def test_percent_encoded_value_decoded(self, tmp_output):
+        parsed = self._stub_with_url("/api/search?q=foo%26bar")
+        files = generate_wiremock_mappings(parsed, tmp_output)
+        mapping = json.loads(files[0].read_text())
+        assert mapping["request"]["queryParameters"]["q"]["equalTo"] == "foo&bar"
+
+    def test_percent_encoded_key_decoded(self, tmp_output):
+        parsed = self._stub_with_url("/api/search?my%20key=value")
+        files = generate_wiremock_mappings(parsed, tmp_output)
+        mapping = json.loads(files[0].read_text())
+        assert "my key" in mapping["request"]["queryParameters"]
+        assert mapping["request"]["queryParameters"]["my key"]["equalTo"] == "value"
+
+    def test_plain_value_unaffected(self, tmp_output):
+        parsed = self._stub_with_url("/api/enquire?aggregate=FLAGS")
+        files = generate_wiremock_mappings(parsed, tmp_output)
+        mapping = json.loads(files[0].read_text())
+        assert mapping["request"]["queryParameters"]["aggregate"]["equalTo"] == "FLAGS"
+
+
+class TestContentTypeHeaderCaseInsensitive:
+    """Regression: found by loading a real generated mapping into an actual
+    WireMock instance and sending it a real request. Jetty (WireMock's
+    underlying HTTP server) normalises the Content-Type header's charset
+    casing before the equalTo matcher runs — a mapping storing the verbatim
+    captured "charset=utf-8" never matched, regardless of what case the
+    client actually sent. Content-Type's media type and parameters are
+    case-insensitive per RFC 7231 3.1.1.1 anyway, so it's matched
+    case-insensitively rather than case-exact like other headers.
+    """
+
+    def _stub_with_headers(self, headers: dict[str, str]):
+        from parser_worker.models import (
+            HttpMethod, MatchCondition, MatchType, ParsedFile,
+            ParsedRequestSpec, ParsedScenario, ParsedStub,
+        )
+
+        scenario = ParsedScenario(name="default", match=MatchCondition(type=MatchType.ALWAYS), status=200)
+        stub = ParsedStub(
+            name="Header Test",
+            request=ParsedRequestSpec(method=HttpMethod.POST, url="/api/op", required_headers=headers),
+            scenarios=[scenario],
+        )
+        return ParsedFile(format="ca-lisa-http-pair", source_file="test.txt", stubs=[stub])
+
+    def test_content_type_matcher_is_case_insensitive(self, tmp_output):
+        parsed = self._stub_with_headers({"Content-Type": "text/xml;charset=utf-8"})
+        files = generate_wiremock_mappings(parsed, tmp_output)
+        mapping = json.loads(files[0].read_text())
+        assert mapping["request"]["headers"]["Content-Type"]["caseInsensitive"] is True
+        assert mapping["request"]["headers"]["Content-Type"]["equalTo"] == "text/xml;charset=utf-8"
+
+    def test_content_type_matcher_case_insensitive_regardless_of_header_name_casing(self, tmp_output):
+        parsed = self._stub_with_headers({"content-type": "application/json"})
+        files = generate_wiremock_mappings(parsed, tmp_output)
+        mapping = json.loads(files[0].read_text())
+        assert mapping["request"]["headers"]["content-type"]["caseInsensitive"] is True
+
+    def test_other_headers_stay_case_exact(self, tmp_output):
+        """Only Content-Type gets the case-insensitive treatment — an opaque
+        value like SOAPAction should still require an exact match, since
+        differently-cased values there could be genuinely different operations."""
+        parsed = self._stub_with_headers({"SOAPAction": "getAccMasterData"})
+        files = generate_wiremock_mappings(parsed, tmp_output)
+        mapping = json.loads(files[0].read_text())
+        assert "caseInsensitive" not in mapping["request"]["headers"]["SOAPAction"]

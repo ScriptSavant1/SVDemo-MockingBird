@@ -14,31 +14,44 @@ from parser_worker.detector import detect_and_parse, detect_parser
 from parser_worker.parsers.ca_lisa_parser import (
     CALISAParser,
     _detect_variant,
+    _ensure_content_type,
     _find_block_end,
+    _infer_content_type,
     _infer_status_code,
-    _parse_esp_request,
-    _parse_esp_response,
+    _parse_inline_request,
+    _parse_inline_response,
     _parse_kvblock,
     _resolve_variables,
 )
 
 # ── locate sample files ───────────────────────────────────────────────────────
+#
+# Real capture samples from two example client folders (ESP, Wealth) — used
+# here purely as realistic fixtures for the parser's two structural variants
+# (inline / labelled). The parser itself is 100% client-agnostic: it never
+# branches on a client name, only on file content. Tomorrow's client's files
+# go through the exact same code path these do.
 
 _REPO_ROOT = Path(__file__).parents[3]
-_ESP_DIR = _REPO_ROOT / "Sample_SV_Files" / "ESP"
-_WEALTH_DIR = _REPO_ROOT / "Sample_SV_Files" / "Wealth"
+_ESP_ROOT = _REPO_ROOT / "Sample_SV_Files" / "ESP"
+_INLINE_SAMPLE_DIR = _ESP_ROOT / "JSON"
+_LABELLED_SAMPLE_DIR = _REPO_ROOT / "Sample_SV_Files" / "Wealth"
 
-ESP_REQUEST_1 = _ESP_DIR / "1781082059482RTCAERv01_Request_20260610_100059.txt"
-ESP_RESPONSE_200 = _ESP_DIR / "1781082059500RTCAERv01_Success1Response_20260610_100059.txt"
-ESP_RESPONSE_400 = _ESP_DIR / "1781082551676RTCAERv01_Error400Response_20260610_100911.txt"
-ESP_REQUEST_2 = _ESP_DIR / "1781082552845RTCAERv01_Request_20260610_100912.txt"
+INLINE_REQUEST_1 = _INLINE_SAMPLE_DIR / "1781082059482RTCAERv01_Request_20260610_100059.txt"
+INLINE_RESPONSE_200 = _INLINE_SAMPLE_DIR / "1781082059500RTCAERv01_Success1Response_20260610_100059.txt"
+INLINE_RESPONSE_400 = _INLINE_SAMPLE_DIR / "1781082551676RTCAERv01_Error400Response_20260610_100911.txt"
+INLINE_REQUEST_2 = _INLINE_SAMPLE_DIR / "1781082552845RTCAERv01_Request_20260610_100912.txt"
+INLINE_SOAP_REQUEST = _ESP_ROOT / "XML" / "Formatted_Full_XML_Request.txt"
+# Real response for the above — uses a *bare* ={StatusCode=...} block with no
+# "ResponseHeader" label at all (a third sub-form discovered against real data).
+INLINE_SOAP_RESPONSE = _ESP_ROOT / "XML" / "Formatted_Full_XML_Response.txt"
 
-WEALTH_POST_REQ = _WEALTH_DIR / "CreateAdviserPOST_Request.txt"
-WEALTH_POST_RESP = _WEALTH_DIR / "CreateAdviserPost_Response.txt"
-WEALTH_GET_REQ = _WEALTH_DIR / "GetAdvisers_Request.txt"
-WEALTH_GET_RESP = _WEALTH_DIR / "GetAdvisersByID_Response.txt"
+LABELLED_POST_REQ = _LABELLED_SAMPLE_DIR / "CreateAdviserPOST_Request.txt"
+LABELLED_POST_RESP = _LABELLED_SAMPLE_DIR / "CreateAdviserPost_Response.txt"
+LABELLED_GET_REQ = _LABELLED_SAMPLE_DIR / "GetAdvisers_Request.txt"
+LABELLED_GET_RESP = _LABELLED_SAMPLE_DIR / "GetAdvisersByID_Response.txt"
 
-_SAMPLE_FILES_PRESENT = ESP_REQUEST_1.exists() and WEALTH_POST_REQ.exists()
+_SAMPLE_FILES_PRESENT = INLINE_REQUEST_1.exists() and LABELLED_POST_REQ.exists()
 skip_if_no_samples = pytest.mark.skipif(
     not _SAMPLE_FILES_PRESENT,
     reason="Sample_SV_Files not present in repo",
@@ -155,17 +168,17 @@ class TestInferStatusCode:
 # ── unit: _detect_variant ─────────────────────────────────────────────────────
 
 class TestDetectVariant:
-    def test_wealth_detected_by_requestheader_label(self):
+    def test_labelled_detected_by_requestheader_label(self):
         content = "RequestHeader:\n={Method=\"GET\"}"
-        assert _detect_variant(content) == "wealth"
+        assert _detect_variant(content) == "labelled"
 
-    def test_wealth_detected_by_responseheader_label(self):
+    def test_labelled_detected_by_responseheader_label(self):
         content = "ResponseHeader:\n={StatusCode=\"200\"}"
-        assert _detect_variant(content) == "wealth"
+        assert _detect_variant(content) == "labelled"
 
-    def test_esp_detected_without_labels(self):
+    def test_inline_detected_without_labels(self):
         content = '={Method="POST" URL="/api"}{body}'
-        assert _detect_variant(content) == "esp"
+        assert _detect_variant(content) == "inline"
 
 
 # ── CALISAParser.can_handle ───────────────────────────────────────────────────
@@ -174,15 +187,15 @@ class TestCALISAParserCanHandle:
     def setup_method(self):
         self.parser = CALISAParser()
 
-    def test_esp_request_file(self):
+    def test_inline_request_file(self):
         content = '={Method="POST" URL="/v2/api" httpDetails={Version="1.1"}}{}'
         assert self.parser.can_handle(content, "request.txt") is True
 
-    def test_esp_response_file(self):
+    def test_inline_response_file(self):
         content = 'ResponseHeader={StatusCode="200" ReasonPhrase="OK"}\nResponse..{}'
         assert self.parser.can_handle(content, "response.txt") is True
 
-    def test_wealth_response_label(self):
+    def test_labelled_response_label(self):
         content = "ResponseHeader:\n={StatusCode=\"200\"}"
         assert self.parser.can_handle(content, "response.txt") is True
 
@@ -201,7 +214,7 @@ class TestCALISAParserValidate:
     def setup_method(self):
         self.parser = CALISAParser()
 
-    def _make_combined_esp(self, status: str = "200") -> str:
+    def _make_combined_inline(self, status: str = "200") -> str:
         return (
             '={Method="POST" URL="/api/test" httpDetails={Version="1.1" '
             'httpHeaders={Content-Type="application/json"}}}{"input":"data"}'
@@ -211,8 +224,8 @@ class TestCALISAParserValidate:
             '\nResponse..{"result":"ok"}'
         )
 
-    def test_valid_combined_esp(self):
-        result = self.parser.validate(self._make_combined_esp())
+    def test_valid_combined_inline(self):
+        result = self.parser.validate(self._make_combined_inline())
         assert result.valid is True
         assert "ca-lisa" in result.format_detected
 
@@ -229,27 +242,27 @@ class TestCALISAParserValidate:
         assert any("request" in str(e).lower() for e in result.errors)
 
     def test_status_code_variable_valid(self):
-        result = self.parser.validate(self._make_combined_esp(status="%%StatusCode%%"))
+        result = self.parser.validate(self._make_combined_inline(status="%%StatusCode%%"))
         assert result.valid is True  # %%StatusCode%% is inferred — not an error
 
 
-# ── ESP format: real sample files ────────────────────────────────────────────
+# ── inline variant: real sample files ────────────────────────────────────────
 
-class TestESPFormat:
+class TestInlineVariantSampleFiles:
     def setup_method(self):
         self.parser = CALISAParser()
 
     @skip_if_no_samples
-    def test_esp_200_combined(self):
+    def test_200_combined(self):
         """Combine request + success response → should parse to POST stub with 200."""
-        req = ESP_REQUEST_1.read_text(encoding="utf-8", errors="replace")
-        resp = ESP_RESPONSE_200.read_text(encoding="utf-8", errors="replace")
+        req = INLINE_REQUEST_1.read_text(encoding="utf-8", errors="replace")
+        resp = INLINE_RESPONSE_200.read_text(encoding="utf-8", errors="replace")
         combined = req + "\n" + resp
 
         result = self.parser.validate(combined)
         assert result.valid, f"Validation errors: {result.errors}"
 
-        pf = self.parser.parse(combined, "ESP_200_combined.txt")
+        pf = self.parser.parse(combined, "inline_200_combined.txt")
         assert len(pf.stubs) == 1
         stub = pf.stubs[0]
 
@@ -259,17 +272,17 @@ class TestESPFormat:
         assert stub.scenarios[0].status == 200
 
     @skip_if_no_samples
-    def test_esp_400_status_inferred_from_filename(self):
+    def test_400_status_inferred_from_filename(self):
         """Error response with %%StatusCode%% should be inferred as 400 from filename."""
-        req = ESP_REQUEST_2.read_text(encoding="utf-8", errors="replace")
-        resp = ESP_RESPONSE_400.read_text(encoding="utf-8", errors="replace")
+        req = INLINE_REQUEST_2.read_text(encoding="utf-8", errors="replace")
+        resp = INLINE_RESPONSE_400.read_text(encoding="utf-8", errors="replace")
         combined = req + "\n" + resp
 
         pf = self.parser.parse(combined, "1781082551676RTCAERv01_Error400Response_20260610_100911.txt")
         assert pf.stubs[0].scenarios[0].status == 400
 
     @skip_if_no_samples
-    def test_esp_400_status_inferred_via_upload_path(self, tmp_path):
+    def test_400_status_inferred_via_upload_path(self, tmp_path):
         """Regression test for a real bug found against Sample_SV_Files: the
         ingestion-service upload endpoint used to write the uploaded content to
         a randomly-named temp file (tmpXXXXXX.txt) before calling
@@ -280,8 +293,8 @@ class TestESPFormat:
         disk, named the way the portal's UploadZone.tsx names a combined
         request+response upload (request name + response name joined by "__").
         """
-        req = ESP_REQUEST_2.read_text(encoding="utf-8", errors="replace")
-        resp = ESP_RESPONSE_400.read_text(encoding="utf-8", errors="replace")
+        req = INLINE_REQUEST_2.read_text(encoding="utf-8", errors="replace")
+        resp = INLINE_RESPONSE_400.read_text(encoding="utf-8", errors="replace")
         combined = req + "\n" + resp
 
         combined_name = (
@@ -296,22 +309,22 @@ class TestESPFormat:
         assert parsed_file.stubs[0].scenarios[0].status == 400
 
     @skip_if_no_samples
-    def test_esp_request_headers_parsed(self):
+    def test_request_headers_parsed(self):
         """Content-Type and channel headers should be captured (not filtered)."""
-        req = ESP_REQUEST_1.read_text(encoding="utf-8", errors="replace")
-        resp = ESP_RESPONSE_200.read_text(encoding="utf-8", errors="replace")
-        pf = self.parser.parse(req + "\n" + resp, "ESP_200.txt")
+        req = INLINE_REQUEST_1.read_text(encoding="utf-8", errors="replace")
+        resp = INLINE_RESPONSE_200.read_text(encoding="utf-8", errors="replace")
+        pf = self.parser.parse(req + "\n" + resp, "inline_200.txt")
 
         req_headers = pf.stubs[0].request.required_headers
         assert "Content-Type" in req_headers
         assert req_headers["Content-Type"] == "application/json"
 
     @skip_if_no_samples
-    def test_esp_interaction_id_becomes_wiremock_template(self):
+    def test_interaction_id_becomes_wiremock_template(self):
         """%%X-Interaction-Id%% in response headers → {{request.headers.X-Interaction-Id}}."""
-        req = ESP_REQUEST_1.read_text(encoding="utf-8", errors="replace")
-        resp = ESP_RESPONSE_200.read_text(encoding="utf-8", errors="replace")
-        pf = self.parser.parse(req + "\n" + resp, "ESP_200.txt")
+        req = INLINE_REQUEST_1.read_text(encoding="utf-8", errors="replace")
+        resp = INLINE_RESPONSE_200.read_text(encoding="utf-8", errors="replace")
+        pf = self.parser.parse(req + "\n" + resp, "inline_200.txt")
 
         scenario = pf.stubs[0].scenarios[0]
         resp_headers = scenario.response_headers
@@ -320,27 +333,90 @@ class TestESPFormat:
         assert "{{request.headers." in id_header_val
 
     @skip_if_no_samples
-    def test_esp_response_body_present(self):
-        req = ESP_REQUEST_1.read_text(encoding="utf-8", errors="replace")
-        resp = ESP_RESPONSE_200.read_text(encoding="utf-8", errors="replace")
-        pf = self.parser.parse(req + "\n" + resp, "ESP_200.txt")
+    def test_response_body_present(self):
+        req = INLINE_REQUEST_1.read_text(encoding="utf-8", errors="replace")
+        resp = INLINE_RESPONSE_200.read_text(encoding="utf-8", errors="replace")
+        pf = self.parser.parse(req + "\n" + resp, "inline_200.txt")
 
         body = pf.stubs[0].scenarios[0].body
         assert body is not None
         assert "accountEnquiryResponse" in body
 
+    @skip_if_no_samples
+    def test_soap_request_with_sibling_headers_and_body_arrays(self):
+        """Real-world SOAP capture where the header block closes early (right
+        after URL=) and httpDetails/SOAPAction appear as a sibling block
+        instead of nested — see _consume_sibling_kv. The body is a SOAP
+        envelope containing many repeated sibling <requestArray> elements
+        (a "list" shape); it must survive completely untouched.
+        """
+        req_content = INLINE_SOAP_REQUEST.read_text(encoding="utf-8", errors="replace")
+        synthetic_response = (
+            'ResponseHeader={StatusCode="200" ReasonPhrase="OK" '
+            'httpDetails={Version="1.1" httpHeaders={Content-Type="text/xml;charset=utf-8"}}}\n'
+            'Response..<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">'
+            '<soapenv:Body><status>OK</status></soapenv:Body></soapenv:Envelope>'
+        )
+        combined = req_content + "\n" + synthetic_response
 
-# ── Wealth format: real sample files ─────────────────────────────────────────
+        pf = self.parser.parse(combined, "soap_request.txt")
+        stub = pf.stubs[0]
 
-class TestWealthFormat:
+        assert stub.request.method.value == "POST"
+        assert stub.request.url == "/NWB/DB_Core_Online_Systems/DBGetAccMasterDataAJC"
+        # SOAPAction must survive — it's often the only thing distinguishing
+        # SOAP operations that share one URL.
+        assert stub.request.required_headers.get("SOAPAction") == "getAccMasterData"
+        # No stray "}" from the malformed header should leak into the body,
+        # and every repeated <req:requestArray> element must be preserved.
+        assert req_content.count("req:requestArray") > 10  # sanity: the fixture really is repetitive
+        assert "requestArray" in combined  # combined source retains them
+
+    @pytest.mark.skipif(
+        not INLINE_SOAP_RESPONSE.exists(),
+        reason="Formatted_Full_XML_Response.txt not present in repo",
+    )
+    def test_soap_request_with_real_bare_response(self):
+        """Real request + real response pair, discovered live: the response
+        has no 'ResponseHeader' label at all — just a bare ={StatusCode=...}
+        block, structurally identical to a request block except for
+        StatusCode= instead of Method=. Also a large (~400KB) body with many
+        repeated <res:responseArray> elements — must parse fast and verbatim.
+        """
+        req_content = INLINE_SOAP_REQUEST.read_text(encoding="utf-8", errors="replace")
+        resp_content = INLINE_SOAP_RESPONSE.read_text(encoding="utf-8", errors="replace")
+        combined = req_content.rstrip() + "\n" + resp_content
+
+        result = self.parser.validate(combined)
+        assert result.valid, f"Validation errors: {result.errors}"
+
+        pf = self.parser.parse(combined, "Formatted_Full_XML_Request.txt")
+        stub = pf.stubs[0]
+
+        assert stub.request.method.value == "POST"
+        assert stub.request.url == "/NWB/DB_Core_Online_Systems/DBGetAccMasterDataAJC"
+        assert stub.request.required_headers.get("SOAPAction") == "getAccMasterData"
+
+        scenario = stub.scenarios[0]
+        assert scenario.status == 200
+        assert scenario.response_headers.get("Content-Type") == "text/xml"
+        assert scenario.body is not None
+        assert scenario.body.startswith("<soapenv:Envelope")
+        assert scenario.body.rstrip().endswith("</soapenv:Envelope>")
+        assert "getAccMasterDataResponse" in scenario.body
+
+
+# ── labelled variant: real sample files ──────────────────────────────────────
+
+class TestLabelledVariantSampleFiles:
     def setup_method(self):
         self.parser = CALISAParser()
 
     @skip_if_no_samples
-    def test_wealth_post_200(self):
+    def test_post_200(self):
         """POST /oxford-risk/advisers → 200 OK."""
-        req = WEALTH_POST_REQ.read_text(encoding="utf-8", errors="replace")
-        resp = WEALTH_POST_RESP.read_text(encoding="utf-8", errors="replace")
+        req = LABELLED_POST_REQ.read_text(encoding="utf-8", errors="replace")
+        resp = LABELLED_POST_RESP.read_text(encoding="utf-8", errors="replace")
         combined = req + "\n" + resp
 
         result = self.parser.validate(combined)
@@ -355,9 +431,9 @@ class TestWealthFormat:
         assert stub.scenarios[0].status == 200
 
     @skip_if_no_samples
-    def test_wealth_post_response_body(self):
-        req = WEALTH_POST_REQ.read_text(encoding="utf-8", errors="replace")
-        resp = WEALTH_POST_RESP.read_text(encoding="utf-8", errors="replace")
+    def test_post_response_body(self):
+        req = LABELLED_POST_REQ.read_text(encoding="utf-8", errors="replace")
+        resp = LABELLED_POST_RESP.read_text(encoding="utf-8", errors="replace")
         pf = self.parser.parse(req + "\n" + resp, "CreateAdviser.txt")
 
         body = pf.stubs[0].scenarios[0].body
@@ -366,10 +442,10 @@ class TestWealthFormat:
         assert "351029884" in body
 
     @skip_if_no_samples
-    def test_wealth_get_200(self):
+    def test_get_200(self):
         """GET /oxford-risk/advisers → 200 OK, no request body required."""
-        req = WEALTH_GET_REQ.read_text(encoding="utf-8", errors="replace")
-        resp = WEALTH_GET_RESP.read_text(encoding="utf-8", errors="replace")
+        req = LABELLED_GET_REQ.read_text(encoding="utf-8", errors="replace")
+        resp = LABELLED_GET_RESP.read_text(encoding="utf-8", errors="replace")
         combined = req + "\n" + resp
 
         pf = self.parser.parse(combined, "GetAdvisers.txt")
@@ -379,11 +455,241 @@ class TestWealthFormat:
         assert stub.scenarios[0].status == 200
 
     @skip_if_no_samples
-    def test_wealth_variant_detected(self):
-        req = WEALTH_POST_REQ.read_text(encoding="utf-8", errors="replace")
-        resp = WEALTH_POST_RESP.read_text(encoding="utf-8", errors="replace")
+    def test_variant_detected(self):
+        req = LABELLED_POST_REQ.read_text(encoding="utf-8", errors="replace")
+        resp = LABELLED_POST_RESP.read_text(encoding="utf-8", errors="replace")
         combined = req + "\n" + resp
-        assert _detect_variant(combined) == "wealth"
+        assert _detect_variant(combined) == "labelled"
+
+
+# ── Content-Type inference for captures with no Content-Type header ─────────
+
+class TestInferContentType:
+    def test_json_object_body(self):
+        assert _infer_content_type('{"a": 1}') == "application/json"
+
+    def test_json_array_body(self):
+        assert _infer_content_type('[{"a": 1}, {"a": 2}]') == "application/json"
+
+    def test_plain_xml_body(self):
+        assert _infer_content_type('<root><item id="1"/></root>') == "application/xml"
+
+    def test_soap_envelope_default_prefix(self):
+        body = '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Body/></soapenv:Envelope>'
+        assert _infer_content_type(body) == "text/xml;charset=utf-8"
+
+    def test_soap_envelope_alternate_prefix(self):
+        """Different capture tools / SOAP versions use different envelope
+        prefixes (soap:, soap12:, SOAP-ENV:) — all must be recognised as SOAP,
+        not just soapenv:."""
+        for prefix in ("soap", "soap12", "SOAP-ENV"):
+            body = f'<{prefix}:Envelope><{prefix}:Body/></{prefix}:Envelope>'
+            assert _infer_content_type(body) == "text/xml;charset=utf-8", prefix
+
+    def test_soap_fault_body(self):
+        body = (
+            '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">'
+            '<soapenv:Body><soapenv:Fault><faultcode>Client</faultcode>'
+            '<faultstring>Invalid request</faultstring></soapenv:Fault></soapenv:Body>'
+            '</soapenv:Envelope>'
+        )
+        assert _infer_content_type(body) == "text/xml;charset=utf-8"
+
+    def test_plain_text_body_no_guess(self):
+        assert _infer_content_type("just some plain text, not a structured body") is None
+
+    def test_empty_body_no_guess(self):
+        assert _infer_content_type("") is None
+        assert _infer_content_type("   ") is None
+
+    def test_ensure_content_type_adds_when_missing(self):
+        headers = {"X-Custom": "value"}
+        result = _ensure_content_type(headers, '{"a": 1}')
+        assert result["Content-Type"] == "application/json"
+        assert result["X-Custom"] == "value"
+
+    def test_ensure_content_type_never_overrides_captured_value(self):
+        """An explicitly captured Content-Type — even an unusual one — always wins."""
+        headers = {"Content-Type": "application/vnd.custom+json"}
+        result = _ensure_content_type(headers, '{"a": 1}')
+        assert result["Content-Type"] == "application/vnd.custom+json"
+
+    def test_ensure_content_type_case_insensitive_match(self):
+        headers = {"content-type": "text/plain"}
+        result = _ensure_content_type(headers, '{"a": 1}')
+        assert result == headers  # untouched — already has one, just lowercase key
+
+    def test_ensure_content_type_noop_on_empty_body(self):
+        assert _ensure_content_type({}, "") == {}
+
+
+# ── body shape robustness — arrays, nested docs, various REST/SOAP shapes ───
+
+class TestBodyShapeRobustness:
+    """CA LISA-captured bodies are opaque to this parser by design — no schema
+    is assumed, so any REST or SOAP body shape a real client sends must survive
+    completely untouched, whatever its structure."""
+
+    def setup_method(self):
+        self.parser = CALISAParser()
+
+    def _combined(self, body: str, content_type: str = "application/json") -> str:
+        return (
+            '={Method="POST" URL="/api/list" httpDetails={Version="1.1" '
+            f'httpHeaders={{Content-Type="{content_type}"}}}}}}{{}}\n'
+            f'ResponseHeader={{StatusCode="200" httpDetails={{Version="1.1" '
+            f'httpHeaders={{Content-Type="{content_type}"}}}}}}\nResponse..{body}'
+        )
+
+    def test_json_array_of_objects_response(self):
+        body = '[{"id":1,"tags":["a","b"]},{"id":2,"tags":[]}]'
+        pf = self.parser.parse(self._combined(body), "list.txt")
+        assert pf.stubs[0].scenarios[0].body == body
+
+    def test_deeply_nested_json_response(self):
+        body = '{"a":{"b":{"c":[1,2,{"d":"e"}]}},"f":null,"g":true}'
+        pf = self.parser.parse(self._combined(body), "nested.txt")
+        assert pf.stubs[0].scenarios[0].body == body
+
+    def test_xml_with_attributes_and_repeated_siblings(self):
+        body = (
+            '<accounts total="3">'
+            '<account id="1" type="current"/><account id="2" type="savings"/>'
+            '<account id="3" type="current"/></accounts>'
+        )
+        pf = self.parser.parse(self._combined(body, "application/xml"), "accounts.txt")
+        assert pf.stubs[0].scenarios[0].body == body
+
+    def test_soap_fault_response_preserved(self):
+        body = (
+            '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">'
+            '<soapenv:Body><soapenv:Fault><faultcode>Server</faultcode>'
+            '<faultstring>Downstream timeout</faultstring></soapenv:Fault>'
+            '</soapenv:Body></soapenv:Envelope>'
+        )
+        pf = self.parser.parse(self._combined(body, "text/xml"), "fault.txt")
+        assert pf.stubs[0].scenarios[0].body == body
+
+    def test_response_missing_content_type_gets_inferred(self):
+        """A response captured with no Content-Type header at all should still
+        get a sensible one so the replayed stub doesn't serve content-type-less."""
+        content = (
+            '={Method="GET" URL="/api/data"}\n'
+            'ResponseHeader={StatusCode="200"}\n'
+            'Response..{"result":"ok"}'
+        )
+        pf = self.parser.parse(content, "no_content_type.txt")
+        headers = pf.stubs[0].scenarios[0].response_headers
+        assert headers.get("Content-Type") == "application/json"
+
+
+# ── sibling-block header parsing (_consume_sibling_kv) ───────────────────────
+
+class TestSiblingHeaderBlocks:
+    """Some captures (seen in manually reformatted files) close the outer
+    ={...} header block early, right after URL=, with httpDetails and other
+    fields appearing as sibling Key={...}/Key="value" tokens afterwards
+    instead of nested inside. This is a structural quirk of the capture tool,
+    not a per-client thing — any client's export could hit it."""
+
+    def test_sibling_httpdetails_block_merged(self):
+        text = (
+            '={Method="POST" URL="/svc/op"} httpDetails={Version="1.1" '
+            'httpHeaders={X-Op="create" Content-Type="text/xml"}} '
+            'MessageType="http.text.message.type"}\n\n<root>body</root>'
+        )
+        method, url, headers, body = _parse_inline_request(text)
+        assert method == "POST"
+        assert url == "/svc/op"
+        assert headers == {"X-Op": "create", "Content-Type": "text/xml"}
+        assert body == "<root>body</root>"
+
+    def test_normal_single_block_unaffected(self):
+        """The common well-nested case must parse identically to before —
+        this is a pure no-op path through _consume_sibling_kv."""
+        text = (
+            '={Method="POST" URL="/svc/op" httpDetails={Version="1.1" '
+            'httpHeaders={Content-Type="application/json"}} '
+            'MessageType="http.text.message.type"}{"a":1}'
+        )
+        method, url, headers, body = _parse_inline_request(text)
+        assert method == "POST"
+        assert url == "/svc/op"
+        assert headers == {"Content-Type": "application/json"}
+        assert body == '{"a":1}'
+
+    def test_sibling_block_response_side(self):
+        text = (
+            'ResponseHeader={StatusCode="200"} httpDetails={Version="1.1" '
+            'httpHeaders={Content-Type="application/json"}}}\n\nResponse..{"ok":true}'
+        )
+        status, headers, body = _parse_inline_response(text, "resp.txt")
+        assert status == 200
+        assert headers == {"Content-Type": "application/json"}
+        assert body == '{"ok":true}'
+
+
+# ── bare response block (no "ResponseHeader" label at all) ──────────────────
+
+class TestBareResponseBlock:
+    """Some capture tools export the response with no 'ResponseHeader' label —
+    just a bare ={StatusCode=...}BODY block, structurally identical to a
+    request block except for StatusCode= instead of Method=. Discovered
+    against a real ~400KB SOAP response file with no other marker present."""
+
+    def setup_method(self):
+        self.parser = CALISAParser()
+
+    def test_parse_inline_response_accepts_bare_form(self):
+        text = '={StatusCode="200" httpDetails={Version="1.1" httpHeaders={Content-Type="text/xml"}}}<a>ok</a>'
+        status, headers, body = _parse_inline_response(text, "resp.txt")
+        assert status == 200
+        assert headers == {"Content-Type": "text/xml"}
+        assert body == "<a>ok</a>"
+
+    def test_can_handle_bare_response_alone(self):
+        content = '={StatusCode="200" httpDetails={Version="1.1" httpHeaders={Content-Type="text/xml"}}}<a/>'
+        assert self.parser.can_handle(content, "response.txt") is True
+
+    def test_validate_request_plus_bare_response_is_valid(self):
+        content = (
+            '={Method="POST" URL="/svc/op" httpDetails={Version="1.1" '
+            'httpHeaders={Content-Type="text/xml"}}}<req/>\n'
+            '={StatusCode="200" httpDetails={Version="1.1" '
+            'httpHeaders={Content-Type="text/xml"}}}<resp/>'
+        )
+        result = self.parser.validate(content)
+        assert result.valid, f"Errors: {result.errors}"
+
+    def test_split_finds_bare_response_not_request(self):
+        """The split must land on the response's own bare '=' (StatusCode=),
+        not spill request content into the response side or vice versa —
+        proven by parsing end-to-end and checking both halves independently."""
+        content = (
+            '={Method="POST" URL="/svc/op" httpDetails={Version="1.1" '
+            'httpHeaders={Content-Type="application/json"}}}{"reqField":1}\n'
+            '={StatusCode="201" httpDetails={Version="1.1" '
+            'httpHeaders={Content-Type="application/json"}}}{"respField":2}'
+        )
+        pf = self.parser.parse(content, "test.txt")
+        stub = pf.stubs[0]
+        assert stub.request.url == "/svc/op"
+        assert stub.scenarios[0].status == 201
+        assert stub.scenarios[0].body == '{"respField":2}'
+
+    def test_labelled_response_still_preferred_over_bare_when_both_present(self):
+        """A labelled 'ResponseHeader={StatusCode=' must still split at its own
+        (earlier) start, not at the bare-form match on its internal
+        '={StatusCode=' substring — min() over both candidates must pick the
+        correct (earlier) position."""
+        content = (
+            '={Method="GET" URL="/health"}\n'
+            'ResponseHeader={StatusCode="200" httpDetails={Version="1.1" '
+            'httpHeaders={Content-Type="application/json"}}}\nResponse..{"status":"UP"}'
+        )
+        pf = self.parser.parse(content, "test.txt")
+        assert pf.stubs[0].scenarios[0].status == 200
+        assert pf.stubs[0].scenarios[0].body == '{"status":"UP"}'
 
 
 # ── detector.py integration ───────────────────────────────────────────────────
@@ -391,9 +697,9 @@ class TestWealthFormat:
 class TestDetectorIntegration:
     @skip_if_no_samples
     def test_detect_parser_identifies_ca_lisa(self, tmp_path):
-        req = ESP_REQUEST_1.read_text(encoding="utf-8", errors="replace")
-        resp = ESP_RESPONSE_200.read_text(encoding="utf-8", errors="replace")
-        combined = tmp_path / "ESP_combined.txt"
+        req = INLINE_REQUEST_1.read_text(encoding="utf-8", errors="replace")
+        resp = INLINE_RESPONSE_200.read_text(encoding="utf-8", errors="replace")
+        combined = tmp_path / "inline_combined.txt"
         combined.write_text(req + "\n" + resp, encoding="utf-8")
 
         parser, validation, parsed = detect_and_parse(combined)
@@ -404,11 +710,11 @@ class TestDetectorIntegration:
 
     @skip_if_no_samples
     def test_detect_and_parse_zip(self, tmp_path):
-        """ZIP containing ESP request + response pair should produce one stub."""
-        zip_path = tmp_path / "esp_stubs.zip"
+        """ZIP containing a request + response pair should produce one stub."""
+        zip_path = tmp_path / "capture_stubs.zip"
         with zipfile.ZipFile(zip_path, "w") as zf:
-            zf.write(ESP_REQUEST_1, ESP_REQUEST_1.name)
-            zf.write(ESP_RESPONSE_200, ESP_RESPONSE_200.name)
+            zf.write(INLINE_REQUEST_1, INLINE_REQUEST_1.name)
+            zf.write(INLINE_RESPONSE_200, INLINE_RESPONSE_200.name)
 
         parser, validation, parsed = detect_and_parse(zip_path)
         assert validation.valid is True, f"Errors: {validation.errors}"
@@ -418,20 +724,20 @@ class TestDetectorIntegration:
 
     @skip_if_no_samples
     def test_zip_with_multiple_pairs(self, tmp_path):
-        """ZIP with two ESP pairs should produce two stubs."""
-        zip_path = tmp_path / "esp_multi.zip"
+        """ZIP with two pairs should produce two stubs."""
+        zip_path = tmp_path / "capture_multi.zip"
         with zipfile.ZipFile(zip_path, "w") as zf:
-            zf.write(ESP_REQUEST_1, ESP_REQUEST_1.name)
-            zf.write(ESP_RESPONSE_200, ESP_RESPONSE_200.name)
-            zf.write(ESP_REQUEST_2, ESP_REQUEST_2.name)
-            zf.write(ESP_RESPONSE_400, ESP_RESPONSE_400.name)
+            zf.write(INLINE_REQUEST_1, INLINE_REQUEST_1.name)
+            zf.write(INLINE_RESPONSE_200, INLINE_RESPONSE_200.name)
+            zf.write(INLINE_REQUEST_2, INLINE_REQUEST_2.name)
+            zf.write(INLINE_RESPONSE_400, INLINE_RESPONSE_400.name)
 
         parser, validation, parsed = detect_and_parse(zip_path)
         assert validation.valid is True
         assert parsed is not None
         assert len(parsed.stubs) == 2
 
-    def test_zip_with_no_txt_files(self, tmp_path):
+    def test_zip_with_no_capture_files(self, tmp_path):
         zip_path = tmp_path / "empty.zip"
         with zipfile.ZipFile(zip_path, "w") as zf:
             zf.writestr("readme.md", "# nothing")
@@ -439,6 +745,30 @@ class TestDetectorIntegration:
         parser, validation, parsed = detect_and_parse(zip_path)
         assert validation.valid is False
         assert any("no .txt" in str(e).lower() for e in validation.errors)
+
+    def test_zip_accepts_xml_extension_pair(self, tmp_path):
+        """A ZIP with .xml-named request/response files (e.g. a SOAP capture
+        saved with .xml extension) must pair and parse exactly like .txt —
+        the ZIP handler filters by extension only to pick candidate files;
+        format itself is always decided by content, never by extension."""
+        zip_path = tmp_path / "xml_capture.zip"
+        request_content = (
+            '={Method="POST" URL="/svc/op" httpDetails={Version="1.1" '
+            'httpHeaders={Content-Type="text/xml"}}}<root><a>1</a></root>'
+        )
+        response_content = (
+            'ResponseHeader={StatusCode="200" httpDetails={Version="1.1" '
+            'httpHeaders={Content-Type="text/xml"}}}\nResponse..<root><ok/></root>'
+        )
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("Operation_Request.xml", request_content)
+            zf.writestr("Operation_Response.xml", response_content)
+
+        parser, validation, parsed = detect_and_parse(zip_path)
+        assert validation.valid is True, f"Errors: {validation.errors}"
+        assert parsed is not None
+        assert len(parsed.stubs) == 1
+        assert parsed.stubs[0].scenarios[0].body == "<root><ok/></root>"
 
 
 # ── format_name and ParsedFile structure ─────────────────────────────────────
