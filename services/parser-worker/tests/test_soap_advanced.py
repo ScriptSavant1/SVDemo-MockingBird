@@ -412,10 +412,10 @@ class TestApplyBodyMatcherNamespaces:
 
 class TestSpringBootSoapTemplates:
 
-    def test_ws_security_config_exists(self):
+    def test_ws_security_filter_exists(self):
         f = _stub_engine_dir() / \
-            "src/main/java/com/mockingbird/stubs/WsSecurityConfig.java"
-        assert f.exists(), f"WsSecurityConfig.java not found at {f}"
+            "src/main/java/com/mockingbird/stubs/WsSecurityRequestFilter.java"
+        assert f.exists(), f"WsSecurityRequestFilter.java not found at {f}"
 
     def test_wsdl_config_exists(self):
         f = _stub_engine_dir() / \
@@ -426,12 +426,20 @@ class TestSpringBootSoapTemplates:
         f = _stub_engine_dir() / "src/main/resources/wsdl/service.wsdl"
         assert f.exists(), f"service.wsdl not found at {f}"
 
-    def test_ws_security_config_conditional_on_property(self):
+    def test_ws_security_filter_registered_conditionally_in_wiremock_config(self):
+        """WsSecurityRequestFilter isn't a Spring @ConditionalOnProperty bean —
+        it's a WireMock extension, registered directly into
+        WireMockConfiguration.extensions(...) inside WireMockConfig.java's
+        run(), and only when the property is true. That's the whole point of
+        the fix: it has to run inside WireMock's own request pipeline (the one
+        that actually serves stub traffic) rather than Spring-WS's, which
+        never saw real stub calls at all."""
         f = _stub_engine_dir() / \
-            "src/main/java/com/mockingbird/stubs/WsSecurityConfig.java"
+            "src/main/java/com/mockingbird/stubs/WireMockConfig.java"
         content = f.read_text(encoding="utf-8")
-        assert "ConditionalOnProperty" in content
         assert "ws-security.enabled" in content
+        assert "wsSecurityEnabled" in content
+        assert "new WsSecurityRequestFilter(" in content
 
     def test_wsdl_config_conditional_on_property(self):
         f = _stub_engine_dir() / \
@@ -440,14 +448,29 @@ class TestSpringBootSoapTemplates:
         assert "ConditionalOnProperty" in content
         assert "wsdl.enabled" in content
 
-    def test_ws_security_config_no_hardcoded_credentials(self):
-        f = _stub_engine_dir() / \
-            "src/main/java/com/mockingbird/stubs/WsSecurityConfig.java"
-        content = f.read_text(encoding="utf-8")
-        # Credentials must come from @Value injection, never be hardcoded strings
-        assert "password123" not in content
-        assert "changeme" not in content
-        assert "@Value" in content
+    def test_ws_security_no_hardcoded_credentials(self):
+        # Credentials must come from @Value injection in WireMockConfig, never
+        # be hardcoded strings anywhere in either file.
+        filter_content = (_stub_engine_dir() /
+            "src/main/java/com/mockingbird/stubs/WsSecurityRequestFilter.java"
+        ).read_text(encoding="utf-8")
+        config_content = (_stub_engine_dir() /
+            "src/main/java/com/mockingbird/stubs/WireMockConfig.java"
+        ).read_text(encoding="utf-8")
+        for content in (filter_content, config_content):
+            assert "password123" not in content
+            assert "changeme" not in content
+        assert "@Value" in config_content
+        assert "ws-security.password" in config_content
+
+    def test_ws_security_filter_only_touches_soap_shaped_requests(self):
+        """A combined stub can serve both REST and SOAP endpoints — the filter
+        must not reject REST/JSON traffic just because WS-Security is enabled
+        for the deployment."""
+        content = (_stub_engine_dir() /
+            "src/main/java/com/mockingbird/stubs/WsSecurityRequestFilter.java"
+        ).read_text(encoding="utf-8")
+        assert "looksLikeSoap" in content
 
     def test_wsdl_file_is_valid_xml(self):
         import xml.etree.ElementTree as ET
@@ -457,13 +480,23 @@ class TestSpringBootSoapTemplates:
         root = tree.getroot()
         assert root is not None
 
-    def test_pom_has_spring_ws_security(self):
+    def test_pom_does_not_have_spring_ws_security(self):
+        """spring-ws-security / wss4j-ws-security-dom were removed entirely —
+        WS-Security validation no longer goes through Spring-WS at all (see
+        WsSecurityRequestFilter), so neither the library nor its large
+        transitive OpenSAML/XACML chain is needed any more. Checks actual
+        <artifactId> dependency declarations, not just any mention of the
+        string — the pom's own explanatory comment about *why* they were
+        removed necessarily names them."""
         pom = (_stub_engine_dir() / "pom.xml").read_text(encoding="utf-8")
-        assert "spring-ws-security" in pom
+        assert "<artifactId>spring-ws-security</artifactId>" not in pom
+        assert "<artifactId>wss4j-ws-security-dom</artifactId>" not in pom
+        assert "<artifactId>opensaml" not in pom.lower()
 
-    def test_pom_has_wss4j(self):
+    def test_pom_still_has_spring_ws_core(self):
+        # Still needed for WSDL serving (WsdlConfig.java), unrelated to WS-Security.
         pom = (_stub_engine_dir() / "pom.xml").read_text(encoding="utf-8")
-        assert "wss4j-ws-security-dom" in pom
+        assert "spring-ws-core" in pom
 
     def test_application_yml_has_soap_section(self):
         yml = (_stub_engine_dir() / "src/main/resources/application.yml").read_text(encoding="utf-8")
@@ -471,7 +504,7 @@ class TestSpringBootSoapTemplates:
         assert "ws-security" in yml
         assert "wsdl" in yml
 
-    def test_springboot_generator_copies_ws_security_config(self, tmp_path):
+    def test_springboot_generator_copies_ws_security_filter(self, tmp_path):
         from parser_worker.generator.springboot import generate_springboot_project
         from parser_worker.models import (
             HttpMethod, MatchCondition, MatchType,
@@ -498,7 +531,8 @@ class TestSpringBootSoapTemplates:
         out = tmp_path / "stub"
         generate_springboot_project(parsed, out, "test-stub", "Test Stub")
         java_dir = out / "src/main/java/com/mockingbird/stubs"
-        assert (java_dir / "WsSecurityConfig.java").exists()
+        assert (java_dir / "WsSecurityRequestFilter.java").exists()
+        assert not (java_dir / "WsSecurityConfig.java").exists()
         assert (java_dir / "WsdlConfig.java").exists()
         assert (out / "src/main/resources/wsdl/service.wsdl").exists()
 

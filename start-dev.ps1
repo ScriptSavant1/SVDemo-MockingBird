@@ -26,9 +26,13 @@ Start-Service "auth-service" @(
 )
 
 # 2. project-service (Python + SQLite)
+# DATABASE_URL / JWT_SECRET are NOT overridden here — both are already correct in
+# services/project-service/.env, and an OS env var here would take priority over
+# that .env file. A hardcoded secret in this script drifts silently the moment
+# services/auth-service/.env.local's real secret changes, breaking every
+# authenticated call with 401s until someone notices the two no longer match.
 Start-Service "project-service" @(
     "Set-Location '$root\services\project-service'",
-    "`$env:DATABASE_URL = 'sqlite:///./mockingbird.db'",
     "Write-Host '[project-service] Starting on http://localhost:8001' -ForegroundColor Green",
     ".\venv\Scripts\python.exe -m uvicorn project_service.main:app --host 0.0.0.0 --port 8001 --reload"
 )
@@ -37,7 +41,7 @@ Start-Service "project-service" @(
 # DATABASE_URL and JWT_SECRET are intentionally NOT overridden here: ingestion-service
 # shares project-service's SQLite DB (project lookups on upload query that DB directly,
 # not via HTTP) and must sign/verify with the same JWT_SECRET as auth-service. Both are
-# already correct in services/ingestion-service/.env — setting them here as OS env vars
+# already correct in services/ingestion-service/.env - setting them here as OS env vars
 # would take priority over that .env file and silently point ingestion-service at its own
 # empty DB / a mismatched secret instead.
 Start-Service "ingestion-service" @(

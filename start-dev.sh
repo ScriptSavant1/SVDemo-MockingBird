@@ -41,6 +41,7 @@ cleanup() {
     done
     exit 0
 }
+
 trap cleanup SIGINT SIGTERM
 
 # 1. auth-service

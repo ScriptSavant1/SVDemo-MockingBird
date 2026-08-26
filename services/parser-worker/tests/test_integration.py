@@ -243,6 +243,18 @@ class TestSpringBootProjectGeneration:
         assert (out / "docker-compose.yml").exists()
         assert (out / "settings.xml").exists()
 
+    def test_setup_guide_bundled_in_project(self, tmp_path):
+        """The setup guide must travel with every downloaded stub — a user
+        extracting the zip shouldn't need repo/network access to find build
+        and per-endpoint testing instructions."""
+        f = _write(tmp_path, "payment.txt", LEVEL1_TXT)
+        _, _, parsed = detect_and_parse(f)
+        out = tmp_path / "stub"
+        generate_springboot_project(parsed, out, "payment-api", "Payment API")
+        guide = out / "STUB_ENGINE_SETUP_GUIDE.html"
+        assert guide.exists()
+        assert "<html" in guide.read_text(encoding="utf-8").lower()
+
     def test_java_source_files_created(self, tmp_path):
         f = _write(tmp_path, "payment.txt", LEVEL1_TXT)
         _, _, parsed = detect_and_parse(f)
@@ -294,14 +306,19 @@ class TestSpringBootProjectGeneration:
         pom = (out / "pom.xml").read_text()
         assert "payment-api-stub" in pom  # derived from stub name "Payment API"
 
-    def test_wiremock_jar_resources_match_mappings_dir(self, tmp_path):
+    def test_no_redundant_top_level_mappings_dir(self, tmp_path):
+        """Regression test: mappings used to be generated to output/mappings/
+        and then copied into src/main/resources/mappings/, shipping a dead,
+        confusing duplicate of every mapping file in the downloaded project
+        (nothing in the Docker build or docker-compose.yml reads the top-level
+        copy). Mappings are now written directly to their one real location."""
         f = _write(tmp_path, "customer.txt", LEVEL2_TXT)
         _, _, parsed = detect_and_parse(f)
         out = tmp_path / "stub"
         generate_springboot_project(parsed, out, "customer-api", "Customer API")
-        mappings_files = set(p.name for p in (out / "mappings").glob("*.json"))
-        jar_files = set(p.name for p in (out / "src/main/resources/mappings").glob("*.json"))
-        assert mappings_files == jar_files
+        assert not (out / "mappings").exists()
+        jar_files = list((out / "src/main/resources/mappings").glob("*.json"))
+        assert len(jar_files) == 2
 
 
 # ── CLI (sv-gen command) ──────────────────────────────────────────────────────
@@ -398,7 +415,7 @@ class TestCLI:
         out = tmp_path / "out"
         result = CliRunner().invoke(main, ["--input", str(f), "--output", str(out)], catch_exceptions=False)
         assert result.exit_code == 0
-        assert (out / "mappings").is_dir()
+        assert (out / "src/main/resources/mappings").is_dir()
 
     def test_output_shows_format_label(self, tmp_path):
         f = _write(tmp_path, "payment.txt", LEVEL1_TXT)

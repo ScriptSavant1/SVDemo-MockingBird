@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dynamic Guide Demo Stub — Stub Setup &amp; Service Reference</title>
+<style>
+  :root {
+    --bg: #f5f7fb; --surface: #ffffff; --ink: #161d2b; --ink-soft: #545f72;
+    --border: #e3e8f0; --navy: #003875; --cyan: #00a9e0; --green: #16825d;
+    --amber: #b7791f; --red: #c0392b; --purple: #7c5cff; --grey: #8a94a3;
+    --radius: 14px; --shadow: 0 1px 2px rgba(20,30,50,.04), 0 10px 28px -8px rgba(20,30,50,.10);
+    --shadow-hover: 0 4px 10px rgba(20,30,50,.06), 0 18px 40px -10px rgba(20,30,50,.16);
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    --sans: -apple-system, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0c1220; --surface: #131b2c; --ink: #eef1f8; --ink-soft: #9aa7bf;
+      --border: #232e45; --navy: #6cb1f5; --cyan: #52d8ff; --green: #4fce9c;
+      --amber: #e8b95c; --red: #ef6b5c; --purple: #a794ff; --grey: #7c88a3;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 28px -8px rgba(0,0,0,.5);
+      --shadow-hover: 0 4px 10px rgba(0,0,0,.35), 0 18px 40px -10px rgba(0,0,0,.6);
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: var(--sans); background: var(--bg); color: var(--ink); line-height: 1.6; }
+  .shell { display: flex; min-height: 100vh; }
+  nav.toc { width: 260px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border); padding: 26px 18px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+  nav.toc .brand { font-weight: 800; font-size: 1.02rem; letter-spacing: -0.01em; }
+  nav.toc .sub { color: var(--ink-soft); font-size: 0.76rem; margin: 2px 0 22px; }
+  nav.toc a { display: block; color: var(--ink-soft); text-decoration: none; font-size: 0.84rem; padding: 6px 10px; border-radius: 7px; margin-bottom: 1px; transition: background .12s, color .12s; }
+  nav.toc a:hover { background: var(--bg); color: var(--ink); }
+  nav.toc a.active { background: color-mix(in srgb, var(--navy) 12%, transparent); color: var(--navy); font-weight: 600; }
+  nav.toc .section-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--grey); margin: 18px 0 6px 10px; font-weight: 700; }
+  main { flex: 1; max-width: 1040px; padding: 0 56px 100px; }
+
+  .hero { margin: 0 -56px 40px; padding: 56px 56px 40px; background:
+      radial-gradient(1100px 420px at 12% -10%, color-mix(in srgb, var(--cyan) 22%, transparent), transparent 60%),
+      radial-gradient(900px 380px at 100% 0%, color-mix(in srgb, var(--purple) 16%, transparent), transparent 55%),
+      var(--surface);
+    border-bottom: 1px solid var(--border); }
+  .eyebrow { font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--cyan); }
+  h1 { font-size: 2.1rem; margin: 6px 0 4px; letter-spacing: -0.02em; }
+  .hero-meta { color: var(--ink-soft); font-size: 0.88rem; margin: 4px 0 20px; }
+  .stat-row { display: flex; flex-wrap: wrap; gap: 10px; }
+  .stat-pill { display: inline-flex; align-items: center; gap: 7px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); border-radius: 100px; padding: 7px 14px 7px 8px; font-size: 0.82rem; font-weight: 600; color: var(--ink); }
+
+  h2 { font-size: 1.35rem; margin: 54px 0 6px; padding-top: 8px; border-top: 1px solid var(--border); letter-spacing: -0.01em; }
+  h2:first-of-type { border-top: none; padding-top: 0; margin-top: 8px; }
+  h3 { font-size: 1.05rem; margin: 28px 0 8px; }
+  h4 { font-size: 0.95rem; margin: 22px 0 6px; }
+  h5 { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--grey); margin: 18px 0 8px; font-weight: 700; }
+  h5:first-child { margin-top: 16px; }
+  p { color: var(--ink-soft); max-width: 74ch; }
+  .lede { font-size: 1.02rem; color: var(--ink-soft); max-width: 70ch; }
+
+  ol.steps { padding-left: 0; list-style: none; counter-reset: step; max-width: 72ch; }
+  ol.steps > li { counter-increment: step; position: relative; padding-left: 40px; margin-bottom: 14px; color: var(--ink-soft); }
+  ol.steps > li::before { content: counter(step); position: absolute; left: 0; top: -1px; width: 26px; height: 26px; border-radius: 50%; background: var(--navy); color: #fff; font-size: 0.8rem; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+  ol.steps > li strong { color: var(--ink); }
+
+  code { font-family: var(--mono); font-size: 0.85em; background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 0.82rem; color: var(--ink); margin: 0; }
+  pre code { background: none; padding: 0; }
+  .code-wrap { position: relative; margin: 8px 0 16px; }
+  .copy-btn { position: absolute; top: 9px; right: 9px; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--ink-soft); cursor: pointer; font-family: var(--sans); transition: all .12s; }
+  .copy-btn:hover { color: var(--ink); border-color: var(--cyan); }
+  .copy-btn.copied { color: var(--green); border-color: var(--green); }
+
+  .callout { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--navy); border-radius: var(--radius); padding: 16px 20px; margin: 20px 0; font-size: 0.92rem; max-width: 72ch; box-shadow: var(--shadow); }
+  .callout.warn { border-left-color: var(--amber); }
+  .callout.tip { border-left-color: var(--green); }
+  .callout.bad { border-left-color: var(--red); }
+  .callout strong { color: var(--ink); }
+  .body-pattern-callout { border-left-color: var(--purple); max-width: 84ch; margin: 12px 0 4px; font-size: 0.85rem; padding: 12px 16px; }
+  .hint-text { color: var(--ink-soft); font-size: 0.85rem; font-style: italic; margin: 6px 0 4px; }
+  .truncate-note { font-size: 0.8rem; color: var(--grey); margin-top: -6px; }
+
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 4px; font-size: 0.86rem; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--grey); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 700; }
+
+  a.crosslink { color: var(--cyan); text-decoration: none; font-weight: 600; }
+  a.crosslink:hover { text-decoration: underline; }
+
+  .req-flag { font-size: 0.66rem; font-weight: 700; color: var(--red); text-transform: uppercase; margin-left: 4px; }
+
+  /* Swagger-style collapsible operation blocks */
+  .swagger-op { border: 1px solid var(--border); border-radius: var(--radius); margin: 14px 0; max-width: 88ch; overflow: hidden; background: var(--surface); box-shadow: var(--shadow); transition: box-shadow .15s; }
+  .swagger-op:hover { box-shadow: var(--shadow-hover); }
+  .op-summary { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; padding: 14px 18px; background: none; border: none; cursor: pointer; font: inherit; color: var(--ink); border-left: 6px solid var(--grey); }
+  .op-summary:hover { background: var(--bg); }
+  .op-summary.get { border-left-color: #4a90d9; }
+  .op-summary.post { border-left-color: var(--green); }
+  .op-summary.put { border-left-color: var(--amber); }
+  .op-summary.delete { border-left-color: var(--red); }
+  .op-summary.patch { border-left-color: var(--purple); }
+  .method-pill { font-family: var(--mono); font-weight: 700; font-size: 0.76rem; padding: 5px 12px; border-radius: 6px; color: #fff; min-width: 58px; text-align: center; flex-shrink: 0; }
+  .method-pill.sm { padding: 2px 8px; font-size: 0.68rem; min-width: 44px; }
+  .method-pill.get { background: #4a90d9; }
+  .method-pill.post { background: var(--green); }
+  .method-pill.put { background: var(--amber); }
+  .method-pill.delete { background: var(--red); }
+  .method-pill.patch { background: var(--purple); }
+  .op-path { font-family: var(--mono); font-size: 0.85rem; color: var(--ink); flex-shrink: 0; }
+  .op-desc { color: var(--ink-soft); font-size: 0.85rem; flex: 1; }
+  .op-kind-tag { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.05em; color: var(--grey); border: 1px solid var(--border); border-radius: 100px; padding: 3px 9px; flex-shrink: 0; }
+  .op-chevron { color: var(--grey); transition: transform 0.18s; flex-shrink: 0; }
+  .swagger-op.open .op-chevron { transform: rotate(180deg); }
+  .op-body-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .22s ease; }
+  .op-body { overflow: hidden; padding: 0 20px; border-top: 0 solid var(--border); max-height: 0; transition: max-height .22s ease, padding .22s ease; }
+  .swagger-op.open .op-body { max-height: 4000px; padding: 4px 20px 22px; border-top: 1px solid var(--border); }
+
+  .try-btn { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 0.78rem; font-weight: 700; padding: 8px 18px; border-radius: 8px; border: 1px solid var(--green); color: var(--green); background: none; cursor: pointer; font-family: inherit; transition: all .12s; }
+  .try-btn:hover { background: color-mix(in srgb, var(--green) 12%, transparent); }
+  .try-out-pane { display: none; margin-top: 12px; }
+  .try-out-pane.open { display: block; }
+
+  @media (max-width: 860px) { .shell { flex-direction: column; } nav.toc { width: 100%; height: auto; position: static; } .hero { margin: 0 -20px 30px; padding: 34px 20px; } main { padding: 0 20px 80px; } }
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">Mockingbird</div>
+    <div class="sub">Stub Setup &amp; Service Reference</div>
+    <a href="#overview">Overview</a>
+    <a href="#prereqs">Software required</a>
+    <div class="section-label">Setup</div>
+    <a href="#build">Build it</a>
+    <a href="#run">Run it</a>
+    <a href="#verify">Verify it's up</a>
+    <a href="#ports">Default &amp; custom ports</a>
+    <div class="section-label">Testing the services</div>
+    <a href="#project-structure">What's in the project</a>
+    <a href="#service-reference">Service reference</a>
+    <a href="#nft">Building NFT scripts</a>
+    <div class="section-label">Known issues &amp; patterns</div>
+    <a href="#collisions">Fixing mapping collisions</a>
+    <a href="#ws-security">WS-Security</a>
+    <a href="#troubleshooting">Troubleshooting</a>
+  </nav>
+  <main>
+    <div class="hero">
+      <div class="eyebrow">Mockingbird stub engine</div>
+      <h1 id="overview">Dynamic Guide Demo Stub</h1>
+      <p class="hero-meta">Generated 2026-08-26 12:21 UTC · Spring Boot + embedded WireMock · 3 endpoint(s)</p>
+      <div class="stat-row"><span class="stat-pill"><span class="method-pill post sm">POST</span> × 3</span></div>
+    </div>
+
+    <p class="lede">
+      This is a real, self-contained <strong>Spring Boot</strong> application with <strong>WireMock</strong>
+      embedded as a library. Everything below is generated specifically for this download — the service
+      reference reflects exactly what this stub does, not a generic example.
+    </p>
+
+    <h2 id="prereqs">Software required</h2>
+    <table>
+      <tr><th>Software</th><th>Version</th><th>Needed for</th></tr>
+      <tr><td><code>Java (JDK)</code></td><td>21</td><td>Building <em>and</em> running. A JRE-only install is not enough — Maven needs <code>javac</code> to compile.</td></tr>
+      <tr><td><code>Apache Maven</code></td><td>3.9+</td><td>Building the project (<code>mvn</code> command)</td></tr>
+      <tr><td>Network access</td><td>—</td><td>To your Artifactory mirror (production) or Maven Central (local testing) to download dependencies</td></tr>
+    </table>
+    <p>Docker is <em>not required</em> to build or run locally — <code>mvn</code> + <code>java</code> is enough. Docker only matters for the AWS deployment path (a separate, already-built Dockerfile in this project).</p>
+
+    <h2 id="build">Build it</h2>
+    <pre><code>cd path\to\extracted-stub
+mvn clean package -DskipTests</code></pre>
+    <p>Same command on Windows and RHEL/Linux once Java and Maven are on your <code>PATH</code>. A successful build ends with <code>BUILD SUCCESS</code> and produces exactly one runnable file:</p>
+    <pre><code>target/app.jar</code></pre>
+
+    <h3>RHEL — installing prerequisites if you don't have them</h3>
+    <pre><code># Java 21 JDK
+sudo dnf install -y java-21-openjdk-devel
+java -version
+
+# Maven — if not available via dnf, install from the Apache tarball:
+curl -O https://dlcdn.apache.org/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.tar.gz
+sudo tar xzf apache-maven-3.9.9-bin.tar.gz -C /opt
+sudo ln -s /opt/apache-maven-3.9.9 /opt/maven
+echo 'export PATH=/opt/maven/bin:$PATH' >> ~/.bashrc
+source ~/.bashrc
+mvn -version</code></pre>
+
+    <h2 id="run">Run it</h2>
+    <p>Default run — no arguments needed:</p>
+    <pre><code>java -jar target/app.jar</code></pre>
+    <p>Background, on Linux, surviving logout:</p>
+    <pre><code>nohup java -jar target/app.jar > stub.log 2>&1 &
+disown</code></pre>
+
+    <h4>Running as a systemd service (RHEL)</h4>
+    <pre><code># /etc/systemd/system/mockingbird-stub.service
+[Unit]
+Description=Mockingbird Stub Engine
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/mockingbird-stub
+ExecStart=/usr/bin/java -jar /opt/mockingbird-stub/target/app.jar
+Restart=on-failure
+User=mockingbird
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+    <pre><code>sudo systemctl daemon-reload
+sudo systemctl enable --now mockingbird-stub
+journalctl -u mockingbird-stub -f</code></pre>
+
+    <h2 id="verify">Verify it's up</h2>
+    <p>Check the startup log for a line like this — the mapping count should read <strong>3</strong>:</p>
+    <pre><code>WireMockConfig : Loaded 3 stub mappings</code></pre>
+    <pre><code>curl http://localhost:8081/actuator/health
+# {"status":"UP"}</code></pre>
+
+    <h2 id="ports">Default &amp; custom ports</h2>
+    <table>
+      <tr><th>Port</th><th>What's on it</th></tr>
+      <tr><td><code>8080</code></td><td>Actual stub traffic — every service call below goes here.</td></tr>
+      <tr><td><code>8081</code></td><td>Spring Boot Actuator only — health checks, Prometheus metrics. <strong>Not</strong> stub traffic.</td></tr>
+    </table>
+    <pre><code>java -jar target/app.jar --stub.port=9090 --server.port=9091</code></pre>
+
+    <h2 id="project-structure">What's in the project</h2>
+    <table>
+      <tr><th>Path</th><th>What it is</th></tr>
+      <tr><td><code>pom.xml</code></td><td>Maven build file — all dependencies, Java 21 target.</td></tr>
+      <tr><td><code>Dockerfile</code></td><td>Only used for the AWS deploy path. Not needed for local <code>mvn</code>/<code>java</code> use.</td></tr>
+      <tr><td><code>src/main/resources/mappings/*.json</code></td><td><strong>The actual contract for every service this stub serves</strong> — one file per scenario. The section below is generated directly from these files.</td></tr>
+      <tr><td><code>src/main/resources/application.yml</code></td><td>Ports, WS-Security toggle, logging config.</td></tr>
+    </table>
+
+    <h2 id="service-reference">Service reference</h2>
+    <p>This stub serves 3 endpoints (2 REST + 1 SOAP). Every card below was generated directly from this stub's real WireMock mappings.</p>
+    
+    <div class="swagger-op">
+      <button class="op-summary post" onclick="toggleOp(this)">
+        <span class="method-pill post">POST</span>
+        <span class="op-path">/v2/account-management/account-enquiry-router/enquire</span>
+        <span class="op-desc">Dynamic Guide Demo Stub 1 — default</span>
+        <span class="op-kind-tag">REST</span>
+        <span class="op-chevron">▾</span>
+      </button>
+      <div class="op-body">
+        <h5>Request example</h5>
+        <div class="code-wrap"><button class="copy-btn" onclick="copyCode(this)">Copy</button><pre><code>POST /v2/account-management/account-enquiry-router/enquire HTTP/1.1
+Host: localhost:8080
+Content-Type: application/json
+x-interaction-id: AR7214520
+channel: QB
+
+{}</code></pre></div>
+
+        <h5>Parameters</h5>
+        <table><tr><th>Name</th><th>In</th><th>Description</th></tr><tr><td><code>aggregate</code></td><td>query</td><td>Must equal <code>SUP FLAGS</code></td></tr><tr><td><code>Content-Type</code></td><td>header <span class="req-flag">required</span></td><td>Must equal <code>application/json</code> (case-insensitive)</td></tr><tr><td><code>x-interaction-id</code></td><td>header <span class="req-flag">required</span></td><td>Must equal <code>AR7214520</code></td></tr><tr><td><code>channel</code></td><td>header <span class="req-flag">required</span></td><td>Must equal <code>QB</code></td></tr></table>
+        <p class="hint-text">No request body pattern — any well-formed body is accepted (or none, for GET-style calls).</p>
+
+        <h5>Responses</h5>
+        <table><tr><th>Code</th><th>Description</th></tr><tr><td><code>200</code></td><td>Success response. Contains a <code>{{...}}</code> template value echoed back from your request.</td></tr></table>
+        <h5>Response body preview</h5><div class="code-wrap"><button class="copy-btn" onclick="copyCode(this)">Copy</button><pre><code>[{&quot;accountEnquiryResponse&quot;:[{&quot;generalAccountInfo&quot;:{&quot;identifierType&quot;:&quot;BBAN&quot;,&quot;identifierValue&quot;:&quot;12542012113221&quot;,&quot;subPrdTypeCatCd&quot;:&quot;&quot;,&quot;accountStatus&quot;:&quot;Open&quot;,
+&quot;accountShortName&quot;:&quot;EuroAccount&quot;,&quot;accountTypeCode&quot;:&quot;Q1&quot;,&quot;accountOpenDate&quot;:&quot;2011-01-01&quot;,&quot;accountCloseDate&quot;:&quot;&quot;,&quot;accountCurrency&quot;:&quot;&quot;,&quot;responsibilityCode&quot;:&quot;R&quot;,
+&quot;purposeOfAccountIndicator&quot;:&quot;KNC&quot;,&quot;segmentDepartmentCode&quot;:&quot;&quot;,&quot;badDebtCode&quot;:&quot;R&quot;,&quot;cashlineStopCode&quot;:&quot;R&quot;,&quot;accountStopCode&quot;:&quot;N&quot;,
+&quot;parentInfo&quot;:{&quot;accountSortCode&quot;:&quot;132546&quot;,&quot;accountNumber&quot;:&quot;85142341&quot;,&quot;accountTypeCode&quot;:&quot;Q9&quot;}}}}]</code></pre></div>
+        
+
+        <button class="try-btn" onclick="toggleTry(this)">Try it out</button>
+        <div class="try-out-pane"><h5>PowerShell</h5><div class="code-wrap"><button class="copy-btn" onclick="copyCode(this)">Copy</button><pre><code>Invoke-RestMethod -Uri "http://localhost:8080/v2/account-management/account-enquiry-router/enquire" -Method POST -Headers @{"Content-Type"="application/json"; "x-interaction-id"="AR7214520"; "channel"="QB"} -Body '{}'</code></pre></div><h5>curl</h5><div class="code-wrap"><button class="copy-btn" onclick="copyCode(this)">Copy</button><pre><code>curl -X POST "http://localhost:8080/v2/account-management/account-enquiry-router/enquire" -H "Content-Type: application/json" -H "x-interaction-id: AR7214520" -H "channel: QB" -d "{}"</code></pre></div></div>
+      </div>
+    </div>
+
+    <div class="swagger-op">
+      <button class="op-summary post" onclick="toggleOp(this)">
+        <span class="method-pill post">POST</span>
+        <span class="op-path">/v2/account-management/account-enquiry-router/enquire</span>
+        <span class="op-desc">Dynamic Guide Demo Stub 2 — default</span>
+        <span class="op-kind-tag">REST</span>
+        <span class="op-chevron">▾</span>
+      </button>
+      <div class="op-body">
+        <h5>Request example</h5>
+        <div class="code-wrap"><button class="copy-btn" onclick="copyCode(this)">Copy</button><pre><code>POST /v2/account-management/account-enquiry-router/enquire HTTP/1.1
+Host: localhost:8080
+Content-Type: application/json
+x-interaction-id: AR7214523
+
+{}</code></pre></div>
+
+        <h5>Parameters</h5>
+        <table><tr><th>Name</th><th>In</th><th>Description</th></tr><tr><td><code>aggregate</code></td><td>query</td><td>Must equal <code>SUP FLAGS</code></td></tr><tr><td><code>Content-Type</code></td><td>header <span class="req-flag">required</span></td><td>Must equal <code>application/json</code> (case-insensitive)</td></tr><tr><td><code>x-interaction-id</code></td><td>header <span class="req-flag">required</span></td><td>Must equal <code>AR7214523</code></td></tr></table>
+        <p class="hint-text">No request body pattern — any well-formed body is accepted (or none, for GET-style calls).</p>
+
+        <h5>Responses</h5>
+        <table><tr><th>Code</th><th>Description</th></tr><tr><td><code>400</code></td><td>Error response. Contains a <code>{{...}}</code> template value echoed back from your request.</td></tr></table>
+        <h5>Response body preview</h5><div class="code-wrap"><button class="copy-btn" onclick="copyCode(this)">Copy</button><pre><code>{&quot;code&quot;:&quot;InvalidRequest&quot;,&quot;message&quot;:&quot;Invalid request parameters&quot;,&quot;errors&quot;:[{&quot;errorCode&quot;:&quot;VRTCACER4110&quot;,&quot;message&quot;:&quot;identifiers should not be greater than
+10&quot;,&quot;fieldName&quot;:&quot;identifiers&quot;}]}</code></pre></div>
+        
+
+        <button class="try-btn" onclick="toggleTry(this)">Try it out</button>
+        <div class="try-out-pane"><h5>PowerShell</h5><div class="code-wrap"><button class="copy-btn" onclick="copyCode(this)">Copy</button><pre><code>Invoke-RestMethod -Uri "http://localhost:8080/v2/account-management/account-enquiry-router/enquire" -Method POST -Headers @{"Content-Type"="application/json"; "x-interaction-id"="AR7214523"} -Body '{}'</code></pre></div><h5>curl</h5><div class="code-wrap"><button class="copy-btn" onclick="copyCode(this)">Copy</button><pre><code>curl -X POST "http://localhost:8080/v2/account-management/account-enquiry-router/enquire" -H "Content-Type: application/json" -H "x-interaction-id: AR7214523" -d "{}"</code></pre></div></div>
+      </div>
+    </div>
+
+    <div class="swagger-op">
+      <button class="op-summary post" onclick="toggleOp(this)">
+        <span class="method-pill post">POST</span>
+        <span class="op-path">/NWB/DB_Core_Online_Systems/DBGetAccMasterDataAJC</span>
+        <span class="op-desc">Dynamic Guide Demo Stub 3 — default</span>
+        <span class="op-kind-tag">SOAP</span>
+        <span class="op-chevron">▾</span>
+      </button>
+      <div class="op-body">
+        <h5>Request example</h5>
+        <div class="code-wrap"><button class="copy-btn" onclick="copyCode(this)">Copy</button><pre><code>POST /NWB/DB_Core_Online_Systems/DBGetAccMasterDataAJC HTTP/1.1
+Host: localhost:8080
+SOAPAction: getAccMasterData
+Content-Type: text/xml;charset=utf-8
+
+{}</code></pre></div>
+
+        <h5>Parameters</h5>
+        <table><tr><th>Name</th><th>In</th><th>Description</th></tr><tr><td><code>SOAPAction</code></td><td>header <span class="req-flag">required</span></td><td>Must equal <code>getAccMasterData</code></td></tr><tr><td><code>Content-Type</code></td><td>header <span class="req-flag">required</span></td><td>Must equal <code>text/xml;charset=utf-8</code> (case-insensitive)</td></tr></table>
+        <p class="hint-text">No request body pattern — any well-formed body is accepted (or none, for GET-style calls).</p>
+
+        <h5>Responses</h5>
+        <table><tr><th>Code</th><th>Description</th></tr><tr><td><code>200</code></td><td>Success response.</td></tr></table>
+        <h5>Response body preview</h5><div class="code-wrap"><button class="copy-btn" onclick="copyCode(this)">Copy</button><pre><code>&lt;soapenv:Envelope xmlns:acc=&quot;http://DBAMCWRP.DBgetAccMasterDataAJC.coresystems.rbsg.com&quot; xmlns:soapenv=&quot;http://schemas.xmlsoap.org/soap/envelope/&quot; xmlns:res=&quot;http://response.getAccMasterData.DBGetAccMasterDataAJC.coresystems.rbsg.com&quot; xmlns:xsi=&quot;http://www.w3.org/2001/XMLSchema-instance&quot;&gt;
+    &lt;soapenv:Header/&gt;
+    &lt;soapenv:Body&gt;
+        &lt;acc:getAccMasterDataResponse&gt;
+            &lt;res:requestId&gt;1234567890&lt;/res:requestId&gt;
+            &lt;res:responseCode&gt;0&lt;/res:responseCode&gt;
+            &lt;res:validationerrmsg xsi:nil=&quot;true&quot;/&gt;
+            &lt;res:responseData&gt;
+                &lt;!--1 to 200 repetitions:--&gt;
+                &lt;res:responseArray&gt;
+                    &lt;res:branchNo&gt;162222&lt;/res:branchNo&gt;
+      
+... (truncated)</code></pre></div>
+        <p class="truncate-note">Response body truncated for display — 418,613 characters in the real mapping. Full content is in the actual <code>.json</code> file under <code>src/main/resources/mappings/</code>.</p>
+
+        <button class="try-btn" onclick="toggleTry(this)">Try it out</button>
+        <div class="try-out-pane"><h5>PowerShell</h5><div class="code-wrap"><button class="copy-btn" onclick="copyCode(this)">Copy</button><pre><code>Invoke-RestMethod -Uri "http://localhost:8080/NWB/DB_Core_Online_Systems/DBGetAccMasterDataAJC" -Method POST -Headers @{"SOAPAction"="getAccMasterData"; "Content-Type"="text/xml;charset=utf-8"} -Body '{}'</code></pre></div><h5>curl</h5><div class="code-wrap"><button class="copy-btn" onclick="copyCode(this)">Copy</button><pre><code>curl -X POST "http://localhost:8080/NWB/DB_Core_Online_Systems/DBGetAccMasterDataAJC" -H "SOAPAction: getAccMasterData" -H "Content-Type: text/xml;charset=utf-8" -d "{}"</code></pre></div></div>
+      </div>
+    </div>
+
+    <h2 id="nft">Building NFT / performance test scripts</h2>
+    <p>Whatever tool you use — JMeter, k6, Gatling, LoadRunner — every HTTP sampler needs the same four things, all visible in each card above: method + URL, required headers, any body pattern, and the expected response.</p>
+    <div class="callout tip">
+      <strong>Tip for ramping load:</strong> if a response's description mentions an echoed template
+      value, vary that value per virtual user so your assertions stay meaningful instead of asserting on
+      a hardcoded value.
+    </div>
+
+    <h2 id="collisions">Fixing mapping collisions</h2>
+    <p>If two mappings end up with an <strong>identical</strong> request block (same method, URL, and headers) and nothing else distinguishes them, WireMock can only ever reach one of them. This happens most often with SOAP captures — several calls to the same operation and headers, differing only in the XML payload.</p>
+    <div class="callout bad"><strong>Symptom:</strong> two scenarios you expect to both work — one always "wins," the other returns the wrong response no matter what you send.</div>
+    <p><strong>Fix:</strong> add a <code>bodyPatterns</code> entry using a real, distinguishing element from each request's body:</p>
+    <pre><code>{
+  "request": {
+    "method": "POST",
+    "urlPath": "/example/operation",
+    "bodyPatterns": [
+      {
+        "matchesXPath": "//ns:requestId[text()='ABC123']",
+        "xPathNamespaces": { "ns": "http://example.com/ns" }
+      }
+    ]
+  }
+}</code></pre>
+    <p>For a JSON body, use <code>"matchesJsonPath"</code> instead of <code>matchesXPath</code>, or <code>"contains"</code> for a simple substring check.</p>
+
+    <h2 id="ws-security">WS-Security</h2>
+    <p>
+      Set <code>SOAP_WS_SECURITY_ENABLED=true</code> (plus <code>SOAP_WS_SECURITY_USERNAME</code> /
+      <code>SOAP_WS_SECURITY_PASSWORD</code>) to require a valid WS-Security <code>UsernameToken</code>
+      on every SOAP request this stub serves. Enforced by <code>WsSecurityRequestFilter</code>, registered
+      directly into WireMock's own request pipeline — the same one that actually serves stub traffic — so
+      it genuinely sees and can reject every real call.
+    </p>
+    <p>Scope: a plain-text <code>Username</code> + <code>Password</code> pair against the single
+    username/password configured for the whole deployment. <code>PasswordDigest</code> isn't implemented.
+    Requests that don't look like SOAP are left untouched even when this is enabled.</p>
+
+    <h2 id="troubleshooting">Troubleshooting</h2>
+    <table>
+      <tr><th>Symptom</th><th>Cause / fix</th></tr>
+      <tr><td><code>Port 8080/8081 was already in use</code></td><td>A previous run is still alive. Stop it, or start this one on different ports (see <a class="crosslink" href="#ports">above</a>).</td></tr>
+      <tr><td>Request returns <code>404 Request was not matched</code></td><td>WireMock's error body shows exactly which header/query/body pattern didn't match — compare it against the relevant card above.</td></tr>
+      <tr><td>Two similar requests return the same response</td><td>Mapping collision — see <a class="crosslink" href="#collisions">above</a>.</td></tr>
+      <tr><td>Build fails with a Java compiler error</td><td>You're building with a JRE, not a JDK. Install the full JDK 21.</td></tr>
+    </table>
+
+  </main>
+</div>
+<script>
+  function toggleOp(btn) { btn.parentElement.classList.toggle('open'); }
+  function toggleTry(btn) { btn.nextElementSibling.classList.toggle('open'); }
+  function copyCode(btn) {
+    var code = btn.parentElement.querySelector('code').innerText;
+    navigator.clipboard.writeText(code).then(function() {
+      var original = btn.textContent;
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(function() { btn.textContent = original; btn.classList.remove('copied'); }, 1400);
+    }).catch(function() {});
+  }
+  (function() {
+    var links = Array.prototype.slice.call(document.querySelectorAll('nav.toc a'));
+    var sections = links.map(function(a) { return document.getElementById(a.getAttribute('href').slice(1)); }).filter(Boolean);
+    if (!('IntersectionObserver' in window) || sections.length === 0) return;
+    var observer = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          links.forEach(function(l) { l.classList.remove('active'); });
+          var match = links.find(function(a) { return a.getAttribute('href') === '#' + entry.target.id; });
+          if (match) match.classList.add('active');
+        }
+      });
+    }, { rootMargin: '-20% 0px -70% 0px' });
+    sections.forEach(function(s) { observer.observe(s); });
+  })();
+</script>
+</body>
+</html>

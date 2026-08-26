@@ -43,6 +43,19 @@ public class WireMockConfig implements ApplicationRunner {
     @Value("${stub.response-templating.enabled:true}")
     private boolean responseTemplatingEnabled;
 
+    // WS-Security UsernameToken validation — enforced by WsSecurityRequestFilter,
+    // registered below only when enabled. See that class's javadoc for why this
+    // lives here (in WireMock's own request pipeline) rather than in a Spring-WS
+    // interceptor, which never sees stub traffic at all.
+    @Value("${mockingbird.soap.ws-security.enabled:false}")
+    private boolean wsSecurityEnabled;
+
+    @Value("${mockingbird.soap.ws-security.username:stub-user}")
+    private String wsSecurityUsername;
+
+    @Value("${mockingbird.soap.ws-security.password:}")
+    private String wsSecurityPassword;
+
     private WireMockServer wireMockServer;
     private Path extractedMappingsRoot;
 
@@ -89,12 +102,20 @@ public class WireMockConfig implements ApplicationRunner {
                 // (TemplateEngine, boolean, FileSource, List<TemplateModelDataProviderExtension>).
                 .globalTemplating(responseTemplatingEnabled);
 
+        if (wsSecurityEnabled) {
+            config.extensions(new WsSecurityRequestFilter(wsSecurityUsername, wsSecurityPassword));
+        }
+
         wireMockServer = new WireMockServer(config);
         wireMockServer.start();
 
         log.info("WireMock stub server started on port {} ({} acceptors, {} async threads)",
                 stubPort, acceptors, asyncThreads);
         log.info("Loaded {} stub mappings", wireMockServer.listAllStubMappings().getMappings().size());
+        if (wsSecurityEnabled) {
+            log.info("WS-Security UsernameToken validation is ENABLED for SOAP requests (username: {})",
+                    wsSecurityUsername);
+        }
     }
 
     /**

@@ -15,28 +15,39 @@ _PATH_PARAM_RE = re.compile(r'\{(\w+)\}')
 _SAFE_CHAR_RE = re.compile(r'[^\w\s-]')
 
 
+def build_wiremock_mappings(parsed: ParsedFile) -> list[tuple[ParsedStub, ParsedScenario, dict]]:
+    """Build the WireMock mapping dict for every scenario, without writing files.
+
+    Returns (stub, scenario, mapping_dict) triples — the same mapping_dict that
+    generate_wiremock_mappings writes to disk, plus the source ParsedStub/
+    ParsedScenario for callers (e.g. the setup-guide generator) that want to
+    render something richer than the raw WireMock JSON. This is the single
+    place mapping construction happens; generate_wiremock_mappings and any
+    other consumer both go through it so nothing can drift from what actually
+    gets deployed.
+    """
+    results: list[tuple[ParsedStub, ParsedScenario, dict]] = []
+    for stub in parsed.stubs:
+        total = len(stub.scenarios)
+        for i, scenario in enumerate(stub.scenarios):
+            priority = total - i  # first listed scenario gets highest priority
+            mapping = _build_mapping(stub, scenario, priority)
+            results.append((stub, scenario, mapping))
+    return results
+
+
 def generate_wiremock_mappings(parsed: ParsedFile, output_dir: Path) -> list[Path]:
     """Write one WireMock JSON file per scenario. Returns list of created file paths."""
     mappings_dir = output_dir / "mappings"
     mappings_dir.mkdir(parents=True, exist_ok=True)
 
     created: list[Path] = []
-    for stub in parsed.stubs:
-        created.extend(_generate_for_stub(stub, mappings_dir))
-    return created
-
-
-def _generate_for_stub(stub: ParsedStub, output_dir: Path) -> list[Path]:
-    total = len(stub.scenarios)
-    files: list[Path] = []
-    for i, scenario in enumerate(stub.scenarios):
-        priority = total - i          # first listed scenario gets highest priority
-        mapping = _build_mapping(stub, scenario, priority)
+    for stub, scenario, mapping in build_wiremock_mappings(parsed):
         filename = _safe_filename(stub.name, scenario.name)
-        path = output_dir / f"{filename}.json"
+        path = mappings_dir / f"{filename}.json"
         path.write_text(json.dumps(mapping, indent=2, ensure_ascii=False), encoding="utf-8")
-        files.append(path)
-    return files
+        created.append(path)
+    return created
 
 
 def _build_mapping(stub: ParsedStub, scenario: ParsedScenario, priority: int) -> dict:

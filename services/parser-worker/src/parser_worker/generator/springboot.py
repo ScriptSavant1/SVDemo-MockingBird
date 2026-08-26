@@ -2,18 +2,27 @@
 
 Output directory structure:
     output/
-    ├── mappings/               WireMock JSON mapping files
     ├── pom.xml                 Maven build (all deps from Artifactory)
     ├── settings.xml            Artifactory mirror config
     ├── Dockerfile              Java 21 base image
     ├── docker-compose.yml      For local testing
+    ├── STUB_ENGINE_SETUP_GUIDE.html   Build/run instructions + per-endpoint
+    │                                   service reference — self-contained,
+    │                                   readable straight from the extracted zip
     └── src/main/
         ├── java/com/mockingbird/stubs/
         │   ├── StubApplication.java
         │   └── WireMockConfig.java
         └── resources/
             ├── application.yml
-            └── mappings/       (copy of mappings/ — baked into JAR)
+            └── mappings/       WireMock JSON mapping files (baked into the JAR
+                                 via classpath — see WireMockConfig.java)
+
+Mappings are written directly to src/main/resources/mappings/ — there is no
+separate top-level mappings/ copy. Nothing in the Docker build or
+docker-compose.yml reads a top-level copy (the runtime only ever loads
+classpath resources), so an earlier version of this generator that produced
+both was shipping a dead, confusing duplicate in every downloaded project.
 """
 from __future__ import annotations
 
@@ -23,6 +32,7 @@ import shutil
 from pathlib import Path
 
 from ..models import ParsedFile
+from .setup_guide import generate_setup_guide_html
 from .wiremock import generate_wiremock_mappings
 
 _SAFE_ID_RE = re.compile(r'[^\w-]')
@@ -61,38 +71,36 @@ def generate_springboot_project(
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. WireMock mapping JSON files → output/mappings/
-    generate_wiremock_mappings(parsed, output_dir)
-
-    # 2. Static template files
+    # 1. Static template files
     _copy("Dockerfile", output_dir)
     _copy("docker-compose.yml", output_dir)
     _copy("settings.xml", output_dir)
 
-    # 3. pom.xml — project-specific placeholders filled in
+    # Setup guide — generated fresh for THIS stub, not a copied static file.
+    # The service-reference section reflects this stub's actual mappings.
+    guide_html = generate_setup_guide_html(parsed, project_name)
+    (output_dir / "STUB_ENGINE_SETUP_GUIDE.html").write_text(guide_html, encoding="utf-8")
+
+    # 2. pom.xml — project-specific placeholders filled in
     _write_pom(output_dir, project_id, project_name)
 
-    # 4. Java source files
+    # 3. Java source files
     java_pkg = "src/main/java/com/mockingbird/stubs"
     (output_dir / java_pkg).mkdir(parents=True, exist_ok=True)
     _copy(f"{java_pkg}/StubApplication.java", output_dir)
     _copy(f"{java_pkg}/WireMockConfig.java", output_dir)
-    _copy(f"{java_pkg}/WsSecurityConfig.java", output_dir)   # SOAP WS-Security
-    _copy(f"{java_pkg}/WsdlConfig.java", output_dir)          # WSDL serving
+    _copy(f"{java_pkg}/WsSecurityRequestFilter.java", output_dir)  # SOAP WS-Security
+    _copy(f"{java_pkg}/WsdlConfig.java", output_dir)                # WSDL serving
 
-    # 5. Application config + WSDL placeholder
+    # 4. Application config + WSDL placeholder
     (output_dir / "src/main/resources").mkdir(parents=True, exist_ok=True)
     _copy("src/main/resources/application.yml", output_dir)
     (output_dir / "src/main/resources/wsdl").mkdir(parents=True, exist_ok=True)
     _copy("src/main/resources/wsdl/service.wsdl", output_dir)
 
-    # 6. Copy mappings into src/main/resources/mappings/ (baked into the JAR)
-    resources_mappings = output_dir / "src/main/resources/mappings"
-    resources_mappings.mkdir(parents=True, exist_ok=True)
-    src_mappings = output_dir / "mappings"
-    if src_mappings.exists():
-        for f in src_mappings.glob("*.json"):
-            shutil.copy2(f, resources_mappings / f.name)
+    # 5. WireMock mapping JSON files, written straight to their final classpath
+    # location — no top-level mappings/ copy (see module docstring).
+    generate_wiremock_mappings(parsed, output_dir / "src/main/resources")
 
     return output_dir
 
