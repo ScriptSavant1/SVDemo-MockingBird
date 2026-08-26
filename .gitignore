@@ -68,9 +68,7 @@ services/auth-service/auth-local.db-wal
 # SQLite WAL files (any service)
 *.db-shm
 *.db-wal
-Sample_SV_Files/ESP/JSON/1781082059482RTCAERv01_Request_20260610_100059.txt
-Sample_SV_Files/ESP/JSON/1781082059500RTCAERv01_Success1Response_20260610_100059.txt
-Sample_SV_Files/ESP/JSON/1781082551676RTCAERv01_Error400Response_20260610_100911.txt
-Sample_SV_Files/ESP/JSON/1781082552845RTCAERv01_Request_20260610_100912.txt
-Sample_SV_Files/ESP/XML/Formatted_Full_XML_Request.txt
-Sample_SV_Files/ESP/XML/Formatted_Full_XML_Response.txt
+
+# Real capture samples — kept locally for dev/testing, never in git history
+# (see project history: removed and purged via git-filter-repo)
+Sample_SV_Files/
