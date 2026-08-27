@@ -23,9 +23,9 @@ everything below — nothing below is overridden by them.
 maps to this project's existing `docs/` folder — ARCHITECTURE.md,
 DECISIONS_LOG.md, TECH_STACK.md, IMPLEMENTATION_PLAN.md all already live
 there. Don't create a separate `/ai-brain/` folder; treat `docs/` as its
-equivalent. `FEATURES.md`, `BUGS.md`, `CONFIGURATION.md`, and `GLOSSARY.md`
-do not exist yet in `docs/` — create them there, not elsewhere, the first
-time something needs to be recorded in one of them.
+equivalent. `docs/FEATURES.md` now exists. `BUGS.md`, `CONFIGURATION.md`,
+and `GLOSSARY.md` still do not — create them there, not elsewhere, the
+first time something needs to be recorded in one of them.
 
 ---
 
@@ -261,10 +261,12 @@ mockingbird/
 │   ├── DOCUMENTATION_STANDARDS.md
 │   ├── LOCAL_DEVELOPMENT.md
 │   ├── USER_GUIDE.md
+│   ├── FEATURES.md                  ← Feature-level docs (CA LISA parsing,
+│   │                                    dynamic lookup-table engine, batch upload)
 │   ├── architecture/
 │   ├── input-formats/
 │   └── screenshots/
-│   (FEATURES.md, BUGS.md, CONFIGURATION.md, GLOSSARY.md — not created yet;
+│   (BUGS.md, CONFIGURATION.md, GLOSSARY.md — not created yet;
 │    create here, not elsewhere, when first needed)
 ├── unit-tests/                      ← does not exist yet (tests live per-service instead)
 ├── regression-tests/                ← does not exist yet

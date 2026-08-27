@@ -28,20 +28,51 @@ separate top-level mappings/ copy. Nothing in the Docker build or
 docker-compose.yml reads a top-level copy (the runtime only ever loads
 classpath resources), so an earlier version of this generator that produced
 both was shipping a dead, confusing duplicate in every downloaded project.
+
+Two entry points share one in-memory file build (build_springboot_project_files):
+    generate_springboot_project      writes real files under output_dir — for a
+                                      local `mvn package` / CLI workflow that
+                                      needs an actual directory on disk.
+    generate_springboot_project_zip  returns the project as ZIP bytes directly,
+                                      never touching the filesystem — for a hot
+                                      request path (e.g. ingestion-service's
+                                      upload handler, which used to write every
+                                      file to a real temp directory, read them
+                                      all back with rglob to build a ZIP, then
+                                      delete the directory — real disk I/O for
+                                      every one of potentially hundreds of
+                                      generated files, on every upload, purely
+                                      to immediately re-read and discard them).
 """
 from __future__ import annotations
 
 import importlib.resources as _pkg
+import io
 import re
-import shutil
+import zipfile
 from pathlib import Path
+from typing import Optional
 
 from ..models import ParsedFile
-from .lookup_table import generate_lookup_tables
+from .lookup_table import build_lookup_table_files
 from .setup_guide import generate_setup_guide_html
-from .wiremock import generate_wiremock_mappings
+from .wiremock import build_wiremock_mapping_files
 
 _SAFE_ID_RE = re.compile(r'[^\w-]')
+
+_JAVA_PKG = "src/main/java/com/mockingbird/stubs"
+_STATIC_FILES = (
+    "Dockerfile",
+    "docker-compose.yml",
+    "settings.xml",
+    f"{_JAVA_PKG}/StubApplication.java",
+    f"{_JAVA_PKG}/WireMockConfig.java",
+    f"{_JAVA_PKG}/WsSecurityRequestFilter.java",   # SOAP WS-Security
+    f"{_JAVA_PKG}/WsdlConfig.java",                 # WSDL serving
+    f"{_JAVA_PKG}/DynamicLookupRequestFilter.java",  # same-URL lookup-table engine
+    "src/main/resources/application.yml",
+    "src/main/resources/wsdl/service.wsdl",
+)
 
 
 def _stub_engine_dir() -> Path:
@@ -51,6 +82,55 @@ def _stub_engine_dir() -> Path:
     because the templates/ directory is declared as package-data in pyproject.toml.
     """
     return Path(str(_pkg.files("parser_worker").joinpath("templates/stub-engine")))
+
+
+def build_springboot_project_files(
+    parsed: ParsedFile,
+    project_id: str = "",
+    project_name: str = "",
+) -> dict[str, bytes]:
+    """Build the full Spring Boot project as {relative_path: content_bytes},
+    entirely in memory — no filesystem writes, and only the read-only
+    template package resources are touched on disk. Both
+    generate_springboot_project (disk) and generate_springboot_project_zip
+    (ZIP bytes) are thin wrappers around this single build.
+    """
+    if not project_id:
+        project_id = _to_id(parsed.stubs[0].name if parsed.stubs else "stub")
+    if not project_name:
+        project_name = parsed.stubs[0].name if parsed.stubs else "Stub"
+
+    files: dict[str, bytes] = {}
+
+    # 1. Static template files, read once from the package's template dir.
+    for relative_path in _STATIC_FILES:
+        content = _read_template_bytes(relative_path)
+        if content is not None:
+            files[relative_path] = content
+
+    # 2. Setup guide — generated fresh for THIS stub, not a copied static
+    # file. The service-reference section reflects this stub's actual mappings.
+    files["STUB_ENGINE_SETUP_GUIDE.html"] = generate_setup_guide_html(parsed, project_name).encode("utf-8")
+
+    # 3. pom.xml — project-specific placeholders filled in
+    pom_bytes = _read_template_bytes("pom.xml")
+    if pom_bytes is not None:
+        pom_text = pom_bytes.decode("utf-8")
+        pom_text = pom_text.replace("{{project_id}}", project_id).replace("{{project_name}}", project_name)
+        files["pom.xml"] = pom_text.encode("utf-8")
+
+    # 4. WireMock mapping JSON files, at their final classpath location —
+    # no top-level mappings/ copy (see module docstring).
+    for relative_path, content in build_wiremock_mapping_files(parsed).items():
+        files[f"src/main/resources/{relative_path}"] = content.encode("utf-8")
+
+    # 5. Dynamic lookup-table data files for any stub with enough same-URL
+    # captures to skip static per-scenario mappings entirely — see
+    # generator/lookup_table.py and DynamicLookupRequestFilter.java.
+    for relative_path, content in build_lookup_table_files(parsed).items():
+        files[f"src/main/resources/{relative_path}"] = content.encode("utf-8")
+
+    return files
 
 
 def generate_springboot_project(
@@ -70,69 +150,36 @@ def generate_springboot_project(
     Returns:
         output_dir (the generated project root).
     """
-    if not project_id:
-        project_id = _to_id(parsed.stubs[0].name if parsed.stubs else "stub")
-    if not project_name:
-        project_name = parsed.stubs[0].name if parsed.stubs else "Stub"
-
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    # 1. Static template files
-    _copy("Dockerfile", output_dir)
-    _copy("docker-compose.yml", output_dir)
-    _copy("settings.xml", output_dir)
-
-    # Setup guide — generated fresh for THIS stub, not a copied static file.
-    # The service-reference section reflects this stub's actual mappings.
-    guide_html = generate_setup_guide_html(parsed, project_name)
-    (output_dir / "STUB_ENGINE_SETUP_GUIDE.html").write_text(guide_html, encoding="utf-8")
-
-    # 2. pom.xml — project-specific placeholders filled in
-    _write_pom(output_dir, project_id, project_name)
-
-    # 3. Java source files
-    java_pkg = "src/main/java/com/mockingbird/stubs"
-    (output_dir / java_pkg).mkdir(parents=True, exist_ok=True)
-    _copy(f"{java_pkg}/StubApplication.java", output_dir)
-    _copy(f"{java_pkg}/WireMockConfig.java", output_dir)
-    _copy(f"{java_pkg}/WsSecurityRequestFilter.java", output_dir)  # SOAP WS-Security
-    _copy(f"{java_pkg}/WsdlConfig.java", output_dir)                # WSDL serving
-    _copy(f"{java_pkg}/DynamicLookupRequestFilter.java", output_dir)  # same-URL lookup-table engine
-
-    # 4. Application config + WSDL placeholder
-    (output_dir / "src/main/resources").mkdir(parents=True, exist_ok=True)
-    _copy("src/main/resources/application.yml", output_dir)
-    (output_dir / "src/main/resources/wsdl").mkdir(parents=True, exist_ok=True)
-    _copy("src/main/resources/wsdl/service.wsdl", output_dir)
-
-    # 5. WireMock mapping JSON files, written straight to their final classpath
-    # location — no top-level mappings/ copy (see module docstring).
-    generate_wiremock_mappings(parsed, output_dir / "src/main/resources")
-
-    # 6. Dynamic lookup-table data files for any stub with enough same-URL
-    # captures to skip static per-scenario mappings entirely — see
-    # generator/lookup_table.py and DynamicLookupRequestFilter.java.
-    generate_lookup_tables(parsed, output_dir / "src/main/resources")
-
+    for relative_path, content in build_springboot_project_files(parsed, project_id, project_name).items():
+        path = output_dir / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
     return output_dir
 
 
-def _copy(relative_path: str, output_dir: Path) -> None:
+def generate_springboot_project_zip(
+    parsed: ParsedFile,
+    project_id: str = "",
+    project_name: str = "",
+) -> bytes:
+    """Return the full Spring Boot project as ZIP bytes — no filesystem
+    access at all beyond reading the (read-only) bundled templates. Use this
+    instead of generate_springboot_project + manually zipping a temp
+    directory: that pattern costs one real disk write and one real disk read
+    per generated file (potentially hundreds, for a stub with many
+    scenarios) purely to immediately discard the directory afterwards.
+    """
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for relative_path, content in build_springboot_project_files(parsed, project_id, project_name).items():
+            zf.writestr(relative_path, content)
+    return buf.getvalue()
+
+
+def _read_template_bytes(relative_path: str) -> Optional[bytes]:
     src = _stub_engine_dir() / relative_path
-    if src.exists():
-        dst = output_dir / relative_path
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dst)
-
-
-def _write_pom(output_dir: Path, project_id: str, project_name: str) -> None:
-    src = _stub_engine_dir() / "pom.xml"
-    if not src.exists():
-        return
-    content = src.read_text(encoding="utf-8")
-    content = content.replace("{{project_id}}", project_id)
-    content = content.replace("{{project_name}}", project_name)
-    (output_dir / "pom.xml").write_text(content, encoding="utf-8")
+    return src.read_bytes() if src.exists() else None
 
 
 def _to_id(name: str) -> str:

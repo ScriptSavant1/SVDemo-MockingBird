@@ -3,6 +3,15 @@
 Called at upload time so the WireMock ZIP is ready before the user clicks
 Generate.  The generate job endpoint reads this ZIP back from local storage
 and returns it to the portal; no SQS / worker needed for local dev.
+
+Mapping construction itself is delegated entirely to
+parser_worker.generator.wiremock.build_wiremock_mappings — this used to have
+its own independent, simpler mapping builder that had no bodyPatterns
+support at all, so any stub with more than one scenario at the same URL
+(the same-URL-differentiation case this whole generator exists for) would
+produce mapping files that collide in WireMock with no way to disambiguate
+between them. Delegating means this ZIP can never drift from what the full
+Spring Boot project (stub-engine.zip) actually serves.
 """
 from __future__ import annotations
 
@@ -10,90 +19,15 @@ import io
 import json
 import re
 import zipfile
-from pathlib import Path
-from typing import Any
-from urllib.parse import unquote_plus
 
-from parser_worker.models import ParsedFile, ParsedScenario, ParsedStub
+from parser_worker.generator.wiremock import build_wiremock_mappings
+from parser_worker.models import ParsedFile
 
 
 def _sanitise(name: str) -> str:
     """Make a filename-safe slug from an arbitrary string."""
     slug = re.sub(r"[^\w\-]", "_", name).strip("_")
     return slug[:80] or "stub"
-
-
-def _header_matcher(name: str, value: str) -> dict[str, Any]:
-    """Build a WireMock header matcher, case-insensitive for Content-Type.
-
-    See the identical helper (and full rationale) in
-    parser_worker/generator/wiremock.py — Jetty (WireMock's underlying HTTP
-    server) normalises the Content-Type charset parameter's casing before
-    matching, so a verbatim-captured value never matches live traffic
-    otherwise. Verified against a real WireMock instance.
-    """
-    matcher: dict[str, Any] = {"equalTo": value}
-    if name.lower() == "content-type":
-        matcher["caseInsensitive"] = True
-    return matcher
-
-
-def _build_request_pattern(stub: ParsedStub) -> dict[str, Any]:
-    """Build the WireMock request matcher block from a ParsedStub."""
-    req = stub.request
-    method_str = req.method.value if hasattr(req.method, "value") else str(req.method)
-    block: dict[str, Any] = {"method": method_str}
-
-    # Split URL into path + query params
-    url = req.url or "/"
-    if "?" in url:
-        path, qs = url.split("?", 1)
-        block["urlPath"] = path
-        qparams: dict[str, Any] = {}
-        for part in qs.split("&"):
-            if "=" in part:
-                k, v = part.split("=", 1)
-                # WireMock decodes incoming query strings (application/x-www-form-urlencoded
-                # rules: '+' -> space, %XX -> byte) before matching queryParameters, so the
-                # stored matcher must be decoded the same way — see the identical fix in
-                # parser_worker/generator/wiremock.py._set_url_and_query for the full story.
-                qparams[unquote_plus(k)] = {"equalTo": unquote_plus(v)}
-        if qparams:
-            block["queryParameters"] = qparams
-    else:
-        block["urlPath"] = url
-
-    # Required headers to match
-    if req.required_headers:
-        block["headers"] = {k: _header_matcher(k, v) for k, v in req.required_headers.items()}
-
-    return block
-
-
-def _build_response_block(scenario: ParsedScenario) -> dict[str, Any]:
-    """Build the WireMock response block from a ParsedScenario."""
-    block: dict[str, Any] = {"status": scenario.status}
-
-    if scenario.response_headers:
-        block["headers"] = dict(scenario.response_headers)
-
-    if scenario.body:
-        body_str = scenario.body if isinstance(scenario.body, str) else json.dumps(scenario.body)
-        block["body"] = body_str
-
-    # Enable Handlebars templating when the response contains {{...}} expressions
-    if scenario.has_dynamic_placeholders():
-        block["transformers"] = ["response-template"]
-
-    return block
-
-
-def _mapping_for_scenario(stub: ParsedStub, scenario: ParsedScenario) -> dict[str, Any]:
-    return {
-        "name": f"{stub.name} — {scenario.name}",
-        "request": _build_request_pattern(stub),
-        "response": _build_response_block(scenario),
-    }
 
 
 def generate_wiremock_zip(parsed_file: ParsedFile) -> bytes:
@@ -103,16 +37,19 @@ def generate_wiremock_zip(parsed_file: ParsedFile) -> bytes:
         mappings/
             <stub_slug>/
                 <scenario_slug>.json
+
+    include_lookup_table_stubs=True: this ZIP is just raw JSON mapping files
+    with no accompanying Java code, so a stub that would otherwise get the
+    dynamic lookup-table treatment (see generator/lookup_table.py) still
+    needs its static per-scenario mappings here — there's no
+    DynamicLookupRequestFilter to hand it off to in a plain "drop these
+    files into WireMock" download.
     """
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for stub in parsed_file.stubs:
-            stub_slug = _sanitise(stub.name)
-            for scenario in stub.scenarios:
-                scenario_slug = _sanitise(scenario.name)
-                mapping = _mapping_for_scenario(stub, scenario)
-                filename = f"mappings/{stub_slug}/{scenario_slug}.json"
-                zf.writestr(filename, json.dumps(mapping, indent=2))
+        for stub, scenario, mapping in build_wiremock_mappings(parsed_file, include_lookup_table_stubs=True):
+            filename = f"mappings/{_sanitise(stub.name)}/{_sanitise(scenario.name)}.json"
+            zf.writestr(filename, json.dumps(mapping, indent=2))
 
         # README inside the ZIP
         readme = (

@@ -50,23 +50,36 @@ def should_use_lookup_table(stub: ParsedStub) -> bool:
     )
 
 
+def build_lookup_table_files(parsed: ParsedFile) -> dict[str, str]:
+    """Build every qualifying stub's lookup table as
+    {"lookup-tables/<name>.json": <json text>}, entirely in memory — no
+    filesystem access. Empty when no stub in `parsed` crosses
+    LOOKUP_TABLE_THRESHOLD.
+    """
+    return {
+        f"lookup-tables/{_safe_filename(stub.name)}.json": json.dumps(
+            _build_table(stub), indent=2, ensure_ascii=False
+        )
+        for stub in parsed.stubs
+        if should_use_lookup_table(stub)
+    }
+
+
 def generate_lookup_tables(parsed: ParsedFile, output_dir: Path) -> list[Path]:
     """Write one lookup-table JSON file per qualifying stub into
     src/main/resources/lookup-tables/ (loaded at startup by
-    DynamicLookupRequestFilter). Returns the created file paths — empty
-    when no stub in `parsed` crosses LOOKUP_TABLE_THRESHOLD.
+    DynamicLookupRequestFilter). Returns the created file paths.
+
+    Thin wrapper around build_lookup_table_files for callers that need real
+    files (e.g. a local `mvn package` / CLI workflow) — a hot upload path
+    that just needs the bytes for a ZIP should call build_lookup_table_files
+    directly instead and skip the disk round-trip entirely.
     """
     created: list[Path] = []
-    tables_dir = output_dir / "lookup-tables"
-    for stub in parsed.stubs:
-        if not should_use_lookup_table(stub):
-            continue
-        tables_dir.mkdir(parents=True, exist_ok=True)
-        path = tables_dir / f"{_safe_filename(stub.name)}.json"
-        path.write_text(
-            json.dumps(_build_table(stub), indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+    for relative_path, content in build_lookup_table_files(parsed).items():
+        path = output_dir / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
         created.append(path)
     return created
 

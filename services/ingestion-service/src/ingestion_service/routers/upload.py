@@ -14,13 +14,11 @@ GET /api/v1/projects/{project_id}/stubs/{stub_id}/wiremock.zip
 """
 from __future__ import annotations
 
-import io
 import logging
 import re
 import shutil
 import tempfile
 import uuid
-import zipfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -175,22 +173,21 @@ def upload_stub_file(
     # 8. Pre-generate the full Spring Boot stub project in local dev.
     #    In production the generator-worker does this from the SQS generate-queue.
     #    Stored at stubs/{project_id}/{stub_id}/generated/stub-engine.zip
+    #
+    #    Built directly as ZIP bytes in memory (generate_springboot_project_zip)
+    #    rather than writing every generated file to a real temp directory,
+    #    reading them all back with rglob to build a ZIP, then deleting the
+    #    directory — that used to mean real disk I/O for every one of
+    #    potentially hundreds of generated files (mappings, lookup tables,
+    #    Java sources), on every single upload, purely to immediately
+    #    re-read and discard them.
     if is_local_storage():
         springboot_key = f"stubs/{project_id}/{stub_id}/generated/stub-engine.zip"
         try:
-            from parser_worker.generator.springboot import generate_springboot_project  # noqa: PLC0415
+            from parser_worker.generator.springboot import generate_springboot_project_zip  # noqa: PLC0415
             _slug = re.sub(r"[^\w-]", "-", stub_name.lower())[:50] or "stub"
-            gen_dir = Path(tempfile.mkdtemp(prefix="mb-gen-"))
-            try:
-                generate_springboot_project(parsed_file, gen_dir, project_id=_slug, project_name=stub_name)
-                gen_buf = io.BytesIO()
-                with zipfile.ZipFile(gen_buf, "w", compression=zipfile.ZIP_DEFLATED) as gen_zf:
-                    for gen_fp in gen_dir.rglob("*"):
-                        if gen_fp.is_file():
-                            gen_zf.write(gen_fp, gen_fp.relative_to(gen_dir))
-                upload_local(springboot_key, gen_buf.getvalue())
-            finally:
-                shutil.rmtree(gen_dir, ignore_errors=True)
+            gen_bytes = generate_springboot_project_zip(parsed_file, project_id=_slug, project_name=stub_name)
+            upload_local(springboot_key, gen_bytes)
         except Exception:
             logger.exception(
                 "Spring Boot stub-engine pre-generation failed for stub %s (project %s) — "

@@ -667,6 +667,96 @@ class TestMultiCaptureSameUrl:
         assert stub.scenarios[0].match.type == MatchType.ALWAYS
 
 
+# ── inline variant: multiple captures at the same URL ────────────────────────
+#
+# The inline (unlabelled) structural variant used to only ever look at the
+# first request/response marker in a file — anything recorded after it was
+# silently dropped or garbled into the first capture's body. These prove
+# that's fixed: inline-variant files now get identical multi-capture +
+# same-URL differentiation handling to the labelled variant, for both XML
+# and JSON bodies.
+
+_INLINE_MULTI_XML_REQUESTS = (
+    '={Method="POST" URL="/api/inline-multi" httpDetails={Version="1.1" '
+    'httpHeaders={x-usercontext="UserID=9" x-requestid="guid-1" '
+    'Content-Type="application/xml"}}}<Account><Id>AAA</Id></Account>'
+    'ResponseHeader={StatusCode="200" httpDetails={Version="1.1" '
+    'httpHeaders={Content-Type="application/xml"}}}Response..'
+    '<Account><Id>AAA</Id><Status>OK-AAA</Status></Account>'
+    '={Method="POST" URL="/api/inline-multi" httpDetails={Version="1.1" '
+    'httpHeaders={x-usercontext="UserID=9" x-requestid="guid-2" '
+    'Content-Type="application/xml"}}}<Account><Id>BBB</Id></Account>'
+    'ResponseHeader={StatusCode="200" httpDetails={Version="1.1" '
+    'httpHeaders={Content-Type="application/xml"}}}Response..'
+    '<Account><Id>BBB</Id><Status>OK-BBB</Status></Account>'
+)
+
+_INLINE_MULTI_JSON_REQUESTS = (
+    '={Method="POST" URL="/api/inline-multi-json" httpDetails={Version="1.1" '
+    'httpHeaders={x-usercontext="UserID=9" Content-Type="application/json"}}}'
+    '{"id":"AAA"}'
+    'ResponseHeader={StatusCode="200" httpDetails={Version="1.1" '
+    'httpHeaders={Content-Type="application/json"}}}Response..'
+    '{"id":"AAA","status":"OK-AAA"}'
+    '={Method="POST" URL="/api/inline-multi-json" httpDetails={Version="1.1" '
+    'httpHeaders={x-usercontext="UserID=9" Content-Type="application/json"}}}'
+    '{"id":"BBB"}'
+    'ResponseHeader={StatusCode="200" httpDetails={Version="1.1" '
+    'httpHeaders={Content-Type="application/json"}}}Response..'
+    '{"id":"BBB","status":"OK-BBB"}'
+)
+
+
+class TestInlineVariantMultiCaptureSameUrl:
+    def setup_method(self):
+        self.parser = CALISAParser()
+
+    def test_xml_produces_two_scenarios_not_one_garbled_one(self):
+        pf = self.parser.parse(_INLINE_MULTI_XML_REQUESTS, "inline_multi.txt")
+        assert len(pf.stubs) == 1
+        stub = pf.stubs[0]
+        assert stub.request.url == "/api/inline-multi"
+        assert len(stub.scenarios) == 2
+        bodies = {s.body for s in stub.scenarios}
+        assert any("OK-AAA" in b for b in bodies)
+        assert any("OK-BBB" in b for b in bodies)
+
+    def test_xml_scenarios_get_distinct_body_matchers(self):
+        pf = self.parser.parse(_INLINE_MULTI_XML_REQUESTS, "inline_multi.txt")
+        stub = pf.stubs[0]
+        assert {s.match.type for s in stub.scenarios} == {MatchType.BODY_XPATH}
+        assert len({s.match.value for s in stub.scenarios}) == 2
+        assert stub.lookup_discriminator_type == "xpath"
+        assert {s.lookup_key for s in stub.scenarios} == {"AAA", "BBB"}
+
+    def test_json_produces_two_scenarios(self):
+        pf = self.parser.parse(_INLINE_MULTI_JSON_REQUESTS, "inline_multi_json.txt")
+        stub = pf.stubs[0]
+        assert len(stub.scenarios) == 2
+        assert {s.match.type for s in stub.scenarios} == {MatchType.BODY_JSON_PATH}
+        bodies = {s.body for s in stub.scenarios}
+        assert any("OK-AAA" in b for b in bodies)
+        assert any("OK-BBB" in b for b in bodies)
+
+    def test_volatile_header_excluded_same_as_labelled_variant(self):
+        pf = self.parser.parse(_INLINE_MULTI_XML_REQUESTS, "inline_multi.txt")
+        headers = pf.stubs[0].request.required_headers
+        assert "x-requestid" not in headers
+        assert headers.get("x-usercontext") == "UserID=9"
+
+    def test_single_inline_capture_unaffected(self):
+        """The original single-pair ESP-style shape must parse identically
+        to before this refactor — no bodyPatterns matcher, ALWAYS scenario."""
+        content = (
+            '={Method="GET" URL="/api/single-inline"}{}'
+            'ResponseHeader={StatusCode="200"}Response..{"ok":true}'
+        )
+        pf = self.parser.parse(content, "single_inline.txt")
+        stub = pf.stubs[0]
+        assert len(stub.scenarios) == 1
+        assert stub.scenarios[0].match.type == MatchType.ALWAYS
+
+
 class TestDifferentiateBodies:
     def test_finds_distinguishing_xml_field(self):
         bodies = ["<a><id>1</id><x>same</x></a>", "<a><id>2</id><x>same</x></a>"]

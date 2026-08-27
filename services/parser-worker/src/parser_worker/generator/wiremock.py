@@ -16,7 +16,9 @@ _PATH_PARAM_RE = re.compile(r'\{(\w+)\}')
 _SAFE_CHAR_RE = re.compile(r'[^\w\s-]')
 
 
-def build_wiremock_mappings(parsed: ParsedFile) -> list[tuple[ParsedStub, ParsedScenario, dict]]:
+def build_wiremock_mappings(
+    parsed: ParsedFile, include_lookup_table_stubs: bool = False
+) -> list[tuple[ParsedStub, ParsedScenario, dict]]:
     """Build the WireMock mapping dict for every scenario, without writing files.
 
     Returns (stub, scenario, mapping_dict) triples — the same mapping_dict that
@@ -25,13 +27,19 @@ def build_wiremock_mappings(parsed: ParsedFile) -> list[tuple[ParsedStub, Parsed
     render something richer than the raw WireMock JSON. This is the single
     place mapping construction happens; generate_wiremock_mappings and any
     other consumer both go through it so nothing can drift from what actually
-    gets deployed.
+    gets deployed — including ingestion-service's plain "wiremock.zip" quick
+    download, which has no Java extension to run DynamicLookupRequestFilter
+    and so must always get static mappings even for a stub that would
+    otherwise qualify for the lookup-table engine (include_lookup_table_stubs=True).
+
+    By default (include_lookup_table_stubs=False, used for the full Spring
+    Boot project), a stub crossing generator/lookup_table.py's threshold is
+    skipped here — it's handled by generate_lookup_tables instead, as one
+    generic request-filter route rather than N static mappings.
     """
     results: list[tuple[ParsedStub, ParsedScenario, dict]] = []
     for stub in parsed.stubs:
-        if should_use_lookup_table(stub):
-            # Handled by generator/lookup_table.py instead — one generic
-            # request-filter route + a data file, not N static mappings.
+        if not include_lookup_table_stubs and should_use_lookup_table(stub):
             continue
         total = len(stub.scenarios)
         for i, scenario in enumerate(stub.scenarios):
@@ -41,16 +49,35 @@ def build_wiremock_mappings(parsed: ParsedFile) -> list[tuple[ParsedStub, Parsed
     return results
 
 
-def generate_wiremock_mappings(parsed: ParsedFile, output_dir: Path) -> list[Path]:
-    """Write one WireMock JSON file per scenario. Returns list of created file paths."""
-    mappings_dir = output_dir / "mappings"
-    mappings_dir.mkdir(parents=True, exist_ok=True)
-
-    created: list[Path] = []
+def build_wiremock_mapping_files(parsed: ParsedFile) -> dict[str, str]:
+    """Build every WireMock mapping as {"mappings/<name>.json": <json text>},
+    entirely in memory — no filesystem access. This is the one place mapping
+    *file* naming happens; generate_wiremock_mappings (disk) and any
+    in-memory ZIP builder both call this so file layout can't drift between
+    the two the way mapping *content* used to before build_wiremock_mappings
+    became the single shared source of that.
+    """
+    files: dict[str, str] = {}
     for stub, scenario, mapping in build_wiremock_mappings(parsed):
         filename = _safe_filename(stub.name, scenario.name)
-        path = mappings_dir / f"{filename}.json"
-        path.write_text(json.dumps(mapping, indent=2, ensure_ascii=False), encoding="utf-8")
+        files[f"mappings/{filename}.json"] = json.dumps(mapping, indent=2, ensure_ascii=False)
+    return files
+
+
+def generate_wiremock_mappings(parsed: ParsedFile, output_dir: Path) -> list[Path]:
+    """Write one WireMock JSON file per scenario to disk. Returns list of created file paths.
+
+    Thin wrapper around build_wiremock_mapping_files for callers that need
+    real files (e.g. a local `mvn package` / CLI workflow) — a hot upload
+    path that just needs the bytes for a ZIP should call
+    build_wiremock_mapping_files directly instead and skip the disk
+    round-trip entirely.
+    """
+    created: list[Path] = []
+    for relative_path, content in build_wiremock_mapping_files(parsed).items():
+        path = output_dir / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
         created.append(path)
     return created
 

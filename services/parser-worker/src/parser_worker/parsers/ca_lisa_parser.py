@@ -306,10 +306,62 @@ def _scan_labelled_captures(lines: list[str]) -> list[dict]:
     return captures
 
 
+class _Capture(NamedTuple):
+    """One fully-resolved request or response capture, in the shape both
+    CA LISA structural variants converge on before _build_stub_from_captures
+    — the one place multi-capture pairing, header-stability filtering,
+    same-URL differentiation, and lookup-table field population happen, so
+    neither variant can silently diverge in how it handles "many captures
+    at one URL" (see module docstring and _build_stub_from_captures).
+    """
+    type: str                       # "request" | "response"
+    method: Optional[str]           # request only
+    url: Optional[str]              # request only
+    status: Optional[int]           # response only — already resolved via _infer_status_code
+    headers: dict[str, str]
+    body: str
+
+
 def _parse_labelled_content(
     content: str, source_name: str, hint_filename: str
 ) -> list[ParsedStub]:
-    """Parse the labelled CA LISA format (explicit *Header: sections).
+    """Parse the labelled CA LISA format (explicit *Header: sections)."""
+    raw = _scan_labelled_captures(content.splitlines())
+    captures = _resolve_labelled_captures(raw, hint_filename, source_name)
+    return _build_stub_from_captures(captures, source_name, hint_filename)
+
+
+def _resolve_labelled_captures(
+    raw: list[dict], hint_filename: str, source_name: str
+) -> list[_Capture]:
+    """Turn _scan_labelled_captures' raw {"type","block","body"} dicts into
+    fully-resolved _Capture records. Kept separate from scanning because
+    _detect_variant calls _scan_labelled_captures without knowing the
+    target filename yet (needed here only for %%StatusCode%% inference)."""
+    resolved: list[_Capture] = []
+    for c in raw:
+        parsed = _parse_kvblock(c["block"])
+        headers = _extract_http_headers(parsed)
+        if c["type"] == "request":
+            resolved.append(_Capture(
+                "request", parsed.get("Method", "GET"), parsed.get("URL", "/"),
+                None, headers, c["body"],
+            ))
+        else:
+            raw_status = str(parsed.get("StatusCode", "200"))
+            status = _infer_status_code(raw_status, hint_filename or source_name)
+            resolved.append(_Capture("response", None, None, status, headers, c["body"]))
+    return resolved
+
+
+def _build_stub_from_captures(
+    captures: list[_Capture], source_name: str, hint_filename: str
+) -> list[ParsedStub]:
+    """Build the final ParsedStub(s) from a flat, already-resolved list of
+    request/response captures, in document order — shared by both CA LISA
+    structural variants (labelled and inline) so "one file has many
+    same-URL captures" is handled identically no matter which section-label
+    convention (or lack of one) produced them.
 
     Handles both a single request/response pair and multiple pairs recorded
     at the same URL — either interleaved in one file, or (via
@@ -318,16 +370,16 @@ def _parse_labelled_content(
     document order; when there is more than one pair, a request-body field
     that differs across every capture is auto-selected (see
     _differentiate_bodies) so each pair gets its own WireMock bodyPatterns
-    matcher instead of colliding on a single always-matched mapping.
+    matcher instead of colliding on a single always-matched mapping — and,
+    for a same-URL capture count large enough to cross
+    generator/lookup_table.py's threshold, that same field also becomes the
+    stub's dynamic lookup-table discriminator.
     """
-    lines = content.splitlines()
-    captures = _scan_labelled_captures(lines)
-
-    requests = [c for c in captures if c["type"] == "request"]
-    responses = [c for c in captures if c["type"] == "response"]
+    requests = [c for c in captures if c.type == "request"]
+    responses = [c for c in captures if c.type == "response"]
 
     if not requests:
-        raise ValueError("No request section found in labelled-format CA LISA file")
+        raise ValueError("No request section found in CA LISA content")
     if not responses:
         raise ValueError(
             "No response section found. "
@@ -337,13 +389,10 @@ def _parse_labelled_content(
     pair_count = min(len(requests), len(responses))
     requests, responses = requests[:pair_count], responses[:pair_count]
 
-    req_parsed = [_parse_kvblock(r["block"]) for r in requests]
-    resp_parsed = [_parse_kvblock(r["block"]) for r in responses]
+    method_str = requests[0].method or "GET"
+    url = requests[0].url or "/"
 
-    method_str = req_parsed[0].get("Method", "GET")
-    url = req_parsed[0].get("URL", "/")
-
-    req_headers_list = [_extract_http_headers(p) for p in req_parsed]
+    req_headers_list = [r.headers for r in requests]
     if pair_count > 1:
         # A header only means anything as a match condition if it's stable
         # across every capture of this operation. Correlation/trace headers
@@ -361,21 +410,17 @@ def _parse_labelled_content(
         stable_headers = req_headers_list[0]
     required_headers = _filter_request_headers(stable_headers)
 
-    req_bodies = [r["body"] for r in requests]
+    req_bodies = [r.body for r in requests]
     diff = _differentiate_bodies(req_bodies) if pair_count > 1 else _no_differentiation(1)
 
     scenarios: list[ParsedScenario] = []
     for i in range(pair_count):
-        resp_headers = _extract_http_headers(resp_parsed[i])
-        raw_status = str(resp_parsed[i].get("StatusCode", "200"))
-        status_code = _infer_status_code(raw_status, hint_filename or source_name)
-
         resolved_body, uses_template = _resolve_variables(
-            responses[i]["body"] or "", hint_filename or source_name
+            responses[i].body or "", hint_filename or source_name
         )
         resolved_headers = {
             k: _resolve_variables(v, hint_filename or source_name)[0]
-            for k, v in resp_headers.items()
+            for k, v in responses[i].headers.items()
         }
         resolved_headers = _ensure_content_type(resolved_headers, resolved_body or "")
 
@@ -385,7 +430,7 @@ def _parse_labelled_content(
         scenarios.append(ParsedScenario(
             name=scenario_name,
             match=match,
-            status=status_code,
+            status=responses[i].status or 200,
             response_headers=resolved_headers,
             body=resolved_body or None,
             lookup_key=diff.values[i],
@@ -557,72 +602,78 @@ def _parse_inline_content(
 ) -> list[ParsedStub]:
     """Parse the inline (unlabelled) CA LISA format.
 
-    Splits on the response marker to separate request and response sections:
-    either "ResponseHeader={" (most captures) or a bare "={StatusCode=" (some
-    tools omit the label entirely). Multiple pairs in one file (e.g., from ZIP
-    concatenation) are each parsed.
+    Scans for every "={Method=" (request) and "ResponseHeader={StatusCode=" /
+    bare "={StatusCode=" (response) marker in document order — one file may
+    hold a single pair, or several same-URL captures back to back (repeated
+    calls to the same operation with different payloads, or several
+    ZIP-paired pairs concatenated together); each becomes its own capture,
+    fed through the same _build_stub_from_captures multi-capture pairing and
+    same-URL differentiation the labelled variant uses. An earlier version
+    of this parser only ever looked at the first request/response marker and
+    silently dropped or garbled anything recorded after it — this way
+    inline-variant files get the identical treatment labelled-variant files
+    already did.
     """
-    # Split on whichever response marker appears first. Searching both
-    # independently and taking the earliest match (rather than one combined
-    # regex) sidesteps overlap: _BARE_RESPONSE_RE also matches the "={StatusCode="
-    # tail of "ResponseHeader={StatusCode=", but that occurrence is always later
-    # than _INLINE_RESPONSE_RE's match on the same content, so min() still picks
-    # the correct (earlier) split point when a "ResponseHeader=" label is present.
-    candidates = [
-        m.start()
-        for m in (_INLINE_RESPONSE_RE.search(content), _BARE_RESPONSE_RE.search(content))
-        if m is not None
-    ]
-    if not candidates:
+    captures = _scan_inline_captures(content, hint_filename, source_name)
+    return _build_stub_from_captures(captures, source_name, hint_filename)
+
+
+def _scan_inline_captures(
+    content: str, hint_filename: str, source_name: str
+) -> list[_Capture]:
+    """Split inline-variant content into every request/response capture it
+    contains, in document order, and fully resolve each via the existing
+    single-block parsers (_parse_inline_request / _parse_inline_response) —
+    this only adds the segmentation those two never needed to do themselves.
+    """
+    n = len(content)
+
+    def _next_marker(start: int) -> Optional[tuple[int, str, int]]:
+        # Searching the three patterns independently and taking the
+        # earliest start (rather than one combined regex) sidesteps overlap:
+        # _BARE_RESPONSE_RE also matches the "={StatusCode=" tail of
+        # "ResponseHeader={StatusCode=", but that occurrence is always later
+        # than _INLINE_RESPONSE_RE's match on the same text, so the minimum
+        # still picks the correct (earlier) marker when a "ResponseHeader="
+        # label is present. Returns (start, kind, match_end) — callers must
+        # resume their next search from match_end, not start+1, or
+        # _BARE_RESPONSE_RE re-matches its own tail inside the marker just
+        # found and wrongly truncates that capture's segment.
+        best: Optional[tuple[int, str, int]] = None
+        for pattern, kind in (
+            (_REQUEST_RE, "request"),
+            (_INLINE_RESPONSE_RE, "response"),
+            (_BARE_RESPONSE_RE, "response"),
+        ):
+            m = pattern.search(content, start)
+            if m and (best is None or m.start() < best[0]):
+                best = (m.start(), kind, m.end())
+        return best
+
+    captures: list[_Capture] = []
+    marker = _next_marker(0)
+    if marker is None:
         raise ValueError(
-            "Cannot find a response block ('ResponseHeader={' or a bare '={StatusCode=') "
-            "in inline-variant CA LISA content. "
-            "Make sure the response file is concatenated after the request file."
+            "Cannot find a request (={Method=) or response ('ResponseHeader={' "
+            "or a bare '={StatusCode=') block in inline-variant CA LISA content."
         )
-    split_pos = min(candidates)
 
-    request_part = content[:split_pos]
-    response_part = content[split_pos:]
+    while marker is not None:
+        marker_pos, capture_type, marker_end = marker
+        nxt = _next_marker(marker_end)
+        end = nxt[0] if nxt else n
+        segment = content[marker_pos:end]
 
-    # Parse request
-    method, url, req_headers, req_body = _parse_inline_request(request_part)
+        if capture_type == "request":
+            method, url, headers, body = _parse_inline_request(segment)
+            captures.append(_Capture("request", method, url, None, headers, body))
+        else:
+            status, headers, body = _parse_inline_response(segment, hint_filename or source_name)
+            captures.append(_Capture("response", None, None, status, headers, body))
 
-    # Parse response
-    status_code, resp_headers, resp_body = _parse_inline_response(
-        response_part, hint_filename or source_name
-    )
+        marker = nxt
 
-    resolved_body, uses_template = _resolve_variables(resp_body, hint_filename or source_name)
-    resolved_headers = {
-        k: _resolve_variables(v, hint_filename or source_name)[0]
-        for k, v in resp_headers.items()
-    }
-    if any(
-        _resolve_variables(v, hint_filename or source_name)[1]
-        for v in resp_headers.values()
-    ):
-        uses_template = True
-
-    resolved_headers = _ensure_content_type(resolved_headers, resolved_body or "")
-    stub_name = _stub_name_from_source(source_name)
-
-    scenario = ParsedScenario(
-        name="default",
-        match=MatchCondition(type=MatchType.ALWAYS),
-        status=status_code,
-        response_headers=resolved_headers,
-        body=resolved_body or None,
-    )
-    stub = ParsedStub(
-        name=stub_name,
-        request=ParsedRequestSpec(
-            method=HttpMethod(method.upper()),
-            url=url,
-            required_headers=_filter_request_headers(req_headers),
-        ),
-        scenarios=[scenario],
-    )
-    return [stub]
+    return captures
 
 
 def _parse_inline_request(text: str) -> tuple[str, str, dict[str, str], str]:

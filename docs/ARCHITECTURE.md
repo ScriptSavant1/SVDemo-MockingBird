@@ -354,6 +354,21 @@ Each project gets its own isolated EC2 instance:
 | 15,000+ | Hoverfly + NLB | c6i.4xlarge (16vCPU, 32GB) | ~£400 |
 | Kafka/async | Microcks | c6i.xlarge + MSK | ~£150 |
 
+**Request-pipeline extensions (implemented):** the embedded WireMock server
+registers custom `StubRequestFilterV2` extensions directly into its own
+request pipeline (`WireMockConfig.java`), not a separate Spring-WS layer —
+required because stub traffic never touches Spring-WS's dispatcher at all.
+Two are implemented today:
+
+- `WsSecurityRequestFilter` — validates a SOAP WS-Security `UsernameToken`
+  when enabled, rejecting with a SOAP Fault before WireMock's own matching runs.
+- `DynamicLookupRequestFilter` — see `docs/FEATURES.md` § Dynamic Lookup-Table
+  Engine. Answers same-URL operations recorded with many captured variants
+  (real CA LISA exports can produce dozens to hundreds from one operation)
+  via an O(1) in-memory lookup instead of N static WireMock mappings, once a
+  capture count crosses a threshold. Below that threshold, static
+  per-capture `mappings/*.json` files (as shown above) remain the default.
+
 ---
 
 ## 7. Security Architecture

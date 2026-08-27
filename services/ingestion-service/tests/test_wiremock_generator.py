@@ -1,11 +1,14 @@
-"""Tests for ingestion_service.wiremock_generator — the local-dev-only
-duplicate of parser_worker.generator.wiremock (see module docstring: this one
-runs inline at upload time so local dev works without an SQS worker).
+"""Tests for ingestion_service.wiremock_generator — the ZIP-packaging wrapper
+around parser_worker.generator.wiremock.build_wiremock_mappings, run inline
+at upload time so local dev works without an SQS worker.
 
-Because it's a separate implementation rather than a shared import, bugs
-fixed in parser_worker's generator do NOT automatically apply here — each
-fix has to be made (and tested) in both places. That's exactly how the query
-parameter decoding bug below was missed on the first pass.
+Mapping construction itself is delegated to parser_worker's generator (see
+that module's docstring) — this used to be a completely separate, simpler
+reimplementation with no bodyPatterns support, which is how the query
+parameter decoding bug below was originally missed on its first pass here.
+These tests stay to guard the ZIP-packaging behavior (one file per
+stub/scenario, README included) and confirm delegation didn't silently
+change what gets produced.
 """
 from __future__ import annotations
 
@@ -109,3 +112,77 @@ class TestContentTypeHeaderCaseInsensitive:
     def test_other_headers_stay_case_exact(self):
         mapping = _first_mapping(self._stub_with_headers({"SOAPAction": "getAccMasterData"}))
         assert "caseInsensitive" not in mapping["request"]["headers"]["SOAPAction"]
+
+
+class TestSameUrlMultiCaptureDoesNotCollide:
+    """Regression: the old standalone implementation here had no
+    bodyPatterns support at all, so a stub with several scenarios recorded
+    at the same URL (see parser_worker's ca_lisa_parser same-URL
+    differentiation) would produce mapping files that collide in WireMock —
+    every scenario had an identical, unconditional request matcher, so only
+    the first one registered could ever actually be returned.
+    """
+
+    def test_scenarios_get_distinct_body_matchers(self):
+        scenarios = [
+            ParsedScenario(
+                name=f"variant-{i}",
+                match=MatchCondition(
+                    type=MatchType.BODY_XPATH,
+                    value=f"//*[local-name()='Id' and text()='{i}']",
+                ),
+                status=200,
+                body=f"<A><Id>{i}</Id></A>",
+                lookup_key=str(i),
+            )
+            for i in range(3)
+        ]
+        stub = ParsedStub(
+            name="Multi Capture",
+            request=ParsedRequestSpec(method=HttpMethod.POST, url="/api/multi"),
+            scenarios=scenarios,
+        )
+        parsed = ParsedFile(format="ca-lisa-http-pair", source_file="t", stubs=[stub])
+
+        zip_bytes = generate_wiremock_zip(parsed)
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            mapping_names = [n for n in zf.namelist() if n.endswith(".json")]
+            mappings = [json.loads(zf.read(n)) for n in mapping_names]
+
+        assert len(mappings) == 3
+        body_patterns = [m["request"].get("bodyPatterns") for m in mappings]
+        assert all(bp for bp in body_patterns), "every scenario must carry a distinguishing bodyPatterns matcher"
+        xpaths = {bp[0]["matchesXPath"] for bp in body_patterns}
+        assert len(xpaths) == 3  # each scenario's matcher is unique — no two collide
+
+    def test_high_variant_stub_still_gets_static_mappings_here(self):
+        """Above generator/lookup_table.py's threshold, the full Spring Boot
+        project switches to the dynamic lookup-table engine — but this plain
+        JSON-files ZIP has no Java extension to run that engine, so it must
+        still get one static mapping per scenario regardless of the count."""
+        from parser_worker.generator.lookup_table import LOOKUP_TABLE_THRESHOLD
+
+        count = LOOKUP_TABLE_THRESHOLD + 5
+        scenarios = [
+            ParsedScenario(
+                name=f"variant-{i}",
+                match=MatchCondition(type=MatchType.BODY_XPATH, value=f"//*[local-name()='Id' and text()='{i}']"),
+                status=200,
+                body=f"<A><Id>{i}</Id></A>",
+                lookup_key=str(i),
+            )
+            for i in range(count)
+        ]
+        stub = ParsedStub(
+            name="High Variant",
+            request=ParsedRequestSpec(method=HttpMethod.POST, url="/api/high-variant"),
+            scenarios=scenarios,
+            lookup_discriminator_type="xpath",
+            lookup_discriminator_field="Id",
+        )
+        parsed = ParsedFile(format="ca-lisa-http-pair", source_file="t", stubs=[stub])
+
+        zip_bytes = generate_wiremock_zip(parsed)
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            mapping_names = [n for n in zf.namelist() if n.endswith(".json")]
+        assert len(mapping_names) == count
