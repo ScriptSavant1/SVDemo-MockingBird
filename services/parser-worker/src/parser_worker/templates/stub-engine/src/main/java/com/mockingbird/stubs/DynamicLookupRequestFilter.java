@@ -150,7 +150,7 @@ public class DynamicLookupRequestFilter implements StubRequestFilterV2 {
                 Matcher m = candidate.urlPattern.matcher(path);
                 if (m.matches() && headersMatch(request, candidate.requiredHeaders)) {
                     matchedPatternRoute = candidate;
-                    extractedFromUrl = m.groupCount() >= 1 ? m.group(1) : null;
+                    extractedFromUrl = joinCaptureGroups(m);
                     break;
                 }
             }
@@ -226,6 +226,36 @@ public class DynamicLookupRequestFilter implements StubRequestFilterV2 {
     private static String stripQuery(String url) {
         int q = url.indexOf('?');
         return q >= 0 ? url.substring(0, q) : url;
+    }
+
+    // Must match ca_lisa_parser.py's _URL_SEGMENT_KEY_JOIN exactly — an
+    // ASCII "unit separator", chosen because it's vanishingly unlikely to
+    // appear in a real captured path segment.
+    private static final String URL_SEGMENT_KEY_JOIN = "\u001F";
+
+    /** Joins every capture group a URL-pattern route's regex matched, in
+     * order, with URL_SEGMENT_KEY_JOIN — one group per varying path segment
+     * (an operation with two IDs embedded in its path, e.g.
+     * "/accounts/{acctId}/sub/{subId}", produces two groups). Reconstructs
+     * exactly the composite key _detect_url_segment_pattern built on the
+     * Python side, so a single- or multi-segment pattern route works
+     * identically here without special-casing which case it is. */
+    private static String joinCaptureGroups(Matcher m) {
+        int count = m.groupCount();
+        if (count == 0) {
+            return null;
+        }
+        if (count == 1) {
+            return m.group(1);
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 1; i <= count; i++) {
+            if (i > 1) {
+                sb.append(URL_SEGMENT_KEY_JOIN);
+            }
+            sb.append(m.group(i));
+        }
+        return sb.toString();
     }
 
     private static boolean headersMatch(Request request, Map<String, String> required) {

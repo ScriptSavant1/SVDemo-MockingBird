@@ -5,6 +5,54 @@ Format: one entry per bug, newest at the top.
 
 ---
 
+## BUG-037 — Only one varying URL path segment was supported; two+ fell back to one stub per distinct URL
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-037 |
+| **Found** | 2026-08-27 |
+| **Status** | FIXED |
+| **Severity** | Medium |
+| **Files** | `services/parser-worker/src/parser_worker/parsers/ca_lisa_parser.py`, `services/parser-worker/src/parser_worker/templates/stub-engine/src/main/java/com/mockingbird/stubs/DynamicLookupRequestFilter.java` |
+| **Commit** | (session fix) |
+
+**Description:**
+Proactively found while answering "will a different kind of file fail tomorrow" after BUG-035. An operation with *two* IDs embedded in its path (e.g. `/accounts/{acctId}/sub/{subId}`) — a real, plausible shape, not a hypothetical — fell straight through `_detect_url_segment_pattern`'s `len(varying_indices) != 1` check and landed in the "unrelated URLs" fallback, producing one stub per distinct URL (20 captures → 20 separate stubs) instead of one stub with 20 scenarios via the lookup-table engine. Not data loss — every capture was still individually reachable — but it silently re-created the "many stubs from one operation" problem the whole feature exists to solve.
+
+**Root cause:**
+`_detect_url_segment_pattern` only ever considered exactly one varying segment index a valid discriminator.
+
+**Fix:**
+Generalised to any number of simultaneously-varying segments: each becomes its own capture group in the returned regex, and the per-capture key is every varying segment's value joined with an ASCII "unit separator" (`_URL_SEGMENT_KEY_JOIN`, chosen because it can't collide with real path content), in left-to-right order — still requiring the *combined* key to be distinct per capture, or falling back to the unrelated-URLs grouping as before. `DynamicLookupRequestFilter.java`'s `joinCaptureGroups` reconstructs the identical composite key from however many groups a URL-pattern route's regex actually matched, using the same separator character.
+
+Validated with a real Maven build: 20 captures with two independently-varying path segments correctly produced one lookup-table route with two capture groups; real HTTP requests for first/middle/last captured `(acctId, subId)` pairs all returned the correct response, and — the important negative case — a *combination* never captured together (`acct-0` + `sub-5`, each individually valid on its own) correctly 404'd rather than matching on a partial segment.
+
+---
+
+## BUG-036 — Captures of different HTTP methods at the same URL were merged into one stub; multi-stub output could also collide on disk
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-036 |
+| **Found** | 2026-08-27 |
+| **Status** | FIXED |
+| **Severity** | Critical |
+| **File** | `services/parser-worker/src/parser_worker/parsers/ca_lisa_parser.py` |
+| **Commit** | (session fix) |
+
+**Description:**
+Proactively found while answering "will a different kind of file fail tomorrow" after BUG-035. A file recording both `GET /api/accounts/123` and `POST /api/accounts/123` (a REST resource legitimately supporting more than one verb — a realistic, not contrived, shape) produced **one stub** with `method: GET` and both captures' responses as two scenarios under it. The POST capture's response became permanently unreachable — a real POST request would never match a GET-only stub, and even a GET request could only ever get whichever scenario happened to register first (no distinguishing body/URL between them). Reproduced directly: `parser.parse(...)` on a two-method file returned `num_stubs=1`.
+
+While fixing this, found a second, related bug: when a file *does* correctly produce multiple stubs (this fix, or the pre-existing "unrelated URLs, no shared pattern" fallback from BUG-035), every stub inherited the identical filename-derived name. `generator/wiremock.py`'s `_safe_filename(stub.name, scenario.name)` then produced the same output path for more than one stub, so the second (and any subsequent) stub's mapping file **silently overwrote** the first's in the generator's output — reproduced directly: a 2-stub parse produced only 1 mapping file.
+
+**Root cause:**
+`_build_stub_from_captures` grouped captures by URL only (`{r.url for r in requests}`), never by method — so same-URL captures of different methods were treated as one operation. Separately, no code path ever gave multiple stubs from one source file distinct names.
+
+**Fix:**
+Captures are now split by HTTP method first; the existing same-URL / URL-pattern / grouped-by-URL logic runs independently per method group (`_build_stubs_for_one_method`). Whenever this (or the URL-grouping fallback) produces more than one stub from one file, `_disambiguate_stub_names` appends each stub's method and URL to its name before returning, guaranteeing every stub gets a unique generated-file path. Added regression tests for both: distinct GET/POST stubs with non-cross-wired bodies, and an explicit assertion that multi-stub output produces one non-colliding mapping file per stub.
+
+---
+
 ## BUG-035 — CA LISA parser used the first capture's URL for the whole stub, discarding every other capture's distinct URL
 
 | Field | Value |

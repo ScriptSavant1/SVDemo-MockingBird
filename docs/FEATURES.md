@@ -97,13 +97,22 @@ recorded once per customer with the ID as a literal path segment
 (`.../062-2187638988/addressbook`, `.../289-9984361405/addressbook`, ...).
 `_detect_url_segment_pattern` finds this shape: given every captured URL for
 one operation, split each on `/` and check whether (a) they all have the
-same segment count, (b) exactly one segment index varies across every URL,
-and (c) that segment's value is distinct for every capture (a reliable
-per-capture key, not a coincidence). If so, it returns a WireMock-compatible
-regex with the varying segment as a capture group (e.g.
-`/api/customerinstructions/([^/]+)/addressbook`) plus the list of segment
-values in capture order. Any deviation from that shape (different segment
-counts, more than one segment varying, a repeated value) returns `None`,
+same segment count and (b) one or more segment indices vary across every
+URL, with the *combination* of values at those indices distinct for every
+capture (a reliable per-capture key, not a coincidence). More than one
+varying segment is a real case, not just a theoretical one — an operation
+like `/accounts/{acctId}/sub/{subId}` with two IDs embedded in the path —
+and is handled identically to the one-segment case: each varying segment
+becomes its own capture group in the returned regex (e.g.
+`/api/accounts/([^/]+)/sub/([^/]+)`), and the per-capture key is every
+varying segment's value joined with `_URL_SEGMENT_KEY_JOIN` (an ASCII "unit
+separator", chosen because it's vanishingly unlikely to appear in a real
+path segment), in left-to-right order. An earlier version only recognised
+exactly one varying segment and fell back to `_build_stubs_grouped_by_url`
+(one stub per distinct URL) for anything with two or more — not wrong, but
+it silently re-created the "many stubs from one operation" problem this
+mechanism exists to solve. Any deviation from the shape (different segment
+counts, no segment varying at all, a repeated combined key) returns `None`,
 and the captures fall through to `_build_stubs_grouped_by_url` (case 3
 above) rather than a wrong guess.
 
@@ -117,7 +126,7 @@ above) rather than a wrong guess.
 - The stub's own `request.url` / `lookup_url_pattern` carries the regex
   pattern, `lookup_discriminator_type` is `"url-segment"` (no
   `lookup_discriminator_field` — there's no body field to name), and each
-  scenario's `lookup_key` is that capture's segment value.
+  scenario's `lookup_key` is that capture's (possibly composite) segment key.
 
 For the **lookup-table** path (see "Dynamic Lookup-Table Engine" below),
 `DynamicLookupRequestFilter` holds URL-pattern routes as a separate list
@@ -125,9 +134,28 @@ from exact-URL routes: an incoming request first checks the exact-URL
 `HashMap` (unchanged), and only if that misses does it scan the (typically
 very small — one per distinct path-templated operation project-wide) list
 of compiled `Pattern`s for one whose method matches and whose regex fully
-matches the request path; on a match, the discriminator value comes
-straight out of the regex's capture group — **no body parsing at all** for
-this route kind.
+matches the request path; on a match, `joinCaptureGroups` joins every
+capture group the regex matched (one per varying segment) with the same
+`URL_SEGMENT_KEY_JOIN` character used on the Python side, reconstructing
+the exact composite key — **no body parsing at all** for this route kind,
+regardless of how many segments vary.
+
+### HTTP method is part of an operation's identity, not just its URL
+
+Captures are split by method *before* any URL-shape decision runs — a file
+recording both `GET /accounts/123` and `POST /accounts/123` (a REST
+resource that legitimately supports more than one verb) must never merge
+those into one stub. A stub has exactly one `request.method`; merging would
+fix it to whichever capture happened to appear first in the file and make
+every capture of the other method permanently unreachable (verified live —
+this was a real bug, not a hypothetical one, before the fix). When one
+source file produces more than one stub this way (or via the
+"unrelated-URLs" fallback above), each stub's name is disambiguated with
+its method and URL — otherwise their generated mapping/lookup-table files
+collide on disk (`_safe_filename(stub.name, ...)` would produce the same
+path for more than one stub, and the later one silently overwrites the
+earlier one's file in the generator's output — also a real, verified bug
+before the fix).
 
 ### Content-first file classification (ZIP / batch upload)
 

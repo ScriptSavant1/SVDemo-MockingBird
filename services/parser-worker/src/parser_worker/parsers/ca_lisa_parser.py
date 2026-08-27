@@ -364,7 +364,14 @@ def _build_stub_from_captures(
     section-label convention (or lack of one) produced them.
 
     Captures are matched request[i] <-> response[i] in document order, up
-    to min(len(requests), len(responses)). What happens next depends on
+    to min(len(requests), len(responses)). Captures are first split by HTTP
+    method — a stub represents one method, so a file recording both, say,
+    GET and POST at the same path must never merge them into one stub (the
+    stub's method would be fixed to whichever capture happened to come
+    first, silently orphaning every capture of the other method — verified
+    live: a GET+POST-mixed file previously produced one GET-only stub with
+    the POST capture's response attached as an unreachable second
+    scenario). Within each method's captures, what happens next depends on
     whether the captured URLs actually agree:
 
       - All captures share one exact URL (the common case: same operation,
@@ -397,6 +404,44 @@ def _build_stub_from_captures(
     pair_count = min(len(requests), len(responses))
     requests, responses = requests[:pair_count], responses[:pair_count]
 
+    distinct_methods = {(r.method or "GET").upper() for r in requests}
+    if len(distinct_methods) > 1:
+        stubs: list[ParsedStub] = []
+        for method in sorted(distinct_methods):
+            indices = [i for i, r in enumerate(requests) if (r.method or "GET").upper() == method]
+            stubs.extend(_build_stubs_for_one_method(
+                [requests[i] for i in indices], [responses[i] for i in indices],
+                source_name, hint_filename,
+            ))
+    else:
+        stubs = _build_stubs_for_one_method(requests, responses, source_name, hint_filename)
+
+    if len(stubs) > 1:
+        _disambiguate_stub_names(stubs)
+    return stubs
+
+
+def _disambiguate_stub_names(stubs: list[ParsedStub]) -> None:
+    """When one source file produces multiple stubs — mixed HTTP methods,
+    or unrelated URLs with no shared pattern (see _build_stub_from_captures'
+    docstring) — every stub starts out with the identical filename-derived
+    name. Left alone, their generated mapping/lookup-table files collide on
+    disk: _safe_filename(stub.name, ...) produces the same path for each,
+    and every stub after the first silently overwrites the one before it in
+    the generator's output — verified live, a two-stub file (GET + POST at
+    one path) produced only one mapping file.
+    """
+    for stub in stubs:
+        stub.name = f"{stub.name} ({stub.request.method.value} {stub.request.url})"
+
+
+def _build_stubs_for_one_method(
+    requests: list[_Capture], responses: list[_Capture], source_name: str, hint_filename: str
+) -> list[ParsedStub]:
+    """Everything below _build_stub_from_captures' method split — all
+    captures here share one HTTP method; only the URL shape still needs
+    deciding (see _build_stub_from_captures' docstring for the three cases).
+    """
     distinct_urls = {r.url for r in requests}
     if len(distinct_urls) == 1:
         return [_build_same_url_stub(requests, responses, source_name, hint_filename)]
@@ -557,18 +602,32 @@ def _resolve_response(
     return resolved_body or None, resolved_headers
 
 
-def _detect_url_segment_pattern(urls: list[str]) -> Optional[tuple[str, list[str]]]:
-    """Given N captured URLs for what looks like one operation, find a
-    single path segment that varies across every one of them (e.g. an
-    account/customer ID embedded in the path, not just the query string or
-    body) and return (wiremock_url_regex, [segment value per url]) in the
-    same order as `urls`.
+# Joins multiple varying URL segments' values into one composite lookup
+# key (see _detect_url_segment_pattern) — an ASCII "unit separator", chosen
+# because it's vanishingly unlikely to appear in a real captured path
+# segment, unlike "-", "_", "/" or similar. DynamicLookupRequestFilter.java
+# joins the URL pattern's regex capture groups with this exact character,
+# so a key built here and a key reconstructed from a live request's URL
+# there always agree.
+_URL_SEGMENT_KEY_JOIN = "\x1f"
 
-    Returns None when the URLs don't share the same segment count, when
-    more than one segment varies, or when the varying segment's values
-    aren't all distinct (not a reliable per-capture discriminator) — the
-    caller falls back to grouping by exact URL in that case, never to
-    silently picking one URL and discarding the rest.
+
+def _detect_url_segment_pattern(urls: list[str]) -> Optional[tuple[str, list[str]]]:
+    """Given N captured URLs for what looks like one operation, find every
+    path segment that varies across all of them (e.g. an account ID and a
+    sub-resource ID both embedded in the path, not just the query string or
+    body) and return (wiremock_url_regex, [composite key per url]) in the
+    same order as `urls`. One varying segment is the common case; more than
+    one (e.g. "/accounts/{acctId}/sub/{subId}") is handled identically —
+    each becomes its own capture group in the pattern, and a capture's key
+    is every varying segment's value joined with _URL_SEGMENT_KEY_JOIN, in
+    left-to-right order.
+
+    Returns None when the URLs don't share the same segment count, when no
+    segment varies at all, or when the combined per-capture key isn't
+    distinct for every capture (not a reliable discriminator) — the caller
+    falls back to grouping by exact URL in that case (one stub per distinct
+    URL), never to silently picking one URL and discarding the rest.
     """
     split = [u.split("/") for u in urls]
     if len({len(s) for s in split}) != 1:
@@ -576,25 +635,25 @@ def _detect_url_segment_pattern(urls: list[str]) -> Optional[tuple[str, list[str
     n_segments = len(split[0])
 
     varying_indices = [i for i in range(n_segments) if len({s[i] for s in split}) > 1]
-    if len(varying_indices) != 1:
+    if not varying_indices:
         return None
-    idx = varying_indices[0]
 
-    values = [s[idx] for s in split]
-    if len(set(values)) != len(values):
+    keys = [_URL_SEGMENT_KEY_JOIN.join(s[i] for i in varying_indices) for s in split]
+    if len(set(keys)) != len(keys):
         return None
-    if any(not v for v in values):  # an empty segment (e.g. a trailing "//") isn't a real ID
+    if any(not s[i] for s in split for i in varying_indices):  # an empty segment isn't a real ID
         return None
 
     template = split[0]
-    # The varying segment is a capturing group — DynamicLookupRequestFilter
-    # extracts the discriminator value via group(1) when routing by URL
+    # Each varying segment is its own capturing group —
+    # DynamicLookupRequestFilter joins every group's matched text with the
+    # same separator to reconstruct this exact key when routing by URL
     # pattern instead of by body content.
     pattern = "/".join(
-        "([^/]+)" if i == idx else re.escape(segment)
+        "([^/]+)" if i in varying_indices else re.escape(segment)
         for i, segment in enumerate(template)
     )
-    return pattern, values
+    return pattern, keys
 
 
 # ── same-URL body differentiation ─────────────────────────────────────────────

@@ -892,8 +892,34 @@ class TestDetectUrlSegmentPattern:
         urls = ["/api/a/b", "/api/a/b/c"]
         assert _detect_url_segment_pattern(urls) is None
 
-    def test_none_when_more_than_one_segment_varies(self):
+    def test_multiple_varying_segments_produce_a_composite_key(self):
+        """Two IDs embedded in the same path (e.g.
+        /accounts/{acctId}/sub/{subId}) must still be recognised as one
+        pattern with two capture groups, not rejected — an earlier version
+        only supported exactly one varying segment and fell back to one
+        stub per distinct URL for anything with two or more, silently
+        re-creating the 'many services from one operation' problem this
+        whole mechanism exists to avoid."""
+        urls = ["/api/aaa/111/x", "/api/bbb/222/x", "/api/ccc/333/x"]
+        result = _detect_url_segment_pattern(urls)
+        assert result is not None
+        pattern, keys = result
+        assert pattern.count("([^/]+)") == 2
+        assert len(set(keys)) == 3  # each composite key is unique
+        for url in urls:
+            assert re.fullmatch(pattern, url)
+        assert not re.fullmatch(pattern, "/api/aaa/x")  # wrong segment count
+
+    def test_multiple_varying_segments_key_combines_both_values_in_order(self):
         urls = ["/api/aaa/111/x", "/api/bbb/222/x"]
+        _, keys = _detect_url_segment_pattern(urls)
+        assert keys[0].split("\x1f") == ["aaa", "111"]
+        assert keys[1].split("\x1f") == ["bbb", "222"]
+
+    def test_none_when_composite_key_repeats(self):
+        """Even combined, the varying segments' values must be a reliable
+        per-capture discriminator."""
+        urls = ["/api/a/1/x", "/api/a/1/x", "/api/b/2/x"]
         assert _detect_url_segment_pattern(urls) is None
 
     def test_none_when_varying_segment_repeats(self):
@@ -943,6 +969,124 @@ class TestGroupedByUrlFallback:
         for stub in pf.stubs:
             assert len(stub.scenarios) == 1
             assert stub.scenarios[0].match.type == MatchType.ALWAYS
+
+    def test_multiple_stubs_get_unique_names_not_colliding_mapping_files(self):
+        """Regression: multiple stubs from one file used to all inherit the
+        identical filename-derived name, so their generated mapping files
+        collided on disk (build_wiremock_mapping_files uses stub name +
+        scenario name as the file path) — the second stub's mapping
+        silently overwrote the first's in the generator's output."""
+        from parser_worker.generator.wiremock import build_wiremock_mapping_files
+        from parser_worker.models import ParsedFile
+
+        combined = _TWO_UNRELATED_OPS_REQUEST + "\n" + _TWO_UNRELATED_OPS_RESPONSE
+        pf = self.parser.parse(combined, "unrelated.txt")
+
+        names = [stub.name for stub in pf.stubs]
+        assert len(set(names)) == len(names)  # every stub name is unique
+
+        files = build_wiremock_mapping_files(pf)
+        assert len(files) == len(pf.stubs)  # one mapping file per stub, none overwritten
+
+
+# ── mixed HTTP methods at the same URL ────────────────────────────────────────
+
+_MIXED_METHOD_REQUEST = (
+    'RequestHeader:\n\n={Method="GET" URL="/api/accounts/123"}\n\nRequest:\n\n'
+    '12-Jun-2026 01:00:36\n\n'
+    'RequestHeader:\n\n={Method="POST" URL="/api/accounts/123"}\n\nRequest:\n{"update":true}\n'
+)
+_MIXED_METHOD_RESPONSE = (
+    'ResponseHeader:\n\n={StatusCode="200"}\n\nResponse:\n{"via":"GET"}\n\n'
+    '12-Jun-2026 01:00:36\n\n'
+    'ResponseHeader:\n\n={StatusCode="200"}\n\nResponse:\n{"via":"POST"}\n'
+)
+
+
+class TestMixedHttpMethodsSameUrl:
+    """A real API commonly supports more than one HTTP method at the same
+    path (GET to read, POST to update). Captures of different methods must
+    never be merged into one stub — a stub has exactly one method, so
+    whichever capture wasn't first would become permanently unreachable."""
+
+    def setup_method(self):
+        self.parser = CALISAParser()
+
+    def test_get_and_post_produce_separate_stubs(self):
+        combined = _MIXED_METHOD_REQUEST + "\n" + _MIXED_METHOD_RESPONSE
+        pf = self.parser.parse(combined, "mixed_method.txt")
+
+        assert len(pf.stubs) == 2
+        methods = {stub.request.method.value for stub in pf.stubs}
+        assert methods == {"GET", "POST"}
+        for stub in pf.stubs:
+            assert stub.request.url == "/api/accounts/123"
+            assert len(stub.scenarios) == 1
+
+    def test_get_and_post_bodies_are_not_cross_wired(self):
+        combined = _MIXED_METHOD_REQUEST + "\n" + _MIXED_METHOD_RESPONSE
+        pf = self.parser.parse(combined, "mixed_method.txt")
+
+        by_method = {stub.request.method.value: stub for stub in pf.stubs}
+        assert '"via":"GET"' in by_method["GET"].scenarios[0].body
+        assert '"via":"POST"' in by_method["POST"].scenarios[0].body
+
+    def test_mapping_files_do_not_collide(self):
+        from parser_worker.generator.wiremock import build_wiremock_mapping_files
+
+        combined = _MIXED_METHOD_REQUEST + "\n" + _MIXED_METHOD_RESPONSE
+        pf = self.parser.parse(combined, "mixed_method.txt")
+        files = build_wiremock_mapping_files(pf)
+        assert len(files) == 2
+
+
+# ── synthetic: multiple simultaneously-varying URL segments ──────────────────
+
+def _multi_segment_ca_lisa_content(count: int) -> tuple[str, str]:
+    """Build a labelled-variant request/response pair recording `count`
+    captures of one operation where TWO path segments vary per capture
+    (an account ID and a sub-resource ID both embedded in the URL) —
+    the shape that used to fall back to one stub per distinct URL."""
+    req_parts = []
+    resp_parts = []
+    for i in range(count):
+        req_parts.append(
+            f'RequestHeader:\n\n={{Method="GET" URL="/api/accounts/acct-{i}/sub/sub-{i}"}}\n\n'
+            f'Request:\n\n12-Jun-2026 01:00:36\n\n'
+        )
+        resp_parts.append(
+            f'ResponseHeader:\n\n={{StatusCode="200"}}\n\nResponse:\n{{"account":"acct-{i}"}}\n\n'
+            f'12-Jun-2026 01:00:36\n\n'
+        )
+    return "".join(req_parts), "".join(resp_parts)
+
+
+class TestMultiSegmentUrlDifferentiation:
+    def setup_method(self):
+        self.parser = CALISAParser()
+
+    def test_two_varying_segments_produce_one_stub_not_many(self):
+        req, resp = _multi_segment_ca_lisa_content(5)
+        pf = self.parser.parse(req + "\n" + resp, "multi_segment.txt")
+
+        assert len(pf.stubs) == 1
+        stub = pf.stubs[0]
+        assert len(stub.scenarios) == 5
+        assert stub.lookup_discriminator_type == "url-segment"
+
+        url_overrides = {s.url_override for s in stub.scenarios}
+        assert len(url_overrides) == 5
+        assert "/api/accounts/acct-0/sub/sub-0" in url_overrides
+        assert "/api/accounts/acct-4/sub/sub-4" in url_overrides
+
+    def test_above_threshold_qualifies_for_lookup_table(self):
+        from parser_worker.generator.lookup_table import LOOKUP_TABLE_THRESHOLD, should_use_lookup_table
+
+        req, resp = _multi_segment_ca_lisa_content(LOOKUP_TABLE_THRESHOLD + 5)
+        pf = self.parser.parse(req + "\n" + resp, "multi_segment.txt")
+        stub = pf.stubs[0]
+        assert len(stub.scenarios) == LOOKUP_TABLE_THRESHOLD + 5
+        assert should_use_lookup_table(stub) is True
 
 
 # ── real sample files: URL path segment varies per capture ───────────────────
