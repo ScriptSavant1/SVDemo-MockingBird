@@ -88,9 +88,18 @@ class ParsedScenario(BaseModel):
     # This scenario's discriminator value when the owning ParsedStub qualifies
     # for lookup-table generation (see generator/lookup_table.py) — e.g. the
     # captured "Full" name value that would otherwise be embedded in a
-    # per-scenario XPath/JSONPath match predicate. None for stubs generated
-    # the normal (static-mapping) way.
+    # per-scenario XPath/JSONPath match predicate, OR the captured URL path
+    # segment value when captures for one operation were recorded at
+    # different URLs differing only in one segment (an account/customer ID
+    # embedded in the path itself — see _detect_url_segment_pattern). None
+    # for stubs generated the normal (static-mapping, single shared URL) way.
     lookup_key: Optional[str] = None
+    # This scenario's own exact URL, when it differs from the owning
+    # ParsedStub's request.url — set only in the URL-path-segment case
+    # above, for the static-mapping (below lookup-table-threshold) path:
+    # each scenario gets its own exact urlPath mapping instead of sharing
+    # one urlPath the way same-URL body-differentiated scenarios do.
+    url_override: Optional[str] = None
 
     def has_dynamic_placeholders(self) -> bool:
         """True if a {{...}} template placeholder appears anywhere WireMock will
@@ -115,9 +124,16 @@ class ParsedStub(BaseModel):
     # Set together (both or neither) when this stub has enough same-URL
     # captures that generator/lookup_table.py will emit one
     # DynamicLookupRequestFilter data file instead of one static WireMock
-    # mapping per scenario. "xpath" or "json" — see _differentiate_bodies.
+    # mapping per scenario. "xpath" or "json" (body-based, see
+    # _differentiate_bodies) or "url-segment" (path-based, see
+    # _detect_url_segment_pattern — lookup_discriminator_field is None in
+    # that case; lookup_url_pattern carries the templated path instead).
     lookup_discriminator_type: Optional[str] = None
     lookup_discriminator_field: Optional[str] = None
+    # Set only for the "url-segment" discriminator type: the WireMock
+    # urlPathPattern regex (one capture group, at the varying path segment)
+    # that a single generic route can match every captured URL against.
+    lookup_url_pattern: Optional[str] = None
 
 
 class ParsedFile(BaseModel):

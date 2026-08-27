@@ -72,3 +72,4 @@ services/auth-service/auth-local.db-wal
 # Real capture samples — kept locally for dev/testing, never in git history
 # (see project history: removed and purged via git-filter-repo)
 Sample_SV_Files/
+docs/screenshots/audit/

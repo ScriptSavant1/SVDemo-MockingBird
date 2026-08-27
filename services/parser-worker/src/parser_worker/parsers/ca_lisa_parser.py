@@ -360,20 +360,28 @@ def _build_stub_from_captures(
     """Build the final ParsedStub(s) from a flat, already-resolved list of
     request/response captures, in document order — shared by both CA LISA
     structural variants (labelled and inline) so "one file has many
-    same-URL captures" is handled identically no matter which section-label
-    convention (or lack of one) produced them.
+    captures of one operation" is handled identically no matter which
+    section-label convention (or lack of one) produced them.
 
-    Handles both a single request/response pair and multiple pairs recorded
-    at the same URL — either interleaved in one file, or (via
-    parse_ca_lisa_pair) a request-only file concatenated with a
-    response-only file. Captures are matched request[i] <-> response[i] in
-    document order; when there is more than one pair, a request-body field
-    that differs across every capture is auto-selected (see
-    _differentiate_bodies) so each pair gets its own WireMock bodyPatterns
-    matcher instead of colliding on a single always-matched mapping — and,
-    for a same-URL capture count large enough to cross
-    generator/lookup_table.py's threshold, that same field also becomes the
-    stub's dynamic lookup-table discriminator.
+    Captures are matched request[i] <-> response[i] in document order, up
+    to min(len(requests), len(responses)). What happens next depends on
+    whether the captured URLs actually agree:
+
+      - All captures share one exact URL (the common case: same operation,
+        different payload) -> _build_same_url_stub. A request-body field
+        differentiates scenarios (see _differentiate_bodies).
+      - URLs differ, but only in one path segment across every capture
+        (e.g. an account/customer ID embedded in the path itself, like
+        "/accounts/{id}/addressbook") -> _build_url_pattern_stub. The URL
+        segment itself differentiates scenarios — no body inspection
+        needed. An earlier version of this parser used the FIRST capture's
+        URL for the whole stub and silently discarded every other
+        capture's distinct URL entirely.
+      - URLs differ with no such single-segment pattern (genuinely
+        different, unrelated endpoints happening to share one file) ->
+        _build_stubs_grouped_by_url: one ParsedStub per distinct URL, each
+        still handled by whichever of the above two cases applies to the
+        captures sharing that URL. Nothing is ever silently dropped.
     """
     requests = [c for c in captures if c.type == "request"]
     responses = [c for c in captures if c.type == "response"]
@@ -389,41 +397,39 @@ def _build_stub_from_captures(
     pair_count = min(len(requests), len(responses))
     requests, responses = requests[:pair_count], responses[:pair_count]
 
+    distinct_urls = {r.url for r in requests}
+    if len(distinct_urls) == 1:
+        return [_build_same_url_stub(requests, responses, source_name, hint_filename)]
+
+    url_pattern_result = _detect_url_segment_pattern([r.url or "/" for r in requests])
+    if url_pattern_result is not None:
+        pattern, values = url_pattern_result
+        return [_build_url_pattern_stub(requests, responses, pattern, values, source_name, hint_filename)]
+
+    return _build_stubs_grouped_by_url(requests, responses, source_name, hint_filename)
+
+
+def _build_same_url_stub(
+    requests: list[_Capture], responses: list[_Capture], source_name: str, hint_filename: str
+) -> ParsedStub:
+    """One or more captures, all recorded at the identical URL — the
+    common case. A single request-body field differentiates scenarios when
+    there's more than one (see _differentiate_bodies); that same field also
+    becomes the stub's dynamic lookup-table discriminator once the capture
+    count crosses generator/lookup_table.py's threshold.
+    """
+    pair_count = len(requests)
     method_str = requests[0].method or "GET"
     url = requests[0].url or "/"
 
-    req_headers_list = [r.headers for r in requests]
-    if pair_count > 1:
-        # A header only means anything as a match condition if it's stable
-        # across every capture of this operation. Correlation/trace headers
-        # (x-requestid, traceparent, ...) change on every single call by
-        # design — baking one specific captured value in as a required
-        # match would make the resulting stub never match a real replay
-        # request, so anything that varies across captures is dropped
-        # rather than hardcoding a list of "known volatile" header names.
-        first = req_headers_list[0]
-        stable_headers = {
-            k: v for k, v in first.items()
-            if all(h.get(k) == v for h in req_headers_list[1:])
-        }
-    else:
-        stable_headers = req_headers_list[0]
-    required_headers = _filter_request_headers(stable_headers)
+    required_headers = _stable_required_headers(requests)
 
     req_bodies = [r.body for r in requests]
     diff = _differentiate_bodies(req_bodies) if pair_count > 1 else _no_differentiation(1)
 
     scenarios: list[ParsedScenario] = []
     for i in range(pair_count):
-        resolved_body, uses_template = _resolve_variables(
-            responses[i].body or "", hint_filename or source_name
-        )
-        resolved_headers = {
-            k: _resolve_variables(v, hint_filename or source_name)[0]
-            for k, v in responses[i].headers.items()
-        }
-        resolved_headers = _ensure_content_type(resolved_headers, resolved_body or "")
-
+        resolved_body, resolved_headers = _resolve_response(responses[i], source_name, hint_filename)
         match = diff.conditions[i] or MatchCondition(type=MatchType.ALWAYS)
         scenario_name = "default" if pair_count == 1 else f"variant-{i + 1}"
 
@@ -436,9 +442,8 @@ def _build_stub_from_captures(
             lookup_key=diff.values[i],
         ))
 
-    stub_name = _stub_name_from_source(source_name)
-    stub = ParsedStub(
-        name=stub_name,
+    return ParsedStub(
+        name=_stub_name_from_source(source_name),
         request=ParsedRequestSpec(
             method=HttpMethod(method_str.upper()),
             url=url,
@@ -448,7 +453,148 @@ def _build_stub_from_captures(
         lookup_discriminator_type=diff.discriminator_type,
         lookup_discriminator_field=diff.discriminator_field,
     )
-    return [stub]
+
+
+def _build_url_pattern_stub(
+    requests: list[_Capture],
+    responses: list[_Capture],
+    url_pattern: str,
+    url_values: list[str],
+    source_name: str,
+    hint_filename: str,
+) -> ParsedStub:
+    """Captures recorded at URLs that differ in exactly one path segment
+    (an ID embedded in the path — see _detect_url_segment_pattern). Each
+    scenario gets its own exact url_override (so the static-mapping path,
+    below generator/lookup_table.py's threshold, needs no body inspection
+    at all — the URL itself already disambiguates every scenario via plain
+    WireMock exact-urlPath matching). The stub's own request.url carries
+    the regex pattern, for the lookup-table path once the capture count
+    crosses that threshold.
+    """
+    pair_count = len(requests)
+    method_str = requests[0].method or "GET"
+    required_headers = _stable_required_headers(requests)
+
+    scenarios: list[ParsedScenario] = []
+    for i in range(pair_count):
+        resolved_body, resolved_headers = _resolve_response(responses[i], source_name, hint_filename)
+        scenarios.append(ParsedScenario(
+            name=f"variant-{i + 1}",
+            match=MatchCondition(type=MatchType.ALWAYS),
+            status=responses[i].status or 200,
+            response_headers=resolved_headers,
+            body=resolved_body or None,
+            lookup_key=url_values[i],
+            url_override=requests[i].url,
+        ))
+
+    return ParsedStub(
+        name=_stub_name_from_source(source_name),
+        request=ParsedRequestSpec(
+            method=HttpMethod(method_str.upper()),
+            url=url_pattern,
+            required_headers=required_headers,
+        ),
+        scenarios=scenarios,
+        lookup_discriminator_type="url-segment",
+        lookup_url_pattern=url_pattern,
+    )
+
+
+def _build_stubs_grouped_by_url(
+    requests: list[_Capture], responses: list[_Capture], source_name: str, hint_filename: str
+) -> list[ParsedStub]:
+    """Fallback when captured URLs differ with no single-segment pattern
+    common to all of them: group captures by their exact URL and build one
+    stub per distinct URL (via _build_same_url_stub, so multiple captures
+    sharing one of those URLs still get body-based differentiation).
+    Guarantees no capture is ever silently dropped just because the parser
+    couldn't find a clean shared shape across the whole file.
+    """
+    by_url: dict[str, tuple[list[_Capture], list[_Capture]]] = {}
+    for req, resp in zip(requests, responses):
+        url = req.url or "/"
+        by_url.setdefault(url, ([], []))
+        group_requests, group_responses = by_url[url]
+        group_requests.append(req)
+        group_responses.append(resp)
+
+    return [
+        _build_same_url_stub(group_requests, group_responses, source_name, hint_filename)
+        for group_requests, group_responses in by_url.values()
+    ]
+
+
+def _stable_required_headers(requests: list[_Capture]) -> dict[str, str]:
+    """Headers that are identical across every capture — see
+    _build_same_url_stub's docstring for why volatile per-call headers
+    (correlation/trace IDs) must never become a required match condition."""
+    req_headers_list = [r.headers for r in requests]
+    if len(req_headers_list) > 1:
+        first = req_headers_list[0]
+        stable_headers = {
+            k: v for k, v in first.items()
+            if all(h.get(k) == v for h in req_headers_list[1:])
+        }
+    else:
+        stable_headers = req_headers_list[0]
+    return _filter_request_headers(stable_headers)
+
+
+def _resolve_response(
+    response: _Capture, source_name: str, hint_filename: str
+) -> tuple[Optional[str], dict[str, str]]:
+    """Resolve one response capture's %%Var%% placeholders (body + headers)
+    and ensure a Content-Type is present. Shared by every stub-building
+    path so response resolution can never drift between them."""
+    resolved_body, _ = _resolve_variables(response.body or "", hint_filename or source_name)
+    resolved_headers = {
+        k: _resolve_variables(v, hint_filename or source_name)[0]
+        for k, v in response.headers.items()
+    }
+    resolved_headers = _ensure_content_type(resolved_headers, resolved_body or "")
+    return resolved_body or None, resolved_headers
+
+
+def _detect_url_segment_pattern(urls: list[str]) -> Optional[tuple[str, list[str]]]:
+    """Given N captured URLs for what looks like one operation, find a
+    single path segment that varies across every one of them (e.g. an
+    account/customer ID embedded in the path, not just the query string or
+    body) and return (wiremock_url_regex, [segment value per url]) in the
+    same order as `urls`.
+
+    Returns None when the URLs don't share the same segment count, when
+    more than one segment varies, or when the varying segment's values
+    aren't all distinct (not a reliable per-capture discriminator) — the
+    caller falls back to grouping by exact URL in that case, never to
+    silently picking one URL and discarding the rest.
+    """
+    split = [u.split("/") for u in urls]
+    if len({len(s) for s in split}) != 1:
+        return None
+    n_segments = len(split[0])
+
+    varying_indices = [i for i in range(n_segments) if len({s[i] for s in split}) > 1]
+    if len(varying_indices) != 1:
+        return None
+    idx = varying_indices[0]
+
+    values = [s[idx] for s in split]
+    if len(set(values)) != len(values):
+        return None
+    if any(not v for v in values):  # an empty segment (e.g. a trailing "//") isn't a real ID
+        return None
+
+    template = split[0]
+    # The varying segment is a capturing group — DynamicLookupRequestFilter
+    # extracts the discriminator value via group(1) when routing by URL
+    # pattern instead of by body content.
+    pattern = "/".join(
+        "([^/]+)" if i == idx else re.escape(segment)
+        for i, segment in enumerate(template)
+    )
+    return pattern, values
 
 
 # ── same-URL body differentiation ─────────────────────────────────────────────

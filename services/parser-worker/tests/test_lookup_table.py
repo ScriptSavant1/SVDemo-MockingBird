@@ -150,3 +150,74 @@ class TestWiremockGeneratorSkipsLookupTableStubs:
 
         assert len(mapping_files) == 2   # static_stub's scenarios
         assert len(table_files) == 1     # lookup_stub's table
+
+
+def _make_url_segment_stub(scenario_count: int) -> ParsedStub:
+    """A stub whose captures were recorded at different URLs (an ID
+    embedded in the path) rather than one URL with a differing body — see
+    ca_lisa_parser._build_url_pattern_stub."""
+    scenarios = [
+        ParsedScenario(
+            name=f"variant-{i + 1}",
+            match=MatchCondition(type=MatchType.ALWAYS),
+            status=200,
+            response_headers={"Content-Type": "application/xml"},
+            body=f"<Entry><Id>{i}</Id></Entry>",
+            lookup_key=f"id-{i}",
+            url_override=f"/api/customerinstructions/id-{i}/addressbook",
+        )
+        for i in range(scenario_count)
+    ]
+    pattern = r"/api/customerinstructions/([^/]+)/addressbook"
+    return ParsedStub(
+        name="Customer Instructions Address Book",
+        request=ParsedRequestSpec(method=HttpMethod.POST, url=pattern),
+        scenarios=scenarios,
+        lookup_discriminator_type="url-segment",
+        lookup_url_pattern=pattern,
+    )
+
+
+class TestUrlSegmentLookupTable:
+    def test_qualifies_above_threshold(self):
+        stub = _make_url_segment_stub(LOOKUP_TABLE_THRESHOLD + 1)
+        assert should_use_lookup_table(stub) is True
+
+    def test_does_not_qualify_below_threshold(self):
+        stub = _make_url_segment_stub(3)
+        assert should_use_lookup_table(stub) is False
+
+    def test_table_emits_urlPattern_not_urlPath(self, tmp_path):
+        stub = _make_url_segment_stub(LOOKUP_TABLE_THRESHOLD + 1)
+        parsed = ParsedFile(format="ca-lisa-http-pair", source_file="t", stubs=[stub])
+
+        [path] = generate_lookup_tables(parsed, tmp_path)
+        table = json.loads(path.read_text(encoding="utf-8"))
+
+        assert table["urlPath"] is None
+        assert table["urlPattern"] == r"/api/customerinstructions/([^/]+)/addressbook"
+        assert table["discriminatorType"] == "url-segment"
+        assert table["discriminatorField"] is None
+        assert len(table["entries"]) == LOOKUP_TABLE_THRESHOLD + 1
+        assert {"key": "id-0", "status": 200,
+                "headers": {"Content-Type": "application/xml"},
+                "body": "<Entry><Id>0</Id></Entry>"} in table["entries"]
+
+    def test_url_pattern_stub_excluded_from_static_mapping_below_threshold_would_use_url_override(self, tmp_path):
+        """Below the threshold, a url-segment stub is NOT claimed by the
+        lookup-table generator (should_use_lookup_table is False), so the
+        static mapping generator handles it via each scenario's
+        url_override -- one exact-URL mapping per capture, no bodyPatterns
+        needed since the URL itself disambiguates."""
+        stub = _make_url_segment_stub(3)
+        parsed = ParsedFile(format="ca-lisa-http-pair", source_file="t", stubs=[stub])
+
+        assert generate_lookup_tables(parsed, tmp_path) == []
+        mapping_files = generate_wiremock_mappings(parsed, tmp_path)
+        assert len(mapping_files) == 3
+        for f in mapping_files:
+            mapping = json.loads(f.read_text(encoding="utf-8"))
+            assert mapping["request"]["urlPath"] in [
+                f"/api/customerinstructions/id-{i}/addressbook" for i in range(3)
+            ]
+            assert "bodyPatterns" not in mapping["request"]

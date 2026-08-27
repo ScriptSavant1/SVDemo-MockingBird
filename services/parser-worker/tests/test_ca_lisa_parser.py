@@ -5,6 +5,7 @@ Uses the real sample files from Sample_SV_Files/ as test fixtures.
 from __future__ import annotations
 
 import io
+import re
 import zipfile
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from parser_worker.detector import detect_and_parse, detect_parser
 from parser_worker.models import MatchType
 from parser_worker.parsers.ca_lisa_parser import (
     CALISAParser,
+    _detect_url_segment_pattern,
     _detect_variant,
     _differentiate_bodies,
     _ensure_content_type,
@@ -71,6 +73,18 @@ _CUSTOM_LABEL_SAMPLES_PRESENT = CUSTOM_LABEL_REQ.exists() and CUSTOM_LABEL_RESP.
 skip_if_no_custom_label_samples = pytest.mark.skipif(
     not _CUSTOM_LABEL_SAMPLES_PRESENT,
     reason="Sample_SV_Files/Wealth/XML Samples not present in repo",
+)
+
+# Real-world sample where the URL itself varies per capture (a customer ID
+# embedded in the path, e.g. ".../062-2187638988/addressbook" vs
+# ".../289-9984361405/addressbook") rather than headers/body — the shape
+# that exposed the "only one URL created, repeatedly" bug.
+URL_SEGMENT_REQ = _LABELLED_SAMPLE_DIR / "XML Samples" / "CustomerInstructionsAddressBookPost_Request.txt"
+URL_SEGMENT_RESP = _LABELLED_SAMPLE_DIR / "XML Samples" / "CustomerInstructionsAddressBookPost_Response.txt"
+_URL_SEGMENT_SAMPLES_PRESENT = URL_SEGMENT_REQ.exists() and URL_SEGMENT_RESP.exists()
+skip_if_no_url_segment_samples = pytest.mark.skipif(
+    not _URL_SEGMENT_SAMPLES_PRESENT,
+    reason="Sample_SV_Files/Wealth/XML Samples CustomerInstructionsAddressBook files not present in repo",
 )
 
 
@@ -847,6 +861,143 @@ class TestWealthXmlSamples:
         result = _ensure_content_type(headers, '{"a": 1}')
         assert result["Content-Type"] == "application/json"
         assert result["X-Custom"] == "value"
+
+
+# ── unit: _detect_url_segment_pattern ─────────────────────────────────────────
+
+class TestDetectUrlSegmentPattern:
+    def test_finds_single_varying_segment(self):
+        urls = [
+            "/api/customerinstructions/062-2187638988/addressbook",
+            "/api/customerinstructions/289-9984361405/addressbook",
+            "/api/customerinstructions/453-8232322043/addressbook",
+        ]
+        result = _detect_url_segment_pattern(urls)
+        assert result is not None
+        pattern, values = result
+        assert values == ["062-2187638988", "289-9984361405", "453-8232322043"]
+        assert re.fullmatch(pattern, urls[0])
+        assert re.fullmatch(pattern, urls[1])
+        assert not re.fullmatch(pattern, "/api/customerinstructions/addressbook")
+
+    def test_pattern_escapes_regex_special_characters_in_literal_segments(self):
+        urls = ["/api/v1.0/a/thing", "/api/v1.0/b/thing"]
+        pattern, values = _detect_url_segment_pattern(urls)
+        assert values == ["a", "b"]
+        # "v1.0" must be treated literally, not "v1" + any-char + "0"
+        assert re.fullmatch(pattern, "/api/v1.0/a/thing")
+        assert not re.fullmatch(pattern, "/api/v1X0/a/thing")
+
+    def test_none_when_segment_counts_differ(self):
+        urls = ["/api/a/b", "/api/a/b/c"]
+        assert _detect_url_segment_pattern(urls) is None
+
+    def test_none_when_more_than_one_segment_varies(self):
+        urls = ["/api/aaa/111/x", "/api/bbb/222/x"]
+        assert _detect_url_segment_pattern(urls) is None
+
+    def test_none_when_varying_segment_repeats(self):
+        """A varying segment must be a reliable per-capture discriminator —
+        if the same value shows up twice, it can't disambiguate anything."""
+        urls = ["/api/a/1/x", "/api/a/1/x", "/api/a/2/x"]
+        assert _detect_url_segment_pattern(urls) is None
+
+    def test_none_when_urls_identical(self):
+        urls = ["/api/a/1/x", "/api/a/1/x"]
+        assert _detect_url_segment_pattern(urls) is None
+
+    def test_single_url_returns_none(self):
+        assert _detect_url_segment_pattern(["/api/a/1/x"]) is None
+
+
+# ── grouped-by-URL fallback: genuinely unrelated URLs in one file ────────────
+
+_TWO_UNRELATED_OPS_REQUEST = (
+    'RequestHeader:\n\n={Method="GET" URL="/api/customers"}\n\nRequest:\n\n'
+    '12-Jun-2026 01:00:36\n\n'
+    'RequestHeader:\n\n={Method="GET" URL="/api/orders/history"}\n\nRequest:\n\n'
+)
+_TWO_UNRELATED_OPS_RESPONSE = (
+    'ResponseHeader:\n\n={StatusCode="200"}\n\nResponse:\n{"kind":"customers"}\n\n'
+    '12-Jun-2026 01:00:36\n\n'
+    'ResponseHeader:\n\n={StatusCode="200"}\n\nResponse:\n{"kind":"orders"}\n'
+)
+
+
+class TestGroupedByUrlFallback:
+    def setup_method(self):
+        self.parser = CALISAParser()
+
+    def test_unrelated_urls_produce_separate_stubs_not_data_loss(self):
+        """Two genuinely unrelated operations (different path segment
+        counts entirely, so no single-varying-segment pattern can span
+        them) happened to land in one file. Each must still surface as its
+        own stub rather than one winning and the other being silently
+        dropped."""
+        combined = _TWO_UNRELATED_OPS_REQUEST + "\n" + _TWO_UNRELATED_OPS_RESPONSE
+        pf = self.parser.parse(combined, "unrelated.txt")
+
+        assert len(pf.stubs) == 2
+        urls = {stub.request.url for stub in pf.stubs}
+        assert urls == {"/api/customers", "/api/orders/history"}
+        for stub in pf.stubs:
+            assert len(stub.scenarios) == 1
+            assert stub.scenarios[0].match.type == MatchType.ALWAYS
+
+
+# ── real sample files: URL path segment varies per capture ───────────────────
+
+class TestUrlSegmentSampleFiles:
+    @skip_if_no_url_segment_samples
+    def test_all_captured_urls_become_scenarios_not_just_the_first(self):
+        """Reproduction of the reported bug: uploading real files where the
+        URL itself carries a per-capture customer ID must produce one stub
+        whose scenarios collectively cover every captured URL — not one
+        stub anchored to only the first capture's URL with the rest
+        silently discarded."""
+        req_content = URL_SEGMENT_REQ.read_text(encoding="utf-8")
+        resp_content = URL_SEGMENT_RESP.read_text(encoding="utf-8")
+        stub = parse_ca_lisa_pair(
+            req_content, resp_content, URL_SEGMENT_REQ.name, URL_SEGMENT_RESP.name
+        )
+
+        assert stub.request.method.value == "POST"
+        assert len(stub.scenarios) >= 2
+        assert stub.lookup_discriminator_type == "url-segment"
+        assert stub.lookup_url_pattern is not None
+
+        # Every scenario must carry its OWN distinct, real captured URL.
+        url_overrides = [s.url_override for s in stub.scenarios]
+        assert all(u is not None for u in url_overrides)
+        assert len(set(url_overrides)) == len(url_overrides)
+        assert "/api/distribution/v3/customerinstructions/062-2187638988/addressbook" in url_overrides
+        assert "/api/distribution/v3/customerinstructions/289-9984361405/addressbook" in url_overrides
+
+        # The stub's own request.url is the shared regex pattern, matching
+        # every one of those exact URLs.
+        for url in url_overrides:
+            assert re.fullmatch(stub.request.url, url)
+
+        # Volatile per-call headers must still be excluded even though the
+        # differentiator this time is the URL, not the body.
+        assert "x-requestid" not in stub.request.required_headers
+        assert "traceparent" not in stub.request.required_headers
+
+    @skip_if_no_url_segment_samples
+    def test_qualifies_for_lookup_table(self):
+        """This real file has ~29 captures — comfortably above the
+        lookup-table threshold — so it must actually route through the
+        dynamic lookup engine, not silently stay on (or fall over trying)
+        static mappings."""
+        from parser_worker.generator.lookup_table import should_use_lookup_table
+
+        req_content = URL_SEGMENT_REQ.read_text(encoding="utf-8")
+        resp_content = URL_SEGMENT_RESP.read_text(encoding="utf-8")
+        stub = parse_ca_lisa_pair(
+            req_content, resp_content, URL_SEGMENT_REQ.name, URL_SEGMENT_RESP.name
+        )
+        assert len(stub.scenarios) > 15
+        assert should_use_lookup_table(stub) is True
 
     def test_ensure_content_type_never_overrides_captured_value(self):
         """An explicitly captured Content-Type — even an unusual one — always wins."""

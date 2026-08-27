@@ -5,6 +5,30 @@ Format: one entry per bug, newest at the top.
 
 ---
 
+## BUG-035 — CA LISA parser used the first capture's URL for the whole stub, discarding every other capture's distinct URL
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-035 |
+| **Found** | 2026-08-27 |
+| **Status** | FIXED |
+| **Severity** | Critical |
+| **Files** | `services/parser-worker/src/parser_worker/parsers/ca_lisa_parser.py`, `services/parser-worker/src/parser_worker/models.py`, `services/parser-worker/src/parser_worker/generator/wiremock.py`, `services/parser-worker/src/parser_worker/generator/lookup_table.py`, `services/parser-worker/src/parser_worker/generator/setup_guide.py`, `services/parser-worker/src/parser_worker/templates/stub-engine/src/main/java/com/mockingbird/stubs/DynamicLookupRequestFilter.java` |
+| **Commit** | (session fix) |
+
+**Description:**
+A real capture file (`CustomerInstructionsAddressBookPost_Request/Response.txt`, 29 captures) recorded the same operation once per customer, with the customer ID embedded directly in the URL path (`/customerinstructions/062-2187638988/addressbook`, `/customerinstructions/289-9984361405/addressbook`, ...) rather than in the body. Uploading it produced one stub reachable only at the *first* captured URL — every other capture's distinct URL was silently discarded, so a real client calling any other customer's URL got a 404.
+
+**Root cause:**
+`_build_stub_from_captures` (the shared multi-capture pipeline added for BUG-029/032) had a hardcoded assumption that every capture of one operation shares one exact URL — `url = requests[0].url`. That's true when the URL is constant and only the body/headers vary, but false whenever the API itself encodes an identifier in the path.
+
+**Fix:**
+Added URL-shape detection as a third case alongside the existing same-URL body-differentiation: `_detect_url_segment_pattern` checks whether captured URLs differ in exactly one path segment, common to all of them, with a distinct value per capture (e.g. an ID). When they do, `_build_url_pattern_stub` builds one stub where each scenario carries its own exact `url_override` (used directly by the static-mapping generator — no `bodyPatterns` needed, the URL itself disambiguates) plus a shared regex `lookup_url_pattern` for the lookup-table path once the capture count crosses the threshold. `DynamicLookupRequestFilter.java` now holds a separate list of regex-pattern routes alongside its exact-URL routes; on a match, the discriminator comes straight out of the regex's capture group — no body parsing at all for this route kind. Captured URLs that share no such clean pattern (genuinely unrelated operations in one file) fall back to `_build_stubs_grouped_by_url` — one stub per distinct URL — so no capture is ever silently dropped regardless of shape.
+
+Validated with the real 29-capture file through the actual portal UI: upload → 29 scenarios detected → download → real Maven build → real running server → correct, distinct response for the first, last, and arbitrary middle customer IDs (including with a URL never seen during capture, using headers that were never captured either) → correct 404 fallthrough for an unrecognised ID, a missing required header, and a wrong HTTP method → 1,500 concurrent requests across 64 threads all correct.
+
+---
+
 ## BUG-034 — Upload handler round-tripped every generated project file through a real temp directory
 
 | Field | Value |

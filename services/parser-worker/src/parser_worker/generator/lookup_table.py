@@ -39,12 +39,14 @@ _SAFE_CHAR_RE = re.compile(r"[^\w\s-]")
 
 
 def should_use_lookup_table(stub: ParsedStub) -> bool:
-    """True if `stub` was parsed with a same-URL discriminator (see
-    ca_lisa_parser._differentiate_bodies) and has enough captured variants
-    to make the lookup-table engine worthwhile instead of one static
-    WireMock mapping per scenario."""
+    """True if `stub` was parsed with a discriminator — a same-URL body
+    field (ca_lisa_parser._differentiate_bodies) or a varying URL path
+    segment (ca_lisa_parser._detect_url_segment_pattern) — and has enough
+    captured variants to make the lookup-table engine worthwhile instead of
+    one static WireMock mapping per scenario."""
+    has_discriminator = stub.lookup_discriminator_field is not None or stub.lookup_url_pattern is not None
     return (
-        stub.lookup_discriminator_field is not None
+        has_discriminator
         and len(stub.scenarios) > LOOKUP_TABLE_THRESHOLD
         and all(s.lookup_key is not None for s in stub.scenarios)
     )
@@ -85,14 +87,20 @@ def generate_lookup_tables(parsed: ParsedFile, output_dir: Path) -> list[Path]:
 
 
 def _build_table(stub: ParsedStub) -> dict:
+    # Exactly one of urlPath/urlPattern is non-null: url-segment stubs match
+    # any concrete URL fitting the shape via a regex (the discriminator IS
+    # the matched segment, no body inspection needed); body-discriminated
+    # stubs match one exact URL and extract the discriminator from the body.
+    is_url_segment = stub.lookup_discriminator_type == "url-segment"
     return {
         "method": stub.request.method.value,
-        "urlPath": stub.request.url,
+        "urlPath": None if is_url_segment else stub.request.url,
+        "urlPattern": stub.lookup_url_pattern if is_url_segment else None,
         "requiredHeaders": {
             k: v for k, v in stub.request.required_headers.items() if v != "*"
         },
         "discriminatorType": stub.lookup_discriminator_type,
-        "discriminatorField": stub.lookup_discriminator_field,
+        "discriminatorField": None if is_url_segment else stub.lookup_discriminator_field,
         "entries": [
             {
                 "key": scenario.lookup_key,

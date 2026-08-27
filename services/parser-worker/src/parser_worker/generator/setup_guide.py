@@ -214,7 +214,33 @@ def _render_lookup_card(stub: ParsedStub) -> str:
     if not header_rows:
         header_rows = '<tr><td colspan="3"><em>No required headers — matched on method + URL alone.</em></td></tr>'
 
-    discriminator_label = "XPath element" if stub.lookup_discriminator_type == "xpath" else "JSON field"
+    is_url_segment = stub.lookup_discriminator_type == "url-segment"
+    if is_url_segment:
+        discriminator_source = "the URL path itself"
+        selection_sentence = (
+            f"The response is selected by matching the request URL against the pattern above and "
+            f"extracting the varying path segment (e.g. an account/customer ID embedded in the "
+            f"path) — no request body is inspected at all. Captured values include: {sample_keys}."
+        )
+        variant_sentence = (
+            f"This operation was recorded at {entry_count} different URLs, all sharing the same "
+            f"shape except for one path segment — above the static-mapping threshold "
+            f"({LOOKUP_TABLE_THRESHOLD}) where one generic route matching that shape scales better "
+            f"than one WireMock mapping per captured URL."
+        )
+    else:
+        discriminator_label = "XPath element" if stub.lookup_discriminator_type == "xpath" else "JSON field"
+        discriminator_source = "the request body"
+        selection_sentence = (
+            f"The response is selected by extracting the <strong>{discriminator_label}</strong> "
+            f"<code>{_esc(stub.lookup_discriminator_field)}</code> from the request body and looking "
+            f"it up against {entry_count} captured values, e.g.: {sample_keys}."
+        )
+        variant_sentence = (
+            f"This operation had {entry_count} captured variants at the same URL — above the "
+            f"static-mapping threshold ({LOOKUP_TABLE_THRESHOLD}) where one generic route backed "
+            f"by an in-memory lookup table scales better than one WireMock mapping per capture."
+        )
 
     return f"""
     <div class="swagger-op">
@@ -228,10 +254,9 @@ def _render_lookup_card(stub: ParsedStub) -> str:
       <div class="op-body">
         <div class="callout tip">
           <strong>Served by the dynamic lookup engine, not a static mapping.</strong>
-          This operation had {entry_count} captured variants at the same URL — above the
-          static-mapping threshold ({LOOKUP_TABLE_THRESHOLD}) where one generic route backed
-          by an in-memory lookup table scales better than one WireMock mapping per capture.
-          See <code>DynamicLookupRequestFilter.java</code> and
+          {variant_sentence}
+          Response selection is driven by {discriminator_source}. See
+          <code>DynamicLookupRequestFilter.java</code> and
           <code>src/main/resources/lookup-tables/{_esc(_table_filename_hint(stub.name))}.json</code>.
         </div>
 
@@ -239,9 +264,7 @@ def _render_lookup_card(stub: ParsedStub) -> str:
         <table><tr><th>Name</th><th>In</th><th>Description</th></tr>{header_rows}</table>
 
         <h5>Response selection</h5>
-        <p>The response is selected by extracting the <strong>{discriminator_label}</strong>
-        <code>{_esc(stub.lookup_discriminator_field)}</code> from the request body and looking
-        it up against {entry_count} captured values, e.g.: {sample_keys}.</p>
+        <p>{selection_sentence}</p>
 
         <h5>Responses</h5>
         <table><tr><th>Code</th><th>Description</th></tr>

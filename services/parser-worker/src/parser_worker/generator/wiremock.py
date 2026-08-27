@@ -83,13 +83,22 @@ def generate_wiremock_mappings(parsed: ParsedFile, output_dir: Path) -> list[Pat
 
 
 def _build_mapping(stub: ParsedStub, scenario: ParsedScenario, priority: int) -> dict:
-    url = stub.request.url
-    has_path_params = bool(_PATH_PARAM_RE.search(url))
-
     request_block: dict = {"method": stub.request.method.value}
-    _apply_url_matcher(request_block, url, scenario.match, has_path_params)
+    if scenario.url_override:
+        # This scenario was captured at its own distinct URL (an
+        # account/customer ID embedded in the path — see
+        # ca_lisa_parser._build_url_pattern_stub) rather than sharing
+        # stub.request.url (which, in this case, holds the regex *pattern*
+        # for the lookup-table path, not a matchable literal). Plain exact
+        # urlPath matching already fully disambiguates every scenario, so
+        # no bodyPatterns/xpath-namespace matcher is needed here at all.
+        _set_url_and_query(request_block, scenario.url_override, has_path_params=False)
+    else:
+        url = stub.request.url
+        has_path_params = bool(_PATH_PARAM_RE.search(url))
+        _apply_url_matcher(request_block, url, scenario.match, has_path_params)
+        _apply_body_matcher(request_block, scenario.match, scenario.xpath_namespaces or None)
     _apply_header_matchers(request_block, stub.request.required_headers)
-    _apply_body_matcher(request_block, scenario.match, scenario.xpath_namespaces or None)
 
     response_block: dict = {"status": scenario.status}
     if scenario.response_headers:

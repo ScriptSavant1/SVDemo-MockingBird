@@ -43,15 +43,31 @@ anything recorded after it was silently dropped or garbled into the first
 capture's body; this is why inline files were fixed at the same time as
 the multi-capture work below.
 
+Once paired (request[i] ↔ response[i], up to
+`min(len(requests), len(responses))` — a mismatched count is not an error,
+the extra capture is just left unpaired), `_build_stub_from_captures`
+decides which of three shapes the captured URLs actually form:
+
+1. **All captures share one exact URL** → `_build_same_url_stub` (see
+   "Multiple captures at the same URL" below) — the common case.
+2. **URLs differ, but only in one path segment, common to every capture**
+   (an ID embedded in the path itself) → `_build_url_pattern_stub` (see
+   "URL path segment differentiation" below).
+3. **URLs differ with no such pattern** (genuinely different, unrelated
+   operations that happened to land in one file) →
+   `_build_stubs_grouped_by_url`: one `ParsedStub` per distinct URL, each
+   still handled by case 1 or 2 for whatever captures share that URL.
+   Guarantees no capture is ever silently dropped just because the file as
+   a whole doesn't fit one clean shape — an earlier version of this parser
+   used the *first* capture's URL for the whole file and discarded every
+   other capture's distinct URL entirely, the "only one URL created,
+   repeatedly" bug.
+
 ### Multiple captures at the same URL
 
 A single operation is often recorded multiple times — the same URL, the
 same headers, different payloads (e.g. `POST /accountinstructions` called
-once per test customer). All captures matching that shape, in document
-order, are paired: request[i] ↔ response[i], up to
-`min(len(requests), len(responses))` — a mismatched count (a stray extra
-response with no corresponding request, or vice versa) is not an error,
-the extra capture is just left unpaired.
+once per test customer).
 
 For a stub with more than one paired capture, `_differentiate_bodies`
 auto-selects a body field whose value differs across every capture (an
@@ -72,6 +88,46 @@ captured value in as a required match would mean the resulting stub could
 never match a real replay request. No hardcoded list of "known volatile"
 header names is needed; the cross-capture comparison finds them
 automatically.
+
+### URL path segment differentiation
+
+Some operations embed the discriminating value in the **URL path itself**,
+not the body — e.g. `POST /customerinstructions/{customerId}/addressbook`,
+recorded once per customer with the ID as a literal path segment
+(`.../062-2187638988/addressbook`, `.../289-9984361405/addressbook`, ...).
+`_detect_url_segment_pattern` finds this shape: given every captured URL for
+one operation, split each on `/` and check whether (a) they all have the
+same segment count, (b) exactly one segment index varies across every URL,
+and (c) that segment's value is distinct for every capture (a reliable
+per-capture key, not a coincidence). If so, it returns a WireMock-compatible
+regex with the varying segment as a capture group (e.g.
+`/api/customerinstructions/([^/]+)/addressbook`) plus the list of segment
+values in capture order. Any deviation from that shape (different segment
+counts, more than one segment varying, a repeated value) returns `None`,
+and the captures fall through to `_build_stubs_grouped_by_url` (case 3
+above) rather than a wrong guess.
+
+`_build_url_pattern_stub` then builds one `ParsedStub` where:
+- Each scenario carries its own `url_override` (the exact captured URL) —
+  the **static-mapping** generator (`generator/wiremock.py`) uses this
+  instead of the stub's shared `request.url` when present, matching that
+  scenario with a plain exact `urlPath` and no `bodyPatterns` at all (the
+  URL itself already disambiguates every scenario; the URL-pattern regex is
+  only needed once the capture count crosses the lookup-table threshold).
+- The stub's own `request.url` / `lookup_url_pattern` carries the regex
+  pattern, `lookup_discriminator_type` is `"url-segment"` (no
+  `lookup_discriminator_field` — there's no body field to name), and each
+  scenario's `lookup_key` is that capture's segment value.
+
+For the **lookup-table** path (see "Dynamic Lookup-Table Engine" below),
+`DynamicLookupRequestFilter` holds URL-pattern routes as a separate list
+from exact-URL routes: an incoming request first checks the exact-URL
+`HashMap` (unchanged), and only if that misses does it scan the (typically
+very small — one per distinct path-templated operation project-wide) list
+of compiled `Pattern`s for one whose method matches and whose regex fully
+matches the request path; on a match, the discriminator value comes
+straight out of the regex's capture group — **no body parsing at all** for
+this route kind.
 
 ### Content-first file classification (ZIP / batch upload)
 

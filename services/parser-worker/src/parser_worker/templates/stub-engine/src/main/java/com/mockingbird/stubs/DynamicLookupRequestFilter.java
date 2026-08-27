@@ -22,10 +22,14 @@ import javax.xml.stream.XMLStreamReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringReader;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Serves CA LISA operations recorded with too many same-URL captures for
@@ -46,12 +50,26 @@ import java.util.Map;
  * created for these URLs, and they never show up in "Loaded N stub
  * mappings" (see WireMockConfig.java's separate log line for this filter).
  *
+ * Two kinds of route are supported, matching the two discriminator kinds
+ * generator/lookup_table.py can produce:
+ *   - Exact-URL, body-discriminated: one specific urlPath, the response is
+ *     picked by a field extracted from the request body (an account name,
+ *     a customer ID in the payload, ...).
+ *   - URL-pattern, path-discriminated: a regex matching every captured
+ *     URL's shape (e.g. "/customerinstructions/{id}/addressbook", where an
+ *     ID is embedded in the path itself, not the body) — the response is
+ *     picked by the one value the pattern's capture group extracts from
+ *     the URL, with no body inspection at all. An earlier version of this
+ *     generator only recognised the exact-URL case and silently used
+ *     whichever URL the first capture happened to record for every
+ *     scenario, discarding every other capture's distinct URL entirely.
+ *
  * Performance/lifecycle notes, since this sits directly on the 10K+ TPS
  * request path:
- *   - All lookup tables are parsed once in the constructor into a single
- *     unmodifiable Map. Nothing is ever added to it afterwards, so reads
- *     need no locking and there is nothing for the GC to chase beyond the
- *     one-time load — no caches, no eviction, no unbounded growth.
+ *   - All lookup tables are parsed once in the constructor into immutable
+ *     collections. Nothing is ever added afterwards, so reads need no
+ *     locking and there is nothing for the GC to chase beyond the one-time
+ *     load — no caches, no eviction, no unbounded growth.
  *   - Discriminator extraction never builds a full DOM/object tree: XML
  *     uses a streaming StAX reader (stops at the first matching element,
  *     matching generator/lookup_table.py's contract that the discriminator
@@ -62,9 +80,14 @@ import java.util.Map;
  *     them does not mutate the factory, the same pattern
  *     WsSecurityRequestFilter and Spring's own JSON handling already rely
  *     on — so no per-request or per-thread factory allocation is needed.
+ *     URL-pattern routes need no body parsing at all — the discriminator
+ *     comes straight out of the already-matched regex.
  *   - A request that doesn't match any registered route (the overwhelming
- *     majority of traffic on any given stub) costs exactly one HashMap
- *     lookup before falling through to WireMock's normal handling.
+ *     majority of traffic on any given stub) costs one HashMap lookup for
+ *     the exact-URL routes, plus a linear scan of the (typically very
+ *     small — one per distinct path-templated operation) list of
+ *     URL-pattern routes, before falling through to WireMock's normal
+ *     handling.
  */
 public class DynamicLookupRequestFilter implements StubRequestFilterV2 {
 
@@ -75,32 +98,71 @@ public class DynamicLookupRequestFilter implements StubRequestFilterV2 {
     private static final XMLInputFactory XML_INPUT_FACTORY = buildXmlInputFactory();
     private static final JsonFactory JSON_FACTORY = new JsonFactory();
 
-    private final Map<String, LookupRoute> routesByKey;
+    private final Map<String, LookupRoute> exactRoutesByKey;
+    private final List<LookupRoute> patternRoutes;
 
     public DynamicLookupRequestFilter() {
-        this.routesByKey = loadRoutes();
+        List<LookupRoute> allRoutes = loadRoutes();
+        Map<String, LookupRoute> exact = new HashMap<>();
+        List<LookupRoute> patterns = new ArrayList<>();
+        for (LookupRoute route : allRoutes) {
+            if (route.urlPattern != null) {
+                patterns.add(route);
+            } else {
+                exact.put(routeKey(route.method, route.urlPath), route);
+            }
+        }
+        this.exactRoutesByKey = Collections.unmodifiableMap(exact);
+        this.patternRoutes = Collections.unmodifiableList(patterns);
+
         int totalEntries = 0;
-        for (LookupRoute route : routesByKey.values()) {
+        for (LookupRoute route : allRoutes) {
             totalEntries += route.entries.size();
         }
-        log.info("DynamicLookupRequestFilter: loaded {} route(s), {} total entries",
-                routesByKey.size(), totalEntries);
+        log.info("DynamicLookupRequestFilter: loaded {} route(s) ({} exact-URL, {} URL-pattern), {} total entries",
+                allRoutes.size(), exact.size(), patterns.size(), totalEntries);
     }
 
     @Override
     public RequestFilterAction filter(Request request, ServeEvent serveEvent) {
-        if (routesByKey.isEmpty()) {
+        if (exactRoutesByKey.isEmpty() && patternRoutes.isEmpty()) {
             return RequestFilterAction.continueWith(request);
         }
 
-        String key = routeKey(request.getMethod().getName(), stripQuery(request.getUrl()));
-        LookupRoute route = routesByKey.get(key);
-        if (route == null || !headersMatch(request, route.requiredHeaders)) {
+        String method = request.getMethod().getName();
+        String path = stripQuery(request.getUrl());
+
+        LookupRoute route = exactRoutesByKey.get(routeKey(method, path));
+        String discriminatorValue;
+
+        if (route != null) {
+            if (!headersMatch(request, route.requiredHeaders)) {
+                return RequestFilterAction.continueWith(request);
+            }
+            discriminatorValue = route.extractBodyDiscriminator(request.getBodyAsString());
+        } else {
+            LookupRoute matchedPatternRoute = null;
+            String extractedFromUrl = null;
+            for (LookupRoute candidate : patternRoutes) {
+                if (!candidate.method.equalsIgnoreCase(method)) {
+                    continue;
+                }
+                Matcher m = candidate.urlPattern.matcher(path);
+                if (m.matches() && headersMatch(request, candidate.requiredHeaders)) {
+                    matchedPatternRoute = candidate;
+                    extractedFromUrl = m.groupCount() >= 1 ? m.group(1) : null;
+                    break;
+                }
+            }
+            route = matchedPatternRoute;
+            discriminatorValue = extractedFromUrl;
+        }
+
+        if (route == null || discriminatorValue == null) {
             return RequestFilterAction.continueWith(request);
         }
 
-        String discriminatorValue = route.extractDiscriminator(request.getBodyAsString());
-        CannedResponse canned = discriminatorValue == null ? null : route.entries.get(discriminatorValue);
+        CannedResponse canned = route.entries.get(discriminatorValue);
         if (canned == null) {
             // Unrecognised value for a registered route — fall through to
             // WireMock's normal "no mapping matched" behaviour rather than
@@ -136,8 +198,8 @@ public class DynamicLookupRequestFilter implements StubRequestFilterV2 {
 
     // ── route loading ─────────────────────────────────────────────────────
 
-    private static Map<String, LookupRoute> loadRoutes() {
-        Map<String, LookupRoute> result = new HashMap<>();
+    private static List<LookupRoute> loadRoutes() {
+        List<LookupRoute> result = new ArrayList<>();
         try {
             PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
             Resource[] resources = resolver.getResources("classpath*:lookup-tables/*.json");
@@ -145,8 +207,7 @@ public class DynamicLookupRequestFilter implements StubRequestFilterV2 {
             for (Resource resource : resources) {
                 try (InputStream in = resource.getInputStream()) {
                     JsonNode root = mapper.readTree(in);
-                    LookupRoute route = LookupRoute.fromJson(root);
-                    result.put(routeKey(route.method, route.urlPath), route);
+                    result.add(LookupRoute.fromJson(root));
                 } catch (Exception e) {
                     log.warn("DynamicLookupRequestFilter: failed to load lookup table {}: {}",
                             resource.getFilename(), e.getMessage());
@@ -155,7 +216,7 @@ public class DynamicLookupRequestFilter implements StubRequestFilterV2 {
         } catch (IOException e) {
             log.warn("DynamicLookupRequestFilter: failed to scan classpath:/lookup-tables/: {}", e.getMessage());
         }
-        return Collections.unmodifiableMap(result);
+        return result;
     }
 
     private static String routeKey(String method, String urlPath) {
@@ -257,24 +318,29 @@ public class DynamicLookupRequestFilter implements StubRequestFilterV2 {
 
     private static final class LookupRoute {
         final String method;
-        final String urlPath;
+        final String urlPath;      // set for exact-URL, body-discriminated routes
+        final Pattern urlPattern;  // set for URL-pattern, path-discriminated routes
         final Map<String, String> requiredHeaders;
-        final String discriminatorType; // "xpath" | "json"
-        final String discriminatorField;
+        final String discriminatorType; // "xpath" | "json" | "url-segment"
+        final String discriminatorField; // null for "url-segment" — the value comes from the URL match instead
         final Map<String, CannedResponse> entries;
 
-        private LookupRoute(String method, String urlPath, Map<String, String> requiredHeaders,
+        private LookupRoute(String method, String urlPath, Pattern urlPattern, Map<String, String> requiredHeaders,
                              String discriminatorType, String discriminatorField,
                              Map<String, CannedResponse> entries) {
             this.method = method;
             this.urlPath = urlPath;
+            this.urlPattern = urlPattern;
             this.requiredHeaders = requiredHeaders;
             this.discriminatorType = discriminatorType;
             this.discriminatorField = discriminatorField;
             this.entries = entries;
         }
 
-        String extractDiscriminator(String body) {
+        /** Body-based discriminator extraction — never called for a
+         * "url-segment" route, whose discriminator comes from the URL
+         * pattern's capture group instead (see filter()). */
+        String extractBodyDiscriminator(String body) {
             if (discriminatorField == null) {
                 return null;
             }
@@ -285,7 +351,9 @@ public class DynamicLookupRequestFilter implements StubRequestFilterV2 {
 
         static LookupRoute fromJson(JsonNode root) {
             String method = root.path("method").asText("GET");
-            String urlPath = root.path("urlPath").asText("/");
+            String urlPath = root.hasNonNull("urlPath") ? root.get("urlPath").asText() : null;
+            String urlPatternText = root.hasNonNull("urlPattern") ? root.get("urlPattern").asText() : null;
+            Pattern urlPattern = urlPatternText != null ? Pattern.compile(urlPatternText) : null;
             String discriminatorType = root.hasNonNull("discriminatorType")
                     ? root.get("discriminatorType").asText() : null;
             String discriminatorField = root.hasNonNull("discriminatorField")
@@ -318,6 +386,7 @@ public class DynamicLookupRequestFilter implements StubRequestFilterV2 {
             return new LookupRoute(
                     method,
                     urlPath,
+                    urlPattern,
                     Collections.unmodifiableMap(requiredHeaders),
                     discriminatorType,
                     discriminatorField,
