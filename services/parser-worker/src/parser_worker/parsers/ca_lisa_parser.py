@@ -58,7 +58,7 @@ from __future__ import annotations
 
 import json as _json
 import re
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 from xml.etree import ElementTree as _ET
 
 from ..models import (
@@ -362,7 +362,7 @@ def _parse_labelled_content(
     required_headers = _filter_request_headers(stable_headers)
 
     req_bodies = [r["body"] for r in requests]
-    diff_conditions = _differentiate_bodies(req_bodies) if pair_count > 1 else [None]
+    diff = _differentiate_bodies(req_bodies) if pair_count > 1 else _no_differentiation(1)
 
     scenarios: list[ParsedScenario] = []
     for i in range(pair_count):
@@ -379,7 +379,7 @@ def _parse_labelled_content(
         }
         resolved_headers = _ensure_content_type(resolved_headers, resolved_body or "")
 
-        match = diff_conditions[i] or MatchCondition(type=MatchType.ALWAYS)
+        match = diff.conditions[i] or MatchCondition(type=MatchType.ALWAYS)
         scenario_name = "default" if pair_count == 1 else f"variant-{i + 1}"
 
         scenarios.append(ParsedScenario(
@@ -388,6 +388,7 @@ def _parse_labelled_content(
             status=status_code,
             response_headers=resolved_headers,
             body=resolved_body or None,
+            lookup_key=diff.values[i],
         ))
 
     stub_name = _stub_name_from_source(source_name)
@@ -399,6 +400,8 @@ def _parse_labelled_content(
             required_headers=required_headers,
         ),
         scenarios=scenarios,
+        lookup_discriminator_type=diff.discriminator_type,
+        lookup_discriminator_field=diff.discriminator_field,
     )
     return [stub]
 
@@ -466,17 +469,36 @@ def _xpath_literal(value: str) -> str:
     return "concat(" + ", \"'\", ".join(f"'{p}'" for p in parts) + ")"
 
 
-def _differentiate_bodies(bodies: list[str]) -> list[Optional[MatchCondition]]:
-    """Given N request bodies captured for the same method+URL, return one
-    MatchCondition per body that uniquely selects it, by finding a body
+class _Differentiation(NamedTuple):
+    """Result of _differentiate_bodies: per-body MatchCondition for the
+    static-mapping generator, plus the raw discriminator field name/type/
+    values for generator/lookup_table.py to build a lookup table from
+    instead, when the capture count crosses LOOKUP_TABLE_THRESHOLD. Both
+    consumers are built from the same chosen field so they can never
+    disagree about which field actually distinguishes these captures.
+    """
+    conditions: list[Optional[MatchCondition]]
+    discriminator_type: Optional[str]   # "xpath" | "json"
+    discriminator_field: Optional[str]
+    values: list[Optional[str]]         # per-body raw discriminator value
+
+
+def _no_differentiation(n: int) -> _Differentiation:
+    return _Differentiation([None] * n, None, None, [None] * n)
+
+
+def _differentiate_bodies(bodies: list[str]) -> _Differentiation:
+    """Given N request bodies captured for the same method+URL, find a body
     field whose value differs across every capture — the same manual
     pattern used earlier for same-URL SOAP collisions, applied
-    automatically. Returns a list of Nones (same length) when no reliable
-    single-field differentiator exists (mixed/unparseable bodies, or no
-    field both present everywhere and distinct everywhere).
+    automatically — and return both a per-body MatchCondition (for the
+    static-mapping generator) and the raw field name/type/values (for the
+    lookup-table generator). Returns an all-None _Differentiation when no
+    reliable single-field differentiator exists (mixed/unparseable bodies,
+    or no field both present everywhere and distinct everywhere).
     """
     if len(bodies) < 2:
-        return [None] * len(bodies)
+        return _no_differentiation(len(bodies))
 
     stripped = [b.lstrip() for b in bodies]
     is_xml = all(s.startswith("<") for s in stripped)
@@ -487,10 +509,10 @@ def _differentiate_bodies(bodies: list[str]) -> list[Optional[MatchCondition]]:
     elif is_json:
         per_body = [_json_leaf_values(b) for b in bodies]
     else:
-        return [None] * len(bodies)
+        return _no_differentiation(len(bodies))
 
     if any(not m for m in per_body):
-        return [None] * len(bodies)
+        return _no_differentiation(len(bodies))
 
     common_keys = set(per_body[0])
     for m in per_body[1:]:
@@ -506,11 +528,13 @@ def _differentiate_bodies(bodies: list[str]) -> list[Optional[MatchCondition]]:
             break
 
     if chosen_key is None:
-        return [None] * len(bodies)
+        return _no_differentiation(len(bodies))
 
     conditions: list[Optional[MatchCondition]] = []
+    raw_values: list[Optional[str]] = []
     for m in per_body:
         value = m[chosen_key]
+        raw_values.append(value)
         if is_xml:
             xpath = f"//*[local-name()='{chosen_key}' and text()={_xpath_literal(value)}]"
             conditions.append(MatchCondition(type=MatchType.BODY_XPATH, value=xpath))
@@ -518,7 +542,12 @@ def _differentiate_bodies(bodies: list[str]) -> list[Optional[MatchCondition]]:
             escaped = value.replace("\\", "\\\\").replace("'", "\\'")
             jsonpath = f"$[?(@.{chosen_key}=='{escaped}')]"
             conditions.append(MatchCondition(type=MatchType.BODY_JSON_PATH, value=jsonpath))
-    return conditions
+    return _Differentiation(
+        conditions=conditions,
+        discriminator_type="xpath" if is_xml else "json",
+        discriminator_field=chosen_key,
+        values=raw_values,
+    )
 
 
 # ── inline variant ────────────────────────────────────────────────────────────

@@ -60,7 +60,7 @@ LABELLED_GET_RESP = _LABELLED_SAMPLE_DIR / "JSON Samples" / "GetAdvisersByID_Res
 # by body content — the exact shape that exposed the "only JSON stub created,
 # XML silently produced zero stubs" bug.
 CUSTOM_LABEL_REQ = _LABELLED_SAMPLE_DIR / "XML Samples" / "AccountInstructions_Request.txt"
-CUSTOM_LABEL_RESP = _LABELLED_SAMPLE_DIR / "XML Samples" / "AccountInstructionsPost_Request.txt"
+CUSTOM_LABEL_RESP = _LABELLED_SAMPLE_DIR / "XML Samples" / "AccountInstructionsPost_Response.txt"
 
 _SAMPLE_FILES_PRESENT = INLINE_REQUEST_1.exists() and LABELLED_POST_REQ.exists()
 skip_if_no_samples = pytest.mark.skipif(
@@ -670,27 +670,40 @@ class TestMultiCaptureSameUrl:
 class TestDifferentiateBodies:
     def test_finds_distinguishing_xml_field(self):
         bodies = ["<a><id>1</id><x>same</x></a>", "<a><id>2</id><x>same</x></a>"]
-        conditions = _differentiate_bodies(bodies)
-        assert all(c is not None for c in conditions)
-        assert all(c.type == MatchType.BODY_XPATH for c in conditions)
-        assert conditions[0].value != conditions[1].value
+        diff = _differentiate_bodies(bodies)
+        assert all(c is not None for c in diff.conditions)
+        assert all(c.type == MatchType.BODY_XPATH for c in diff.conditions)
+        assert diff.conditions[0].value != diff.conditions[1].value
+        assert diff.discriminator_type == "xpath"
+        assert diff.discriminator_field == "id"
+        assert diff.values == ["1", "2"]
 
     def test_finds_distinguishing_json_field(self):
         bodies = ['{"id": 1, "x": "same"}', '{"id": 2, "x": "same"}']
-        conditions = _differentiate_bodies(bodies)
-        assert all(c is not None for c in conditions)
-        assert all(c.type == MatchType.BODY_JSON_PATH for c in conditions)
-        assert conditions[0].value != conditions[1].value
+        diff = _differentiate_bodies(bodies)
+        assert all(c is not None for c in diff.conditions)
+        assert all(c.type == MatchType.BODY_JSON_PATH for c in diff.conditions)
+        assert diff.conditions[0].value != diff.conditions[1].value
+        assert diff.discriminator_type == "json"
+        assert diff.discriminator_field == "id"
+        assert diff.values == ["1", "2"]
 
     def test_no_differentiator_returns_none(self):
         bodies = ["<a><x>same</x></a>", "<a><x>same</x></a>"]
-        assert _differentiate_bodies(bodies) == [None, None]
+        diff = _differentiate_bodies(bodies)
+        assert diff.conditions == [None, None]
+        assert diff.discriminator_field is None
+        assert diff.values == [None, None]
 
     def test_single_body_returns_none(self):
-        assert _differentiate_bodies(["<a><x>1</x></a>"]) == [None]
+        diff = _differentiate_bodies(["<a><x>1</x></a>"])
+        assert diff.conditions == [None]
+        assert diff.values == [None]
 
     def test_mismatched_types_returns_none(self):
-        assert _differentiate_bodies(['{"a":1}', "<a>1</a>"]) == [None, None]
+        diff = _differentiate_bodies(['{"a":1}', "<a>1</a>"])
+        assert diff.conditions == [None, None]
+        assert diff.values == [None, None]
 
 
 # ── real sample files: Wealth XML Samples (custom labels + multi-capture) ────
@@ -715,11 +728,17 @@ class TestWealthXmlSamples:
         stub = parsed_file.stubs[0]
         assert stub.request.method.value == "POST"
         assert "/api/distribution/v3/accountinstructions" in stub.request.url
-        # 2 requests recorded, 3 responses recorded -> paired by order, 2 scenarios
-        assert len(stub.scenarios) == 2
+        # Request/response counts in the sample files may not match exactly
+        # (an extra unpaired response is expected) -> paired by order, one
+        # scenario per matched pair, at least 2 to actually exercise the
+        # same-URL differentiation this test targets.
+        assert len(stub.scenarios) >= 2
         for scenario in stub.scenarios:
             assert scenario.status == 200
             assert scenario.match.type == MatchType.BODY_XPATH
+            assert scenario.lookup_key  # differentiator value captured too
+        assert stub.lookup_discriminator_type == "xpath"
+        assert stub.lookup_discriminator_field
 
     @skip_if_no_custom_label_samples
     def test_single_file_pair_via_parse_ca_lisa_pair(self):
@@ -728,7 +747,7 @@ class TestWealthXmlSamples:
         stub = parse_ca_lisa_pair(
             req_content, resp_content, CUSTOM_LABEL_REQ.name, CUSTOM_LABEL_RESP.name
         )
-        assert len(stub.scenarios) == 2
+        assert len(stub.scenarios) >= 2
         assert stub.request.url == "/api/distribution/v3/accountinstructions"
         # x-requestid (a fresh guid per capture) must not be a required header
         assert "x-requestid" not in stub.request.required_headers

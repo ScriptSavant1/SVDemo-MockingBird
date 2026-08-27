@@ -140,6 +140,69 @@ class TestDynamicContent:
         assert "0 endpoint(s)" in html
 
 
+class TestLookupTableStubRendering:
+    """A stub that crossed the lookup-table threshold (generator/lookup_table.py)
+    must still be documented — not silently dropped because it's absent from
+    build_wiremock_mappings' output — and the "check your startup log" count
+    must match what WireMock itself will actually report (static mappings
+    only; lookup-table entries never become WireMock StubMappings)."""
+
+    def _lookup_stub(self, scenario_count=20) -> ParsedFile:
+        from parser_worker.generator.lookup_table import LOOKUP_TABLE_THRESHOLD
+        assert scenario_count > LOOKUP_TABLE_THRESHOLD
+        scenarios = [
+            ParsedScenario(
+                name=f"variant-{i + 1}",
+                match=MatchCondition(type=MatchType.BODY_XPATH, value=f"//*[local-name()='AcctId' and text()='id-{i}']"),
+                status=200,
+                response_headers={"Content-Type": "application/xml"},
+                body=f"<A><AcctId>id-{i}</AcctId></A>",
+                lookup_key=f"id-{i}",
+            )
+            for i in range(scenario_count)
+        ]
+        stub = ParsedStub(
+            name="Distinctive Lookup Operation",
+            request=ParsedRequestSpec(method=HttpMethod.POST, url="/api/lookup-op"),
+            scenarios=scenarios,
+            lookup_discriminator_type="xpath",
+            lookup_discriminator_field="AcctId",
+        )
+        return ParsedFile(format="test", source_file="t", stubs=[stub])
+
+    def test_lookup_stub_gets_its_own_card_not_dropped(self):
+        html = generate_setup_guide_html(self._lookup_stub(), "P")
+        assert "Distinctive Lookup Operation" in html
+        assert "dynamic lookup" in html
+        assert "/api/lookup-op" in html
+        assert "AcctId" in html
+
+    def test_verify_log_line_counts_only_real_wiremock_mappings(self):
+        """A lookup-table stub contributes zero WireMock StubMappings —
+        the 'check your startup log' line must say 0, not the scenario count,
+        or it would tell people to expect a number the server never prints."""
+        html = generate_setup_guide_html(self._lookup_stub(20), "P")
+        assert "Loaded 0 stub mappings" in html
+
+    def test_hero_endpoint_count_includes_lookup_variants(self):
+        html = generate_setup_guide_html(self._lookup_stub(20), "P")
+        assert "20 endpoint(s)" in html
+
+    def test_mixed_static_and_lookup_stubs_both_documented(self):
+        static_file = _single_stub_file(url="/api/static-op")
+        lookup_file = self._lookup_stub(20)
+        combined = ParsedFile(
+            format="test", source_file="t",
+            stubs=[*static_file.stubs, *lookup_file.stubs],
+        )
+        html = generate_setup_guide_html(combined, "P")
+        assert "/api/static-op" in html
+        assert "/api/lookup-op" in html
+        # 1 real WireMock mapping (the static stub) + 20 logical lookup variants
+        assert "Loaded 1 stub mappings" in html
+        assert "21 endpoint(s)" in html
+
+
 class TestHtmlEscaping:
     """Captured header/URL/body values end up rendered into HTML — must be
     escaped so a capture containing HTML-special characters can't break the

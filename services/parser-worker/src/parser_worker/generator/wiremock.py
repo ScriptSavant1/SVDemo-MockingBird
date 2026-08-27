@@ -10,6 +10,7 @@ from ..models import (
     DelayType, MatchType, ParsedFile, ParsedScenario, ParsedStub,
     TEMPLATE_PLACEHOLDER,  # noqa: F401 — re-exported for tests
 )
+from .lookup_table import should_use_lookup_table
 
 _PATH_PARAM_RE = re.compile(r'\{(\w+)\}')
 _SAFE_CHAR_RE = re.compile(r'[^\w\s-]')
@@ -28,6 +29,10 @@ def build_wiremock_mappings(parsed: ParsedFile) -> list[tuple[ParsedStub, Parsed
     """
     results: list[tuple[ParsedStub, ParsedScenario, dict]] = []
     for stub in parsed.stubs:
+        if should_use_lookup_table(stub):
+            # Handled by generator/lookup_table.py instead — one generic
+            # request-filter route + a data file, not N static mappings.
+            continue
         total = len(stub.scenarios)
         for i, scenario in enumerate(stub.scenarios):
             priority = total - i  # first listed scenario gets highest priority

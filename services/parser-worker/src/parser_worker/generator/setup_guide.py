@@ -16,7 +16,9 @@ import html as _html
 import json
 from datetime import datetime, timezone
 
-from ..models import ParsedFile
+from ..models import ParsedFile, ParsedStub
+from .lookup_table import LOOKUP_TABLE_THRESHOLD, should_use_lookup_table
+from .lookup_table import _safe_filename as _table_filename_hint
 from .wiremock import build_wiremock_mappings
 
 _BODY_PREVIEW_LIMIT = 700
@@ -24,32 +26,56 @@ _BODY_PREVIEW_LIMIT = 700
 
 def generate_setup_guide_html(parsed: ParsedFile, project_name: str) -> str:
     """Render the full self-contained HTML guide for this specific stub."""
-    triples = build_wiremock_mappings(parsed)
+    triples = build_wiremock_mappings(parsed)  # excludes lookup-table stubs
+    lookup_stubs = [s for s in parsed.stubs if should_use_lookup_table(s)]
+
     cards_html = "\n".join(_render_card(i, stub, scenario, mapping) for i, (stub, scenario, mapping) in enumerate(triples))
-    stats = _compute_stats(triples)
+    lookup_cards_html = "\n".join(_render_lookup_card(stub) for stub in lookup_stubs)
+    all_cards_html = "\n".join(h for h in (cards_html, lookup_cards_html) if h)
+
+    stats = _compute_stats(triples, lookup_stubs)
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
     return _PAGE_TEMPLATE.format(
         project_name=_esc(project_name),
         generated_at=generated_at,
         endpoint_count=stats["total"],
+        wiremock_mapping_count=stats["wiremock_mapping_count"],
         rest_count=stats["rest"],
         soap_count=stats["soap"],
         method_pills=stats["method_pills_html"],
-        service_cards=cards_html or _EMPTY_STATE,
+        service_cards=all_cards_html or _EMPTY_STATE,
         endpoint_summary_sentence=stats["summary_sentence"],
     )
 
 
 # ── stats / summary ───────────────────────────────────────────────────────────
 
-def _compute_stats(triples: list[tuple]) -> dict:
-    total = len(triples)
+def _compute_stats(triples: list[tuple], lookup_stubs: list[ParsedStub]) -> dict:
+    # wiremock_mapping_count is strictly the number of actual WireMock
+    # StubMapping objects this project will load — used only for the "check
+    # your startup log" verification line, which must match what
+    # WireMockConfig.java's own log line reports, or the guide would tell
+    # people to expect a number the running server will never print. Lookup
+    # table entries never become WireMock StubMappings at all (see
+    # DynamicLookupRequestFilter.java) so they're excluded from this count,
+    # even though they're real, working endpoints — that's what `total` is for.
+    wiremock_mapping_count = len(triples)
+    lookup_variant_count = sum(len(s.scenarios) for s in lookup_stubs)
+    total = wiremock_mapping_count + lookup_variant_count
+
     soap = sum(1 for _, _, m in triples if _looks_like_soap(m))
+    # Lookup-table stubs are always XML/JSON REST-style same-URL captures in
+    # practice (SOAP operations are disambiguated by SOAPAction, not body
+    # content) — counted as REST here for the same reason _looks_like_soap
+    # would call them REST if run through it.
     rest = total - soap
     methods: dict[str, int] = {}
     for _, _, m in triples:
         methods[m["request"]["method"]] = methods.get(m["request"]["method"], 0) + 1
+    for stub in lookup_stubs:
+        method = stub.request.method.value
+        methods[method] = methods.get(method, 0) + len(stub.scenarios)
 
     pills = []
     for method, count in sorted(methods.items()):
@@ -68,9 +94,17 @@ def _compute_stats(triples: list[tuple]) -> dict:
         if total
         else "This stub has no mappings yet."
     )
+    if lookup_stubs:
+        summary_sentence += (
+            f" {lookup_variant_count} of those are served by "
+            f"{len(lookup_stubs)} dynamic lookup-table route{'s' if len(lookup_stubs) != 1 else ''} "
+            "rather than static mappings — see the card(s) marked "
+            '"dynamic lookup" below.'
+        )
 
     return {
         "total": total,
+        "wiremock_mapping_count": wiremock_mapping_count,
         "rest": rest,
         "soap": soap,
         "method_pills_html": "".join(pills),
@@ -154,6 +188,66 @@ def _render_card(index: int, stub, scenario, mapping: dict) -> str:
 
         <button class="try-btn" onclick="toggleTry(this)">Try it out</button>
         <div class="try-out-pane">{try_out}</div>
+      </div>
+    </div>"""
+
+
+def _render_lookup_card(stub: ParsedStub) -> str:
+    """Card for a stub served by the dynamic lookup-table engine instead of
+    static mappings — same visual language as _render_card, but describing
+    one generic route plus its data table rather than one fixed
+    request/response pair."""
+    method = stub.request.method.value
+    path = stub.request.url
+    entry_count = len(stub.scenarios)
+    sample_keys = ", ".join(
+        f"<code>{_esc(s.lookup_key)}</code>" for s in stub.scenarios[:3]
+    )
+    if entry_count > 3:
+        sample_keys += f", … ({entry_count - 3} more)"
+
+    header_rows = "".join(
+        f"<tr><td><code>{_esc(k)}</code></td><td>header <span class=\"req-flag\">required</span></td>"
+        f"<td>Must equal <code>{_esc(v)}</code></td></tr>"
+        for k, v in stub.request.required_headers.items() if v != "*"
+    )
+    if not header_rows:
+        header_rows = '<tr><td colspan="3"><em>No required headers — matched on method + URL alone.</em></td></tr>'
+
+    discriminator_label = "XPath element" if stub.lookup_discriminator_type == "xpath" else "JSON field"
+
+    return f"""
+    <div class="swagger-op">
+      <button class="op-summary {method.lower()}" onclick="toggleOp(this)">
+        <span class="method-pill {method.lower()}">{method}</span>
+        <span class="op-path">{_esc(path)}</span>
+        <span class="op-desc">{_esc(stub.name)} — {entry_count} variants</span>
+        <span class="op-kind-tag">dynamic lookup</span>
+        <span class="op-chevron">▾</span>
+      </button>
+      <div class="op-body">
+        <div class="callout tip">
+          <strong>Served by the dynamic lookup engine, not a static mapping.</strong>
+          This operation had {entry_count} captured variants at the same URL — above the
+          static-mapping threshold ({LOOKUP_TABLE_THRESHOLD}) where one generic route backed
+          by an in-memory lookup table scales better than one WireMock mapping per capture.
+          See <code>DynamicLookupRequestFilter.java</code> and
+          <code>src/main/resources/lookup-tables/{_esc(_table_filename_hint(stub.name))}.json</code>.
+        </div>
+
+        <h5>Parameters</h5>
+        <table><tr><th>Name</th><th>In</th><th>Description</th></tr>{header_rows}</table>
+
+        <h5>Response selection</h5>
+        <p>The response is selected by extracting the <strong>{discriminator_label}</strong>
+        <code>{_esc(stub.lookup_discriminator_field)}</code> from the request body and looking
+        it up against {entry_count} captured values, e.g.: {sample_keys}.</p>
+
+        <h5>Responses</h5>
+        <table><tr><th>Code</th><th>Description</th></tr>
+        <tr><td><code>{stub.scenarios[0].status}</code></td><td>Returned when the extracted value matches one of the {entry_count} captured keys.</td></tr>
+        <tr><td colspan="2"><em>An unrecognised value returns WireMock's normal "no mapping matched" response — this route only intercepts requests it can actually answer.</em></td></tr>
+        </table>
       </div>
     </div>"""
 
@@ -444,8 +538,9 @@ sudo systemctl enable --now mockingbird-stub
 journalctl -u mockingbird-stub -f</code></pre>
 
     <h2 id="verify">Verify it's up</h2>
-    <p>Check the startup log for a line like this — the mapping count should read <strong>{endpoint_count}</strong>:</p>
-    <pre><code>WireMockConfig : Loaded {endpoint_count} stub mappings</code></pre>
+    <p>Check the startup log for a line like this — the mapping count should read <strong>{wiremock_mapping_count}</strong>
+    (this counts actual WireMock mappings only — endpoints served by a dynamic lookup table, if any, load separately and are logged on their own line):</p>
+    <pre><code>WireMockConfig : Loaded {wiremock_mapping_count} stub mappings</code></pre>
     <pre><code>curl http://localhost:8081/actuator/health
 # {{"status":"UP"}}</code></pre>
 

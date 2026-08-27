@@ -85,6 +85,12 @@ class ParsedScenario(BaseModel):
     # Namespace context for XPath body matching (Phase 2 Sprint 7)
     # Emitted as xPathNamespaces when match.type == BODY_XPATH.
     xpath_namespaces: dict[str, str] = Field(default_factory=dict)
+    # This scenario's discriminator value when the owning ParsedStub qualifies
+    # for lookup-table generation (see generator/lookup_table.py) — e.g. the
+    # captured "Full" name value that would otherwise be embedded in a
+    # per-scenario XPath/JSONPath match predicate. None for stubs generated
+    # the normal (static-mapping) way.
+    lookup_key: Optional[str] = None
 
     def has_dynamic_placeholders(self) -> bool:
         """True if a {{...}} template placeholder appears anywhere WireMock will
@@ -106,6 +112,12 @@ class ParsedStub(BaseModel):
     contact: str = ""
     request: ParsedRequestSpec
     scenarios: list[ParsedScenario]
+    # Set together (both or neither) when this stub has enough same-URL
+    # captures that generator/lookup_table.py will emit one
+    # DynamicLookupRequestFilter data file instead of one static WireMock
+    # mapping per scenario. "xpath" or "json" — see _differentiate_bodies.
+    lookup_discriminator_type: Optional[str] = None
+    lookup_discriminator_field: Optional[str] = None
 
 
 class ParsedFile(BaseModel):

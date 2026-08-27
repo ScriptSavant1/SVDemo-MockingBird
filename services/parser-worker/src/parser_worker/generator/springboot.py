@@ -15,8 +15,13 @@ Output directory structure:
         │   └── WireMockConfig.java
         └── resources/
             ├── application.yml
-            └── mappings/       WireMock JSON mapping files (baked into the JAR
-                                 via classpath — see WireMockConfig.java)
+            ├── mappings/       WireMock JSON mapping files (baked into the JAR
+            │                    via classpath — see WireMockConfig.java)
+            └── lookup-tables/  Data files for stubs with too many same-URL
+                                 captures for static mappings to be the right
+                                 fit — see generator/lookup_table.py and
+                                 DynamicLookupRequestFilter.java. Empty unless
+                                 a stub actually crosses that threshold.
 
 Mappings are written directly to src/main/resources/mappings/ — there is no
 separate top-level mappings/ copy. Nothing in the Docker build or
@@ -32,6 +37,7 @@ import shutil
 from pathlib import Path
 
 from ..models import ParsedFile
+from .lookup_table import generate_lookup_tables
 from .setup_guide import generate_setup_guide_html
 from .wiremock import generate_wiremock_mappings
 
@@ -91,6 +97,7 @@ def generate_springboot_project(
     _copy(f"{java_pkg}/WireMockConfig.java", output_dir)
     _copy(f"{java_pkg}/WsSecurityRequestFilter.java", output_dir)  # SOAP WS-Security
     _copy(f"{java_pkg}/WsdlConfig.java", output_dir)                # WSDL serving
+    _copy(f"{java_pkg}/DynamicLookupRequestFilter.java", output_dir)  # same-URL lookup-table engine
 
     # 4. Application config + WSDL placeholder
     (output_dir / "src/main/resources").mkdir(parents=True, exist_ok=True)
@@ -101,6 +108,11 @@ def generate_springboot_project(
     # 5. WireMock mapping JSON files, written straight to their final classpath
     # location — no top-level mappings/ copy (see module docstring).
     generate_wiremock_mappings(parsed, output_dir / "src/main/resources")
+
+    # 6. Dynamic lookup-table data files for any stub with enough same-URL
+    # captures to skip static per-scenario mappings entirely — see
+    # generator/lookup_table.py and DynamicLookupRequestFilter.java.
+    generate_lookup_tables(parsed, output_dir / "src/main/resources")
 
     return output_dir
 

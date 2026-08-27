@@ -20,8 +20,12 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+
+import com.github.tomakehurst.wiremock.extension.Extension;
 
 /**
  * Starts WireMock as an embedded HTTP server managed by Spring Boot.
@@ -102,9 +106,18 @@ public class WireMockConfig implements ApplicationRunner {
                 // (TemplateEngine, boolean, FileSource, List<TemplateModelDataProviderExtension>).
                 .globalTemplating(responseTemplatingEnabled);
 
+        // Collected into one list and passed to a single extensions(...) call —
+        // WireMockConfiguration's builder methods aren't guaranteed additive
+        // across repeated calls, so this is the only way to register both
+        // unconditionally (DynamicLookupRequestFilter) and conditionally
+        // (WsSecurityRequestFilter) without risking one silently dropping
+        // the other.
+        List<Extension> extensions = new ArrayList<>();
+        extensions.add(new DynamicLookupRequestFilter());
         if (wsSecurityEnabled) {
-            config.extensions(new WsSecurityRequestFilter(wsSecurityUsername, wsSecurityPassword));
+            extensions.add(new WsSecurityRequestFilter(wsSecurityUsername, wsSecurityPassword));
         }
+        config.extensions(extensions.toArray(new Extension[0]));
 
         wireMockServer = new WireMockServer(config);
         wireMockServer.start();
