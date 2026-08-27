@@ -154,32 +154,46 @@ def _detect_and_parse_zip(
         )
         return None, result, None
 
-    # Classify into request / response groups
+    # Classify into request / response groups. Content is checked BEFORE
+    # filename: CA LISA / RTWS export tools don't always name files
+    # consistently with what they contain (seen live — a file named
+    # "..._Request.txt" that is actually pure response content, exported
+    # that way by the capture tool). Content markers (={Method= / ={StatusCode=)
+    # are unambiguous and label-text-agnostic, so they're the source of truth
+    # whenever they give a clear one-sided answer; filename substring matching
+    # is only a fallback for the rare file where content is ambiguous.
+    from .parsers.ca_lisa_parser import (
+        _BARE_RESPONSE_RE,
+        _INLINE_RESPONSE_RE,
+        _LABELLED_RESPONSE_LABEL_RE,
+        _REQUEST_RE,
+    )
+
     request_files: dict[str, str] = {}   # name → content
     response_files: dict[str, str] = {}
 
     for name, content in file_contents.items():
         basename = Path(name).name
-        if _REQUEST_FILE_RE.search(basename):
+        content_is_request = bool(_REQUEST_RE.search(content))
+        content_is_response = bool(
+            _INLINE_RESPONSE_RE.search(content)
+            or _BARE_RESPONSE_RE.search(content)
+            or _LABELLED_RESPONSE_LABEL_RE.search(content)
+        )
+
+        if content_is_request and not content_is_response:
+            request_files[name] = content
+        elif content_is_response and not content_is_request:
+            response_files[name] = content
+        elif _REQUEST_FILE_RE.search(basename):
             request_files[name] = content
         elif _RESPONSE_FILE_RE.search(basename):
             response_files[name] = content
-        else:
-            # Fallback: detect from content
-            from .parsers.ca_lisa_parser import (
-                _BARE_RESPONSE_RE,
-                _INLINE_RESPONSE_RE,
-                _LABELLED_RESPONSE_LABEL_RE,
-                _REQUEST_RE,
-            )
-            if _REQUEST_RE.search(content):
-                request_files[name] = content
-            elif (
-                _INLINE_RESPONSE_RE.search(content)
-                or _BARE_RESPONSE_RE.search(content)
-                or _LABELLED_RESPONSE_LABEL_RE.search(content)
-            ):
-                response_files[name] = content
+        elif content_is_request:
+            # Both markers present (e.g. an already-combined single-file
+            # pair) and filename gives no hint — treat as one request unit;
+            # the combined content is parsed as a whole either way.
+            request_files[name] = content
 
     if not request_files:
         result = ValidationResult(

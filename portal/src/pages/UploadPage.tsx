@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { uploadSpec } from "@/api/ingestion";
 import { projectsApi } from "@/api/projects";
@@ -49,14 +49,40 @@ export function UploadPage() {
   const [groupMode, setGroupMode] = useState<BatchGroupMode>("combined");
   const [combinedStubName, setCombinedStubName] = useState("");
 
+  // Content of each batch file, read once files change — pairing checks
+  // content before filename (a capture tool doesn't always name a file
+  // consistently with what it contains; seen live with a file named
+  // "..._Request.txt" that was pure response data). Read here rather than
+  // inside pairHttpCaptureFiles because file reads are async and that
+  // function stays a plain synchronous classifier.
+  const [batchFileContents, setBatchFileContents] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all(
+      batchFiles.map(async ({ file, key }) => [key, await file.text()] as const),
+    ).then((entries) => {
+      if (!cancelled) setBatchFileContents(new Map(entries));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [batchFiles]);
+
   // Request/response halves (e.g. CA LISA *_Request_*.txt / *_Response_*.txt)
   // are auto-paired and combined into one upload per pair — mirrors the same
   // timestamp/filename-prefix matching the backend already uses for ZIP
   // uploads (see parser-worker/detector.py's _pair_files). Anything else
   // (Postman, OpenAPI, an already-combined .txt) passes through standalone.
   const batchPairing = useMemo(
-    () => pairHttpCaptureFiles(batchFiles.map(({ file, key }) => ({ name: file.name, key }))),
-    [batchFiles],
+    () =>
+      pairHttpCaptureFiles(
+        batchFiles.map(({ file, key }) => ({
+          name: file.name,
+          key,
+          content: batchFileContents.get(key),
+        })),
+      ),
+    [batchFiles, batchFileContents],
   );
   const batchFileByKey = useMemo(
     () => new Map(batchFiles.map((f) => [f.key, f.file])),

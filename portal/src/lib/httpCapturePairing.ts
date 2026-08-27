@@ -14,9 +14,22 @@ const REQUEST_FILE_RE = /[_-]?request[_-]?/gi;
 const RESPONSE_FILE_RE = /[_-]?response[_-]?/gi;
 const TIMESTAMP_RE = /_(\d{8}_\d{6})/;
 
+// Content markers — mirrors parser-worker's _REQUEST_RE / _INLINE_RESPONSE_RE /
+// _BARE_RESPONSE_RE / _LABELLED_RESPONSE_LABEL_RE. Label-text-agnostic: these
+// search anywhere in the content, so a custom-prefixed labelled-variant label
+// (e.g. "AccountInstructionsRequestHeader:") still matches via the embedded
+// "={Method=" / "={StatusCode=" block regardless of what the label itself says.
+const CONTENT_REQUEST_RE = /=\{Method="(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)"/;
+const CONTENT_RESPONSE_RE = /ResponseHeader=\{StatusCode="|=\{StatusCode="/;
+
 export interface NamedFile {
   name: string;
   key: string;
+  /** Optional file text — when provided, content is checked before filename
+   * (see isRequestFile/isResponseFile): capture tools don't always name
+   * files consistently with what they contain (seen live — a file named
+   * "..._Request.txt" that was pure response content). */
+  content?: string;
 }
 
 export interface PairingResult<T extends NamedFile> {
@@ -24,12 +37,24 @@ export interface PairingResult<T extends NamedFile> {
   unpaired: T[];
 }
 
-function isRequestFile(name: string): boolean {
-  return /[_-]?request[_-]?/i.test(name);
+function isRequestFile(file: NamedFile): boolean {
+  if (file.content !== undefined) {
+    const isReq = CONTENT_REQUEST_RE.test(file.content);
+    const isResp = CONTENT_RESPONSE_RE.test(file.content);
+    if (isReq && !isResp) return true;
+    if (isResp && !isReq) return false;
+  }
+  return /[_-]?request[_-]?/i.test(file.name);
 }
 
-function isResponseFile(name: string): boolean {
-  return /[_-]?response[_-]?/i.test(name);
+function isResponseFile(file: NamedFile): boolean {
+  if (file.content !== undefined) {
+    const isReq = CONTENT_REQUEST_RE.test(file.content);
+    const isResp = CONTENT_RESPONSE_RE.test(file.content);
+    if (isResp && !isReq) return true;
+    if (isReq && !isResp) return false;
+  }
+  return /[_-]?response[_-]?/i.test(file.name);
 }
 
 function commonPrefixLength(a: string, b: string): number {
@@ -55,8 +80,8 @@ export function pairHttpCaptureFiles<T extends NamedFile>(files: T[]): PairingRe
   const responses: T[] = [];
   const others: T[] = [];
   for (const file of files) {
-    if (isRequestFile(file.name)) requests.push(file);
-    else if (isResponseFile(file.name)) responses.push(file);
+    if (isRequestFile(file)) requests.push(file);
+    else if (isResponseFile(file)) responses.push(file);
     else others.push(file);
   }
 

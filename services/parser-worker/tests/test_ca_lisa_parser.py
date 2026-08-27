@@ -11,9 +11,11 @@ from pathlib import Path
 import pytest
 
 from parser_worker.detector import detect_and_parse, detect_parser
+from parser_worker.models import MatchType
 from parser_worker.parsers.ca_lisa_parser import (
     CALISAParser,
     _detect_variant,
+    _differentiate_bodies,
     _ensure_content_type,
     _find_block_end,
     _infer_content_type,
@@ -22,6 +24,7 @@ from parser_worker.parsers.ca_lisa_parser import (
     _parse_inline_response,
     _parse_kvblock,
     _resolve_variables,
+    parse_ca_lisa_pair,
 )
 
 # ── locate sample files ───────────────────────────────────────────────────────
@@ -46,15 +49,28 @@ INLINE_SOAP_REQUEST = _ESP_ROOT / "XML" / "Formatted_Full_XML_Request.txt"
 # "ResponseHeader" label at all (a third sub-form discovered against real data).
 INLINE_SOAP_RESPONSE = _ESP_ROOT / "XML" / "Formatted_Full_XML_Response.txt"
 
-LABELLED_POST_REQ = _LABELLED_SAMPLE_DIR / "CreateAdviserPOST_Request.txt"
-LABELLED_POST_RESP = _LABELLED_SAMPLE_DIR / "CreateAdviserPost_Response.txt"
-LABELLED_GET_REQ = _LABELLED_SAMPLE_DIR / "GetAdvisers_Request.txt"
-LABELLED_GET_RESP = _LABELLED_SAMPLE_DIR / "GetAdvisersByID_Response.txt"
+LABELLED_POST_REQ = _LABELLED_SAMPLE_DIR / "JSON Samples" / "CreateAdviserPOST_Request.txt"
+LABELLED_POST_RESP = _LABELLED_SAMPLE_DIR / "JSON Samples" / "CreateAdviserPost_Response.txt"
+LABELLED_GET_REQ = _LABELLED_SAMPLE_DIR / "JSON Samples" / "GetAdvisers_Request.txt"
+LABELLED_GET_RESP = _LABELLED_SAMPLE_DIR / "JSON Samples" / "GetAdvisersByID_Response.txt"
+
+# Real-world custom-labelled, multi-capture-per-file sample: section labels
+# are prefixed ("AccountInstructionsRequestHeader:" not "RequestHeader:"), and
+# each file holds multiple captures of the same POST URL distinguished only
+# by body content — the exact shape that exposed the "only JSON stub created,
+# XML silently produced zero stubs" bug.
+CUSTOM_LABEL_REQ = _LABELLED_SAMPLE_DIR / "XML Samples" / "AccountInstructions_Request.txt"
+CUSTOM_LABEL_RESP = _LABELLED_SAMPLE_DIR / "XML Samples" / "AccountInstructionsPost_Request.txt"
 
 _SAMPLE_FILES_PRESENT = INLINE_REQUEST_1.exists() and LABELLED_POST_REQ.exists()
 skip_if_no_samples = pytest.mark.skipif(
     not _SAMPLE_FILES_PRESENT,
     reason="Sample_SV_Files not present in repo",
+)
+_CUSTOM_LABEL_SAMPLES_PRESENT = CUSTOM_LABEL_REQ.exists() and CUSTOM_LABEL_RESP.exists()
+skip_if_no_custom_label_samples = pytest.mark.skipif(
+    not _CUSTOM_LABEL_SAMPLES_PRESENT,
+    reason="Sample_SV_Files/Wealth/XML Samples not present in repo",
 )
 
 
@@ -501,6 +517,221 @@ class TestInferContentType:
     def test_empty_body_no_guess(self):
         assert _infer_content_type("") is None
         assert _infer_content_type("   ") is None
+
+
+# ── labelled variant: custom/prefixed section labels ─────────────────────────
+#
+# CA LISA exports (and Postman/Bruno/hand-authored files) don't always use
+# the bare "RequestHeader:"/"ResponseHeader:" label text — real data has
+# "AccountInstructionsRequestHeader:" and "AccountInstructionResponse:".
+# Detection must be structural (label line, then a "={Method=" or
+# "={StatusCode=" block) and never depend on the label's literal wording.
+
+_CUSTOM_LABEL_REQUEST = (
+    'AccountInstructionsRequestHeader:\n\n'
+    '={Method="POST" URL="/api/x" httpDetails={Version="1.1" '
+    'httpHeaders={Content-Type="application/xml"}}}\n\n'
+    'AccountInstructionRequest:\n'
+    '<Foo><Id>1</Id></Foo>\n'
+)
+_CUSTOM_LABEL_RESPONSE = (
+    'AccountInstructionsResponseHeader:\n\n'
+    '={StatusCode="200" ReasonPhrase="OK" httpDetails={Version="1.1" '
+    'httpHeaders={Content-Type="application/xml"}}}\n\n'
+    'AccountInstructionsResponse:\n'
+    '<Foo><Id>1</Id><Status>OK</Status></Foo>\n'
+)
+
+
+class TestCustomPrefixedLabels:
+    def setup_method(self):
+        self.parser = CALISAParser()
+
+    def test_variant_detected_with_custom_prefix(self):
+        assert _detect_variant(_CUSTOM_LABEL_REQUEST) == "labelled"
+        assert _detect_variant(_CUSTOM_LABEL_RESPONSE) == "labelled"
+
+    def test_generic_bare_label_still_works(self):
+        """Structural detection must not regress the plain, un-prefixed case."""
+        assert _detect_variant("RequestHeader:\n={Method=\"GET\"}") == "labelled"
+        assert _detect_variant("ResponseHeader:\n={StatusCode=\"200\"}") == "labelled"
+
+    def test_parses_end_to_end(self):
+        combined = _CUSTOM_LABEL_REQUEST + "\n" + _CUSTOM_LABEL_RESPONSE
+        result = self.parser.validate(combined)
+        assert result.valid, f"Validation errors: {result.errors}"
+
+        pf = self.parser.parse(combined, "custom.txt")
+        assert len(pf.stubs) == 1
+        stub = pf.stubs[0]
+        assert stub.request.method.value == "POST"
+        assert stub.request.url == "/api/x"
+        assert stub.scenarios[0].status == 200
+        assert "<Status>OK</Status>" in stub.scenarios[0].body
+
+    def test_via_zip_pair_with_misleading_response_filename(self, tmp_path):
+        """Mirrors the real bug: a file whose content is pure response data
+        but whose filename contains 'Request' (as recorded by the capture
+        tool) must still end up in the ZIP's response bucket, and the pair
+        must still be matched despite the two filenames sharing no
+        Request/Response naming convention to key off of."""
+        zip_path = tmp_path / "capture.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("AccountInstructions_Request.txt", _CUSTOM_LABEL_REQUEST)
+            zf.writestr("AccountInstructionsPost_Request.txt", _CUSTOM_LABEL_RESPONSE)
+
+        parser, result, parsed_file = detect_and_parse(zip_path)
+        assert result.valid, f"Validation errors: {result.errors}"
+        assert parsed_file is not None
+        assert len(parsed_file.stubs) == 1
+        stub = parsed_file.stubs[0]
+        assert stub.request.url == "/api/x"
+        assert stub.scenarios[0].status == 200
+
+
+# ── labelled variant: multiple captures at the same URL ──────────────────────
+
+_MULTI_REQUEST = (
+    'RequestHeader:\n\n'
+    '={Method="POST" URL="/api/multi" httpDetails={Version="1.1" '
+    'httpHeaders={x-usercontext="UserID=1" x-requestid="guid-aaa" '
+    'Content-Type="application/xml"}}}\n\n'
+    'Request:\n'
+    '<Account><Id>111</Id></Account>\n\n'
+    '12-Jun-2026 01:00:36\n\n'
+    'RequestHeader:\n\n'
+    '={Method="POST" URL="/api/multi" httpDetails={Version="1.1" '
+    'httpHeaders={x-usercontext="UserID=1" x-requestid="guid-bbb" '
+    'Content-Type="application/xml"}}}\n\n'
+    'Request:\n'
+    '<Account><Id>222</Id></Account>\n'
+)
+_MULTI_RESPONSE = (
+    'ResponseHeader:\n\n'
+    '={StatusCode="200" httpDetails={Version="1.1" '
+    'httpHeaders={Content-Type="application/xml"}}}\n\n'
+    'Response:\n'
+    '<Account><Id>111</Id><Status>OK-A</Status></Account>\n\n'
+    '12-Jun-2026 01:00:36\n\n'
+    'ResponseHeader:\n\n'
+    '={StatusCode="200" httpDetails={Version="1.1" '
+    'httpHeaders={Content-Type="application/xml"}}}\n\n'
+    'Response:\n'
+    '<Account><Id>222</Id><Status>OK-B</Status></Account>\n'
+)
+
+
+class TestMultiCaptureSameUrl:
+    def setup_method(self):
+        self.parser = CALISAParser()
+
+    def test_two_captures_produce_two_scenarios(self):
+        combined = _MULTI_REQUEST + "\n" + _MULTI_RESPONSE
+        pf = self.parser.parse(combined, "multi.txt")
+        assert len(pf.stubs) == 1
+        stub = pf.stubs[0]
+        assert len(stub.scenarios) == 2
+        bodies = {s.body for s in stub.scenarios}
+        assert any("OK-A" in b for b in bodies)
+        assert any("OK-B" in b for b in bodies)
+
+    def test_scenarios_get_distinct_body_matchers(self):
+        combined = _MULTI_REQUEST + "\n" + _MULTI_RESPONSE
+        pf = self.parser.parse(combined, "multi.txt")
+        stub = pf.stubs[0]
+        match_types = {s.match.type for s in stub.scenarios}
+        assert match_types == {MatchType.BODY_XPATH}
+        values = {s.match.value for s in stub.scenarios}
+        assert len(values) == 2  # each scenario's matcher is unique
+
+    def test_volatile_correlation_header_excluded(self):
+        """x-requestid differs on every capture (a correlation id) and must
+        not become a required match header — it would never match a real
+        replay request. x-usercontext is stable and should be kept."""
+        combined = _MULTI_REQUEST + "\n" + _MULTI_RESPONSE
+        pf = self.parser.parse(combined, "multi.txt")
+        headers = pf.stubs[0].request.required_headers
+        assert "x-requestid" not in headers
+        assert headers.get("x-usercontext") == "UserID=1"
+
+    def test_single_capture_still_always_matches(self):
+        """Single request/response pair keeps prior behaviour exactly —
+        no bodyPatterns matcher, ALWAYS-type scenario."""
+        req = (
+            'RequestHeader:\n\n={Method="GET" URL="/api/single"}\n\nRequest:\n\n'
+        )
+        resp = 'ResponseHeader:\n\n={StatusCode="200"}\n\nResponse:\n{"ok":true}\n'
+        pf = self.parser.parse(req + "\n" + resp, "single.txt")
+        stub = pf.stubs[0]
+        assert len(stub.scenarios) == 1
+        assert stub.scenarios[0].match.type == MatchType.ALWAYS
+
+
+class TestDifferentiateBodies:
+    def test_finds_distinguishing_xml_field(self):
+        bodies = ["<a><id>1</id><x>same</x></a>", "<a><id>2</id><x>same</x></a>"]
+        conditions = _differentiate_bodies(bodies)
+        assert all(c is not None for c in conditions)
+        assert all(c.type == MatchType.BODY_XPATH for c in conditions)
+        assert conditions[0].value != conditions[1].value
+
+    def test_finds_distinguishing_json_field(self):
+        bodies = ['{"id": 1, "x": "same"}', '{"id": 2, "x": "same"}']
+        conditions = _differentiate_bodies(bodies)
+        assert all(c is not None for c in conditions)
+        assert all(c.type == MatchType.BODY_JSON_PATH for c in conditions)
+        assert conditions[0].value != conditions[1].value
+
+    def test_no_differentiator_returns_none(self):
+        bodies = ["<a><x>same</x></a>", "<a><x>same</x></a>"]
+        assert _differentiate_bodies(bodies) == [None, None]
+
+    def test_single_body_returns_none(self):
+        assert _differentiate_bodies(["<a><x>1</x></a>"]) == [None]
+
+    def test_mismatched_types_returns_none(self):
+        assert _differentiate_bodies(['{"a":1}', "<a>1</a>"]) == [None, None]
+
+
+# ── real sample files: Wealth XML Samples (custom labels + multi-capture) ────
+
+class TestWealthXmlSamples:
+    @skip_if_no_custom_label_samples
+    def test_zip_upload_produces_stub(self, tmp_path):
+        """End-to-end reproduction of the reported bug: batch-uploading both
+        real XML sample files (custom-prefixed labels, multiple captures per
+        file, and a response file whose name says 'Request') must now
+        produce a valid stub instead of zero stubs."""
+        zip_path = tmp_path / "xml_samples.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.write(CUSTOM_LABEL_REQ, CUSTOM_LABEL_REQ.name)
+            zf.write(CUSTOM_LABEL_RESP, CUSTOM_LABEL_RESP.name)
+
+        parser, result, parsed_file = detect_and_parse(zip_path)
+        assert result.valid, f"Validation errors: {result.errors}"
+        assert parsed_file is not None
+        assert len(parsed_file.stubs) == 1
+
+        stub = parsed_file.stubs[0]
+        assert stub.request.method.value == "POST"
+        assert "/api/distribution/v3/accountinstructions" in stub.request.url
+        # 2 requests recorded, 3 responses recorded -> paired by order, 2 scenarios
+        assert len(stub.scenarios) == 2
+        for scenario in stub.scenarios:
+            assert scenario.status == 200
+            assert scenario.match.type == MatchType.BODY_XPATH
+
+    @skip_if_no_custom_label_samples
+    def test_single_file_pair_via_parse_ca_lisa_pair(self):
+        req_content = CUSTOM_LABEL_REQ.read_text(encoding="utf-8")
+        resp_content = CUSTOM_LABEL_RESP.read_text(encoding="utf-8")
+        stub = parse_ca_lisa_pair(
+            req_content, resp_content, CUSTOM_LABEL_REQ.name, CUSTOM_LABEL_RESP.name
+        )
+        assert len(stub.scenarios) == 2
+        assert stub.request.url == "/api/distribution/v3/accountinstructions"
+        # x-requestid (a fresh guid per capture) must not be a required header
+        assert "x-requestid" not in stub.request.required_headers
 
     def test_ensure_content_type_adds_when_missing(self):
         headers = {"X-Custom": "value"}

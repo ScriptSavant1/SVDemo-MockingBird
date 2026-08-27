@@ -56,8 +56,10 @@ CA LISA variable substitution:
 """
 from __future__ import annotations
 
+import json as _json
 import re
 from typing import Any, Optional
+from xml.etree import ElementTree as _ET
 
 from ..models import (
     HttpMethod,
@@ -87,6 +89,18 @@ _BARE_RESPONSE_RE = re.compile(r'=\{StatusCode="')
 _LABELLED_RESPONSE_LABEL_RE = re.compile(r'^ResponseHeader:\s*$', re.MULTILINE)
 # Labelled-variant request: standalone "RequestHeader:" label line
 _LABELLED_REQUEST_LABEL_RE = re.compile(r'^RequestHeader:\s*$', re.MULTILINE)
+# Structural label line: ANY standalone identifier ending in ':' with nothing
+# else on the line — e.g. "RequestHeader:", "AccountInstructionsRequestHeader:",
+# "Request:", "AccountInstructionResponse:". The label's literal text is
+# deliberately never inspected; only what immediately follows it decides its
+# role (see _scan_labelled_captures). This is what lets the labelled variant
+# survive whatever naming convention a given CA LISA export, Postman/Bruno
+# export, or hand-authored file happens to use for its section labels,
+# without new code for every naming scheme — as long as the underlying shape
+# (a label line, then a "={...}" metadata block, then a body) still holds.
+_LABEL_LINE_RE = re.compile(r'^([A-Za-z][A-Za-z0-9_]*):\s*$')
+_META_REQUEST_START_RE = re.compile(r'^=\{Method="')
+_META_RESPONSE_START_RE = re.compile(r'^=\{StatusCode="')
 # CA LISA variable: %%VarName%%  (also catches single-% prefix artefacts like %VarName%%)
 _CALISA_VAR_RE = re.compile(r'%{1,2}([A-Za-z][A-Za-z0-9_\-]*)%{1,2}')
 # Labelled-variant date header line: "12-Jun-2026 13:32:21"
@@ -210,138 +224,301 @@ def _parse_ca_lisa_content(
 
 def _detect_variant(content: str) -> str:
     """Return 'labelled' if content uses section labels; 'inline' otherwise."""
-    if _LABELLED_REQUEST_LABEL_RE.search(content) or _LABELLED_RESPONSE_LABEL_RE.search(content):
+    if _scan_labelled_captures(content.splitlines()):
         return "labelled"
     return "inline"
 
 
 # ── labelled variant ──────────────────────────────────────────────────────────
 
+def _scan_labelled_captures(lines: list[str]) -> list[dict]:
+    """Walk labelled-variant content and extract every request/response capture,
+    in document order — regardless of what the section-label lines are
+    literally named. A label line's role is decided purely by what
+    immediately follows it: a "={Method=" block starts a new request
+    capture, a "={StatusCode=" block starts a new response capture, and any
+    other label line encountered while a capture is open is that capture's
+    body label (its own text is irrelevant and simply consumed).
+
+    Handles any number of captures — one file may contain several
+    request/response pairs recorded at the same URL (e.g. re-runs of the
+    same operation with different payloads); each becomes its own entry
+    here in the order it appears, later paired up by _parse_labelled_content.
+
+    Returns a list of {"type": "request"|"response", "block": str, "body": str}.
+    """
+    captures: list[dict] = []
+    current: Optional[dict] = None
+    current_body_start: Optional[int] = None
+    n = len(lines)
+
+    def _next_nonblank(idx: int) -> Optional[str]:
+        j = idx + 1
+        while j < n and not lines[j].strip():
+            j += 1
+        return lines[j].strip() if j < n else None
+
+    def _finish_body(end_idx: int) -> str:
+        assert current_body_start is not None
+        body_lines = lines[current_body_start:end_idx]
+        while body_lines and (
+            not body_lines[-1].strip() or _DATE_LINE_RE.match(body_lines[-1].strip())
+        ):
+            body_lines = body_lines[:-1]
+        return "\n".join(body_lines).strip()
+
+    def _finish_current(end_idx: int) -> None:
+        if current is None:
+            return
+        current["body"] = _finish_body(end_idx) if current_body_start is not None else ""
+        block_text = "\n".join(current.pop("block_lines")).strip()
+        if block_text.startswith("="):
+            block_text = block_text[1:].strip()
+        current["block"] = block_text
+        captures.append(current)
+
+    i = 0
+    while i < n:
+        stripped = lines[i].strip()
+        m = _LABEL_LINE_RE.match(stripped)
+        if m:
+            peek = _next_nonblank(i)
+            if peek and _META_REQUEST_START_RE.match(peek):
+                _finish_current(i)
+                current = {"type": "request", "block_lines": []}
+                current_body_start = None
+            elif peek and _META_RESPONSE_START_RE.match(peek):
+                _finish_current(i)
+                current = {"type": "response", "block_lines": []}
+                current_body_start = None
+            elif current is not None and current_body_start is None:
+                # Body label for the currently open capture — header block
+                # text ends here, body starts on the next line.
+                current_body_start = i + 1
+            i += 1
+            continue
+        if current is not None and current_body_start is None:
+            if stripped and not _DATE_LINE_RE.match(stripped):
+                current["block_lines"].append(lines[i])
+        i += 1
+
+    _finish_current(n)
+    return captures
+
+
 def _parse_labelled_content(
     content: str, source_name: str, hint_filename: str
 ) -> list[ParsedStub]:
-    """Parse the labelled CA LISA format (explicit RequestHeader:/ResponseHeader: sections)."""
+    """Parse the labelled CA LISA format (explicit *Header: sections).
+
+    Handles both a single request/response pair and multiple pairs recorded
+    at the same URL — either interleaved in one file, or (via
+    parse_ca_lisa_pair) a request-only file concatenated with a
+    response-only file. Captures are matched request[i] <-> response[i] in
+    document order; when there is more than one pair, a request-body field
+    that differs across every capture is auto-selected (see
+    _differentiate_bodies) so each pair gets its own WireMock bodyPatterns
+    matcher instead of colliding on a single always-matched mapping.
+    """
     lines = content.splitlines()
+    captures = _scan_labelled_captures(lines)
 
-    req_label_idx: Optional[int] = None
-    resp_label_idx: Optional[int] = None
+    requests = [c for c in captures if c["type"] == "request"]
+    responses = [c for c in captures if c["type"] == "response"]
 
-    for i, line in enumerate(lines):
-        s = line.strip()
-        if s == "RequestHeader:" and req_label_idx is None:
-            req_label_idx = i
-        elif s == "ResponseHeader:":
-            resp_label_idx = i
-            break
-
-    if req_label_idx is None:
-        raise ValueError("No 'RequestHeader:' label found in labelled-format CA LISA file")
-    if resp_label_idx is None:
+    if not requests:
+        raise ValueError("No request section found in labelled-format CA LISA file")
+    if not responses:
         raise ValueError(
-            "No 'ResponseHeader:' label found. "
+            "No response section found. "
             "Combine request and response files into one file before uploading."
         )
 
-    req_block_text, req_body = _extract_labelled_section(
-        lines, req_label_idx, "Request:", end_line=resp_label_idx
-    )
-    resp_block_text, resp_body = _extract_labelled_section(
-        lines, resp_label_idx, "Response:"
-    )
+    pair_count = min(len(requests), len(responses))
+    requests, responses = requests[:pair_count], responses[:pair_count]
 
-    req_parsed = _parse_kvblock(req_block_text)
-    resp_parsed = _parse_kvblock(resp_block_text)
+    req_parsed = [_parse_kvblock(r["block"]) for r in requests]
+    resp_parsed = [_parse_kvblock(r["block"]) for r in responses]
 
-    method_str = req_parsed.get("Method", "GET")
-    url = req_parsed.get("URL", "/")
+    method_str = req_parsed[0].get("Method", "GET")
+    url = req_parsed[0].get("URL", "/")
 
-    req_headers = _extract_http_headers(req_parsed)
-    resp_headers = _extract_http_headers(resp_parsed)
+    req_headers_list = [_extract_http_headers(p) for p in req_parsed]
+    if pair_count > 1:
+        # A header only means anything as a match condition if it's stable
+        # across every capture of this operation. Correlation/trace headers
+        # (x-requestid, traceparent, ...) change on every single call by
+        # design — baking one specific captured value in as a required
+        # match would make the resulting stub never match a real replay
+        # request, so anything that varies across captures is dropped
+        # rather than hardcoding a list of "known volatile" header names.
+        first = req_headers_list[0]
+        stable_headers = {
+            k: v for k, v in first.items()
+            if all(h.get(k) == v for h in req_headers_list[1:])
+        }
+    else:
+        stable_headers = req_headers_list[0]
+    required_headers = _filter_request_headers(stable_headers)
 
-    raw_status = str(resp_parsed.get("StatusCode", "200"))
-    status_code = _infer_status_code(raw_status, hint_filename or source_name)
+    req_bodies = [r["body"] for r in requests]
+    diff_conditions = _differentiate_bodies(req_bodies) if pair_count > 1 else [None]
 
-    # Resolve CA LISA variables in response body and headers
-    resolved_body, uses_template = _resolve_variables(resp_body or "", hint_filename or source_name)
-    resolved_headers = {
-        k: _resolve_variables(v, hint_filename or source_name)[0]
-        for k, v in resp_headers.items()
-    }
-    if any(
-        _resolve_variables(v, hint_filename or source_name)[1]
-        for v in resp_headers.values()
-    ):
-        uses_template = True
+    scenarios: list[ParsedScenario] = []
+    for i in range(pair_count):
+        resp_headers = _extract_http_headers(resp_parsed[i])
+        raw_status = str(resp_parsed[i].get("StatusCode", "200"))
+        status_code = _infer_status_code(raw_status, hint_filename or source_name)
 
-    resolved_headers = _ensure_content_type(resolved_headers, resolved_body or "")
+        resolved_body, uses_template = _resolve_variables(
+            responses[i]["body"] or "", hint_filename or source_name
+        )
+        resolved_headers = {
+            k: _resolve_variables(v, hint_filename or source_name)[0]
+            for k, v in resp_headers.items()
+        }
+        resolved_headers = _ensure_content_type(resolved_headers, resolved_body or "")
+
+        match = diff_conditions[i] or MatchCondition(type=MatchType.ALWAYS)
+        scenario_name = "default" if pair_count == 1 else f"variant-{i + 1}"
+
+        scenarios.append(ParsedScenario(
+            name=scenario_name,
+            match=match,
+            status=status_code,
+            response_headers=resolved_headers,
+            body=resolved_body or None,
+        ))
+
     stub_name = _stub_name_from_source(source_name)
-
-    scenario = ParsedScenario(
-        name="default",
-        match=MatchCondition(type=MatchType.ALWAYS),
-        status=status_code,
-        response_headers=resolved_headers,
-        body=resolved_body or None,
-    )
     stub = ParsedStub(
         name=stub_name,
         request=ParsedRequestSpec(
             method=HttpMethod(method_str.upper()),
             url=url,
-            required_headers=_filter_request_headers(req_headers),
+            required_headers=required_headers,
         ),
-        scenarios=[scenario],
+        scenarios=scenarios,
     )
     return [stub]
 
 
-def _extract_labelled_section(
-    lines: list[str],
-    label_idx: int,
-    body_label: str,
-    end_line: Optional[int] = None,
-) -> tuple[str, str]:
-    """Extract the CA LISA block text and the body from a labelled section.
+# ── same-URL body differentiation ─────────────────────────────────────────────
 
-    The labelled variant often omits the outer closing brace of the ={...}
-    block, so brace-depth counting is unreliable.  Instead we use the body
-    section label (e.g. "Request:" or "Response:") as the hard boundary
-    between the header block and the body.
+def _local_name(tag: str) -> str:
+    return tag.split("}", 1)[1] if tag.startswith("{") else tag
 
-    Returns (block_text, body_text).
+
+def _xml_leaf_values(body: str) -> dict[str, str]:
+    """Map {leaf-element-local-name: text} for a captured XML body.
+
+    Uses local-name so namespace prefixes (soapenv:, ns2:, none at all,
+    ...) don't matter. Duplicate leaf names within one body are skipped —
+    ambiguous as a discriminator. Returns {} if the body isn't valid XML.
     """
-    limit = end_line if end_line is not None else len(lines)
-    section_lines = lines[label_idx + 1 : limit]
+    try:
+        root = _ET.fromstring(body)
+    except Exception:
+        return {}
+    values: dict[str, str] = {}
+    seen_twice: set[str] = set()
+    for el in root.iter():
+        if len(el) == 0 and el.text and el.text.strip():
+            name = _local_name(el.tag)
+            if name in values:
+                seen_twice.add(name)
+            else:
+                values[name] = el.text.strip()
+    for name in seen_twice:
+        values.pop(name, None)
+    return values
 
-    # Find the body label ("Request:" or "Response:") within this section
-    body_label_key = body_label.rstrip(":")
-    body_label_idx: Optional[int] = None
-    for i, line in enumerate(section_lines):
-        if line.strip() == f"{body_label_key}:":
-            body_label_idx = i
+
+def _json_leaf_values(body: str) -> dict[str, str]:
+    """Map {top-level-key: value} for a captured JSON body's scalar fields.
+
+    Restricted to top-level keys (not nested paths) so the JSONPath filter
+    built in _differentiate_bodies stays a simple, always-correct
+    "$[?(@.key=='value')]" expression. Returns {} if not valid JSON or the
+    top level isn't an object.
+    """
+    try:
+        data = _json.loads(body)
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {
+        k: str(v) for k, v in data.items()
+        if isinstance(v, (str, int, float, bool)) and v not in (None, "")
+    }
+
+
+def _xpath_literal(value: str) -> str:
+    """Build an XPath 1.0 string literal for `value` (no escape mechanism in
+    XPath 1.0, so pick whichever quote character isn't already in the value,
+    or fall back to concat() when it contains both)."""
+    if "'" not in value:
+        return f"'{value}'"
+    if '"' not in value:
+        return f'"{value}"'
+    parts = value.split("'")
+    return "concat(" + ", \"'\", ".join(f"'{p}'" for p in parts) + ")"
+
+
+def _differentiate_bodies(bodies: list[str]) -> list[Optional[MatchCondition]]:
+    """Given N request bodies captured for the same method+URL, return one
+    MatchCondition per body that uniquely selects it, by finding a body
+    field whose value differs across every capture — the same manual
+    pattern used earlier for same-URL SOAP collisions, applied
+    automatically. Returns a list of Nones (same length) when no reliable
+    single-field differentiator exists (mixed/unparseable bodies, or no
+    field both present everywhere and distinct everywhere).
+    """
+    if len(bodies) < 2:
+        return [None] * len(bodies)
+
+    stripped = [b.lstrip() for b in bodies]
+    is_xml = all(s.startswith("<") for s in stripped)
+    is_json = all(s[:1] in "{[" for s in stripped)
+
+    if is_xml:
+        per_body = [_xml_leaf_values(b) for b in bodies]
+    elif is_json:
+        per_body = [_json_leaf_values(b) for b in bodies]
+    else:
+        return [None] * len(bodies)
+
+    if any(not m for m in per_body):
+        return [None] * len(bodies)
+
+    common_keys = set(per_body[0])
+    for m in per_body[1:]:
+        common_keys &= set(m)
+
+    chosen_key: Optional[str] = None
+    for key in per_body[0]:  # preserve document order of the first body
+        if key not in common_keys:
+            continue
+        values = [m[key] for m in per_body]
+        if len(set(values)) == len(values):  # every capture has a distinct value
+            chosen_key = key
             break
 
-    if body_label_idx is not None:
-        # Block = everything before the body label, skipping blank and date lines
-        block_lines = [
-            l for l in section_lines[:body_label_idx]
-            if l.strip() and not _DATE_LINE_RE.match(l.strip())
-        ]
-        body_lines = section_lines[body_label_idx + 1 :]
-    else:
-        # No body label — entire section is the header block; no body
-        block_lines = [
-            l for l in section_lines
-            if l.strip() and not _DATE_LINE_RE.match(l.strip())
-        ]
-        body_lines = []
+    if chosen_key is None:
+        return [None] * len(bodies)
 
-    block_text = "\n".join(block_lines).strip()
-    if block_text.startswith("="):
-        block_text = block_text[1:].strip()
-
-    body = "\n".join(body_lines).strip()
-    return block_text, body
+    conditions: list[Optional[MatchCondition]] = []
+    for m in per_body:
+        value = m[chosen_key]
+        if is_xml:
+            xpath = f"//*[local-name()='{chosen_key}' and text()={_xpath_literal(value)}]"
+            conditions.append(MatchCondition(type=MatchType.BODY_XPATH, value=xpath))
+        else:
+            escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+            jsonpath = f"$[?(@.{chosen_key}=='{escaped}')]"
+            conditions.append(MatchCondition(type=MatchType.BODY_JSON_PATH, value=jsonpath))
+    return conditions
 
 
 # ── inline variant ────────────────────────────────────────────────────────────
