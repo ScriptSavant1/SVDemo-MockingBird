@@ -100,6 +100,14 @@ class ParsedScenario(BaseModel):
     # each scenario gets its own exact urlPath mapping instead of sharing
     # one urlPath the way same-URL body-differentiated scenarios do.
     url_override: Optional[str] = None
+    # This scenario's real captured REQUEST body (not the response body
+    # above), when the source parser recorded one — CA LISA captures always
+    # have one; other formats (Postman, OpenAPI, ...) don't record a
+    # request body at all and leave this None. Purely a convenience for
+    # consumers that want a realistic example payload (e.g.
+    # generator/jmeter.py) rather than having to reverse-engineer one from
+    # `match`; nothing in mapping generation reads this field.
+    captured_request_body: Optional[str] = None
 
     def has_dynamic_placeholders(self) -> bool:
         """True if a {{...}} template placeholder appears anywhere WireMock will

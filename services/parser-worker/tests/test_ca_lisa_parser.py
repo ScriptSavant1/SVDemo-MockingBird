@@ -668,6 +668,16 @@ class TestMultiCaptureSameUrl:
         assert "x-requestid" not in headers
         assert headers.get("x-usercontext") == "UserID=1"
 
+    def test_captured_request_body_preserved_per_scenario(self):
+        """Each scenario's real captured request body (not just the
+        response) must be preserved, distinct per capture — used by
+        generator/jmeter.py to build realistic NFT script payloads instead
+        of a synthesized placeholder."""
+        combined = _MULTI_REQUEST + "\n" + _MULTI_RESPONSE
+        pf = self.parser.parse(combined, "multi.txt")
+        bodies = {s.captured_request_body for s in pf.stubs[0].scenarios}
+        assert bodies == {"<Account><Id>111</Id></Account>", "<Account><Id>222</Id></Account>"}
+
     def test_single_capture_still_always_matches(self):
         """Single request/response pair keeps prior behaviour exactly —
         no bodyPatterns matcher, ALWAYS-type scenario."""
@@ -1126,6 +1136,18 @@ class TestUrlSegmentSampleFiles:
         # differentiator this time is the URL, not the body.
         assert "x-requestid" not in stub.request.required_headers
         assert "traceparent" not in stub.request.required_headers
+
+    @skip_if_no_url_segment_samples
+    def test_captured_request_body_preserved_per_scenario(self):
+        req_content = URL_SEGMENT_REQ.read_text(encoding="utf-8")
+        resp_content = URL_SEGMENT_RESP.read_text(encoding="utf-8")
+        stub = parse_ca_lisa_pair(
+            req_content, resp_content, URL_SEGMENT_REQ.name, URL_SEGMENT_RESP.name
+        )
+        bodies = [s.captured_request_body for s in stub.scenarios]
+        assert all(b is not None for b in bodies)
+        assert all(b.strip().startswith("<?xml") for b in bodies)
+        assert len(set(bodies)) == len(bodies)  # every capture's body is distinct
 
     @skip_if_no_url_segment_samples
     def test_qualifies_for_lookup_table(self):

@@ -284,3 +284,89 @@ upload, purely to immediately re-read and discard them.
 
 Both paths now classify request-vs-response by content before filename,
 matching the backend fix above (see "Content-first file classification").
+
+---
+
+## Automatic JMeter NFT Script Generation (Phase 1)
+
+`services/parser-worker/src/parser_worker/generator/jmeter.py` +
+`services/ingestion-service/src/ingestion_service/routers/nft.py` +
+`portal/src/api/ingestion.ts` (`downloadJmeterZip`) + the "Download NFT
+Scripts" button on the project page. See
+`docs/progress/PHASE1_JMETER_NFT_GENERATION.md` for the full impact
+analysis and testing record.
+
+### Why this exists
+
+Every stub Mockingbird generates already carries everything a JMeter test
+needs — method, URL (or URL pattern), required headers, and, via the
+dynamic lookup-table/URL-segment work above, exactly which field or path
+segment differentiates each captured scenario. NFT testers previously had
+to hand-write a JMeter script per stub from scratch. This feature generates
+one automatically, as a **separate download** from the stub engine
+project, so the two artifacts (stub + test plan) can be grabbed
+independently.
+
+### Scope (Phase 1 — JMeter only)
+
+One `.jmx` per download, one Thread Group per stub, covering every stub
+shape the parser produces: single-scenario, same-URL body-differentiated,
+and URL-segment-differentiated. Correct method, URL/URL pattern, required
+headers, and expected status per scenario (never hardcoded to 200).
+**Explicitly out of scope**, and stated in the generated `README.md` rather
+than silently skipped: SOAP WS-Security auth injection, fault/delay
+scenario replication, and assertions on Handlebars-templated response
+content. LoadRunner DevWeb scripts are a deliberately separate, later
+phase — not attempted here.
+
+### Design
+
+For each `ParsedStub`, per scenario: `path = scenario.url_override or
+stub.request.url` (mirrors `generator/wiremock.py`'s own logic — for
+URL-segment stubs, `stub.request.url` is a regex pattern, not a literal);
+`body = scenario.captured_request_body or _synthesize_minimal_body(...)`
+— a new optional `ParsedScenario.captured_request_body` field (populated
+by the CA LISA parser from data it already holds) supplies a real captured
+request body when available, otherwise a minimal body is synthesized that
+is *guaranteed to satisfy the stub's own match condition* (e.g.
+`<root><field>value</field></root>` for an XPath discriminator, `{"field":
+"value"}` for a JSONPath one); `expected_status = scenario.status`, never
+hardcoded.
+
+**Verified JMeter constraint** (checked against real JMeter
+documentation/community reports, not assumed): `CSVDataSet` reads its file
+line-by-line *before* applying quote/delimiter parsing, so a captured
+request body's embedded newlines would corrupt row parsing even with
+`quotedData=true`. Fixed by collapsing embedded newlines to a single space
+in every generated CSV field — safe for both XML (whitespace between tags
+is insignificant) and JSON (a raw literal newline inside a string value
+isn't valid JSON to begin with).
+
+One CSV per stub (`requestPath,requestBody,expectedStatus`, one row per
+scenario), one Thread Group per stub (`CSVDataSet` → `HeaderManager` → one
+`HTTPSamplerProxy` using `${requestPath}`/`${requestBody}` → a
+`ResponseAssertion` on `${expectedStatus}`), delivered via
+`GET /api/v1/projects/{project_id}/stubs/{stub_id}/nft-jmeter.zip`
+(ingestion-service), generated **on demand at download time**, never at
+upload time — this adds zero work/risk to the upload path (see BUG-034),
+mirroring the "regenerate from stored source" fallback `wiremock.zip`
+already uses, generalized to also work when the source is stored in S3
+(not just local storage).
+
+### Testing
+
+Generator logic: 17 parser-worker unit tests (CSV escaping/round-trip,
+XML well-formedness, all three scenario shapes, synthesized-body
+correctness, newline-collapsing) plus three real, non-GUI Apache JMeter
+5.6.3 runs against real running stub-engine JARs — one per scenario shape
+— each 25/25 requests successful, 0 errors, all expected status codes,
+confirmed by inspecting `results.jtl` directly rather than trusting the
+console summary line. Endpoint: 4 ingestion-service tests (valid ZIP
+contents, unknown stub, unknown project, works immediately post-upload
+without requiring a separate generate/deploy step). Delivery: a real
+Playwright E2E (`portal/e2e/real/06-download-nft-jmeter.spec.ts`) that
+logs in, creates a project, uploads a real sample file through the actual
+UI, clicks the real "Download NFT Scripts" button, and parses the
+downloaded ZIP to confirm `test-plan.jmx`/`data/*.csv`/`README.md` are
+present and well-formed — run alongside the full existing real E2E suite
+(26/26 passing, no regressions).

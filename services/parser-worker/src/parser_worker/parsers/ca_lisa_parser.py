@@ -485,6 +485,7 @@ def _build_same_url_stub(
             response_headers=resolved_headers,
             body=resolved_body or None,
             lookup_key=diff.values[i],
+            captured_request_body=requests[i].body or None,
         ))
 
     return ParsedStub(
@@ -531,6 +532,7 @@ def _build_url_pattern_stub(
             response_headers=resolved_headers,
             body=resolved_body or None,
             lookup_key=url_values[i],
+            captured_request_body=requests[i].body or None,
             url_override=requests[i].url,
         ))
 

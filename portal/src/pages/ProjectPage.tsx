@@ -23,6 +23,7 @@ export function ProjectPage() {
   const [deployingId, setDeployingId] = useState<string | null>(null);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [jmeterDownloadingId, setJmeterDownloadingId] = useState<string | null>(null);
   const [deployError, setDeployError] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [showEdit, setShowEdit] = useState(false);
@@ -105,6 +106,24 @@ export function ProjectPage() {
       setDownloadError(err instanceof Error ? err.message : "Download failed");
     } finally {
       setDownloadingId(null);
+    }
+  }
+
+  async function handleDownloadJmeterScripts(stubId: string) {
+    setJmeterDownloadingId(stubId);
+    setDownloadError(null);
+    try {
+      const blob = await ingestionApi.downloadJmeterZip(projectId!, stubId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "nft-jmeter.zip";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : "Download failed");
+    } finally {
+      setJmeterDownloadingId(null);
     }
   }
 
@@ -228,6 +247,15 @@ export function ProjectPage() {
                           title="Download the complete Spring Boot + WireMock project (pom.xml, Dockerfile, Java source, mappings). Run with: mvn spring-boot:run"
                         >
                           Download Stub Project
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          loading={jmeterDownloadingId === stub.id}
+                          onClick={() => void handleDownloadJmeterScripts(stub.id)}
+                          title="Download an auto-generated, ready-to-run JMeter (.jmx) NFT test plan for this stub, with one CSV data file per scenario"
+                        >
+                          Download NFT Scripts
                         </Button>
                       </>
                     )}
