@@ -19,9 +19,15 @@ Write-Host "Starting Mockingbird local dev stack..." -ForegroundColor Cyan
 Write-Host ""
 
 # 1. auth-service (Node.js + SQLite - no PostgreSQL needed)
+# PORT is set explicitly here (not left to the caller's shell) because this
+# runs in a brand-new spawned window — an env var set in the shell that
+# launches start-dev.ps1 does not reliably reach it otherwise, which is
+# exactly what caused auth-service to keep silently binding to 3001 even
+# after the caller changed vite.config.ts's proxy target to 3002.
 Start-Service "auth-service" @(
     "Set-Location '$root\services\auth-service'",
-    "Write-Host '[auth-service] Starting on http://localhost:3001' -ForegroundColor Green",
+    "`$env:PORT = '3002'",
+    "Write-Host '[auth-service] Starting on http://localhost:3002' -ForegroundColor Green",
     "npm run dev"
 )
 
@@ -52,15 +58,18 @@ Start-Service "ingestion-service" @(
 )
 
 # 4. portal (React + Vite)
+# The actual port Vite binds to comes from portal/vite.config.ts's
+# server.port, not from anything set here — this label is just for the
+# console and must be kept in sync with that file by hand.
 Start-Service "portal" @(
     "Set-Location '$root\portal'",
-    "Write-Host '[portal] Starting on http://localhost:3000' -ForegroundColor Green",
+    "Write-Host '[portal] Starting on http://localhost:3010' -ForegroundColor Green",
     "npm run dev"
 )
 
 Write-Host "Four windows opened. Services will be ready in about 10 seconds." -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Then open: http://localhost:3000" -ForegroundColor Yellow
+Write-Host "Then open: http://localhost:3010" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "First time only - create the admin account (run in a new terminal):" -ForegroundColor Yellow
 Write-Host ""

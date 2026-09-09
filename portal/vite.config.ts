@@ -10,10 +10,10 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3000,
+    port: 3010,
     proxy: {
       "/api/v1/auth": {
-        target: "http://localhost:3001",
+        target: "http://localhost:3002",
         changeOrigin: true,
         // No rewrite — auth-service routes live at /api/v1/auth/* (versioned)
       },
