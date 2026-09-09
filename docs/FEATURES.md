@@ -495,3 +495,15 @@ names, and punctuation-only names — all validated with real `node
 (a possible UTF-8-vs-Windows-1252 question for non-ASCII content, reasoned
 through but not yet exercised by any real sample data) in
 `docs/progress/PHASE2_DEVWEB_NFT_GENERATION.md` §8.
+
+### Second real-VuGen round — two more fixes
+
+Re-tested by the user in real VuGen after §7's fix, which got further and surfaced
+two more issues, both fixed: (1) `parameters.yml` entries using `nextRow: "same as
+<param>"` omitted `nextValue` on the theory that the doc calls it "ignored" there —
+real VuGen's parser requires the key present regardless (`nextValue getter was not
+defined`); the vendor's own example YAML and the reference converter's real output
+both always include it, which should have been caught the first time. (2) Every
+`WebRequest` was missing the `id` field the reference converter's real output always
+sets (used by VuGen for Replay-view snapshot mapping) — added, 1-based and sequential
+across the script. See `docs/progress/PHASE2_DEVWEB_NFT_GENERATION.md` §9.

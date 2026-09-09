@@ -135,7 +135,7 @@ def build_devweb_project_files(parsed: ParsedFile, project_name: str = "") -> di
             csv_rows.append((row.path, body_filename, row.status))
         files[csv_filename] = _build_devweb_csv(csv_rows)
 
-        actions.append((base, _build_action_block(stub, base)))
+        actions.append((base, _build_action_block(stub, base, request_id=index + 1)))
         param_blocks.append(_build_param_block(base, csv_filename))
         stub_summaries.append(
             f"- **{stub.name}** — `{stub.request.method.value}` `{stub.request.url}` "
@@ -191,13 +191,20 @@ def _script_name(project_label: str) -> str:
 
 # ── main.js ──────────────────────────────────────────────────────────────────────
 
-def _build_action_block(stub: ParsedStub, base: str) -> str:
+def _build_action_block(stub: ParsedStub, base: str, request_id: int) -> str:
+    """request_id becomes the WebRequest's `id` — used by VuGen to
+    generate the matching snapshot file for the Replay view (see the SDK
+    docs' `id` option: "The ID used to generate the corresponding
+    snapshot file."). Sequential across the whole script, 1-based,
+    matching the real reference converter's own generated output, which
+    numbers every request this way."""
     method = stub.request.method.value
     headers_js = json.dumps(stub.request.required_headers, indent=6) if stub.request.required_headers else "{}"
     url_comment = _js_line_comment_safe(stub.request.url)
     return f"""    T_{base}.start();
     // {method} {url_comment}
     const response_{base} = new load.WebRequest({{
+      id: {request_id},
       url: `http://${{load.config.user.args["HOST"]}}:${{load.config.user.args["PORT"]}}${{load.params.{base}_requestPath}}`,
       method: "{method}",
       headers: {headers_js},
@@ -245,6 +252,14 @@ def _build_main_js(project_label: str, actions: list[tuple[str, str]]) -> str:
 # ── parameters.yml ─────────────────────────────────────────────────────────────
 
 def _build_param_block(base: str, csv_filename: str) -> str:
+    # nextValue is present on every entry, including the "same as" ones,
+    # even though the docs describe it as "ignored" there — the vendor's
+    # own example YAML in that same doc, and the real reference
+    # converter's own generated output, both still include it on "same
+    # as" rows. A real VuGen run confirmed this isn't optional: omitting
+    # it produced "nextValue getter was not defined" at script
+    # initialization — the field must be present even where its value
+    # doesn't affect row selection.
     return f"""  - name: {base}_requestPath
     type: csv
     fileName: {csv_filename}
@@ -256,12 +271,14 @@ def _build_param_block(base: str, csv_filename: str) -> str:
     type: csv
     fileName: {csv_filename}
     columnName: requestBodyFile
+    nextValue: iteration
     nextRow: same as {base}_requestPath
     onEnd: loop
   - name: {base}_expectedStatus
     type: csv
     fileName: {csv_filename}
     columnName: expectedStatus
+    nextValue: iteration
     nextRow: same as {base}_requestPath
     onEnd: loop"""
 

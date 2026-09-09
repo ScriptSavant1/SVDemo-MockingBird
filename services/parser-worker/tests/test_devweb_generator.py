@@ -231,6 +231,39 @@ class TestParametersYml:
         assert "columnName: requestBodyFile" in params_yml
         assert "name: stub00_simple_stub_requestBodyFile" in params_yml
 
+    def test_every_parameter_entry_has_nextvalue_even_same_as_ones(self):
+        """Real VuGen bug: 'nextValue: iteration' omitted on the 'same as'
+        entries (requestBodyFile/expectedStatus) because the docs describe
+        it as "ignored" there — which turned out to mean ignored in
+        row-selection, not optional in the YAML. VuGen's real parser threw
+        'nextValue getter was not defined' without it. The vendor's own
+        example YAML and the real reference converter's output both always
+        include it, confirming this fix rather than guessing at it."""
+        params_yml = build_devweb_project_files(_single_scenario_file())["parameters.yml"]
+        blocks = params_yml.split("  - name:")[1:]  # each parameter's own YAML block
+        assert len(blocks) == 3
+        for block in blocks:
+            assert "nextValue: iteration" in block, f"missing nextValue in block:\n{block}"
+
+
+class TestRequestId:
+    """VuGen uses WebRequest's `id` to generate the matching snapshot file
+    for the Replay view — the real reference converter's own output
+    numbers every request this way; an earlier version of this generator
+    omitted it."""
+
+    def test_single_stub_request_has_id_1(self):
+        main_js = build_devweb_project_files(_single_scenario_file())["main.js"]
+        assert "id: 1," in main_js
+
+    def test_multiple_stubs_get_sequential_ids(self):
+        f1 = _single_scenario_file()
+        f2 = _url_segment_file()
+        combined = ParsedFile(format="test", source_file="t", stubs=[*f1.stubs, *f2.stubs])
+        main_js = build_devweb_project_files(combined)["main.js"]
+        assert "id: 1," in main_js
+        assert "id: 2," in main_js
+
 
 class TestUsrFile:
     def test_transactions_order_lists_all_stubs_with_delimiter(self):

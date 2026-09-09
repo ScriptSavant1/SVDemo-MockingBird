@@ -447,3 +447,56 @@ future real dataset with accented names or currency symbols produces garbled (no
 necessarily broken) characters when opened in VuGen, that confirms the Windows-1252
 theory and the fix would be switching CSV/body-file writes to `cp1252` — flagging this
 now rather than silently assuming UTF-8 is correct.
+
+## 9. Second real-VuGen round: two more findings, both fixed
+
+The §7 fix was re-tested by the user in real VuGen against real Wealth data and got
+past the CSV parsing error, surfacing two further issues — real progress, not a
+repeat of the same bug.
+
+### 9a. `nextValue getter was not defined` at script initialization
+
+```
+Error (-227755): error loading parameters from yml file nextValue getter was not
+defined map[columnName:requestBodyFile fileName:data/stub00_accountinstructions_
+request.csv name:stub00_accountinstructions_request_requestBodyFile nextRow:same
+as stub00_accountinstructions_request_requestPath onEnd:loop type:csv]
+```
+
+**Root cause — a misreading of the official doc, not a guess this time.** The
+"Parameterize values" doc states `nextValue` is *ignored* when `nextRow: "same as
+<param>"` is used, and `_build_param_block` omitted the field entirely on the
+`requestBodyFile`/`expectedStatus` entries on that basis. But "ignored" meant ignored
+*in row selection*, not optional in the YAML — the real parser still requires the key
+to be present. This was checkable in hindsight: the vendor's own example YAML in that
+same doc, and `bruno-devweb-converter`'s real, previously-VuGen-validated
+`parameters.yml` output (both reviewed back in §2, but not re-checked closely enough
+against this specific field) **both always include `nextValue: iteration` even on
+`same as` rows** — the evidence was already sitting in the reference material.
+
+**Fix**: `nextValue: iteration` added to every parameter block unconditionally,
+including the `same as` ones. One line changed per block, no structural change.
+
+### 9b. Missing `id` on every `WebRequest`
+
+The user asked directly why every request wasn't carrying an `id`. Checking the
+reference converter's own real output again: every `WebRequest` there has a
+sequential `"id"` (used by VuGen to generate the matching snapshot file for the
+Replay view — documented in the SDK: *"The ID used to generate the corresponding
+snapshot file"*). This generator never carried that over — a real parity gap, not a
+deliberate omission.
+
+**Fix**: `id: <n>` added as the first property of every generated `WebRequest`,
+1-based and sequential across the whole script (stub index + 1) — matching the
+reference converter's own numbering convention. Currently 1:1 with stub order since
+each stub still produces exactly one request per action; documented as such so a
+future multi-request-per-action design doesn't silently reuse stale IDs.
+
+### Verification
+
+5 new/updated parser-worker tests: every parameter block (including `same as` ones)
+has `nextValue` present; single- and multi-stub scripts get correct sequential `id`s.
+Full suite: parser-worker 705/705, ingestion-service 38/39 (same pre-existing
+unrelated failure). Re-generated the real `Sample_SV_Files/Wealth` project end-to-end
+and confirmed directly in the output: every `parameters.yml` block now has
+`nextValue: iteration`, and `main.js`'s four requests carry `id: 1` through `id: 4`.
