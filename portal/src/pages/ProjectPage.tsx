@@ -109,15 +109,15 @@ export function ProjectPage() {
     }
   }
 
-  async function handleDownloadJmeterScripts(stubId: string) {
+  async function handleDownloadNftScripts(stubId: string) {
     setJmeterDownloadingId(stubId);
     setDownloadError(null);
     try {
-      const blob = await ingestionApi.downloadJmeterZip(projectId!, stubId);
+      const blob = await ingestionApi.downloadNftScriptsZip(projectId!, stubId);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "nft-jmeter.zip";
+      a.download = "nft-scripts.zip";
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
@@ -252,8 +252,8 @@ export function ProjectPage() {
                           size="sm"
                           variant="secondary"
                           loading={jmeterDownloadingId === stub.id}
-                          onClick={() => void handleDownloadJmeterScripts(stub.id)}
-                          title="Download an auto-generated, ready-to-run JMeter (.jmx) NFT test plan for this stub, with one CSV data file per scenario"
+                          onClick={() => void handleDownloadNftScripts(stub.id)}
+                          title="Download auto-generated, ready-to-run NFT scripts for this stub: a JMeter test plan and a LoadRunner DevWeb (VuGen) project, in one zip"
                         >
                           Download NFT Scripts
                         </Button>

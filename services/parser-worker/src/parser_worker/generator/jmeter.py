@@ -34,19 +34,9 @@ replication, response-body assertions on Handlebars-templated content.
 from __future__ import annotations
 
 import html
-import json
-import re
 
-from ..models import MatchType, ParsedFile, ParsedScenario, ParsedStub
-
-_SAFE_CHAR_RE = re.compile(r"[^\w\s-]")
-_WHITESPACE_RUN_RE = re.compile(r"[\r\n]+\s*")
-
-_OUT_OF_SCOPE_NOTE = (
-    "SOAP WS-Security auth headers, fault/delay scenario replication, and "
-    "assertions on Handlebars-templated ({{...}}) response content are not "
-    "generated in this phase."
-)
+from ..models import ParsedFile, ParsedStub
+from .nft_common import OUT_OF_SCOPE_NOTE, build_csv, safe_filename, scenario_row
 
 
 def build_jmeter_test_plan_files(parsed: ParsedFile, project_name: str = "") -> dict[str, str]:
@@ -68,10 +58,10 @@ def build_jmeter_test_plan_files(parsed: ParsedFile, project_name: str = "") -> 
     stub_summaries: list[str] = []
 
     for index, stub in enumerate(parsed.stubs):
-        slug = _safe_filename(stub.name) or f"stub-{index}"
+        slug = safe_filename(stub.name) or f"stub-{index}"
         csv_filename = f"{slug}.csv"
-        rows = [_scenario_row(stub, scenario) for scenario in stub.scenarios]
-        files[f"data/{csv_filename}"] = _build_csv(rows)
+        rows = [scenario_row(stub, scenario) for scenario in stub.scenarios]
+        files[f"data/{csv_filename}"] = build_csv(rows)
         thread_groups_xml.append(_build_thread_group_xml(stub, csv_filename, index))
         stub_summaries.append(
             f"- **{html.escape(stub.name)}** — `{stub.request.method.value}` "
@@ -85,83 +75,6 @@ def build_jmeter_test_plan_files(parsed: ParsedFile, project_name: str = "") -> 
     )
     files["README.md"] = _build_readme(project_label, stub_summaries)
     return files
-
-
-# ── per-scenario data resolution ──────────────────────────────────────────────
-
-class _Row:
-    __slots__ = ("path", "body", "status")
-
-    def __init__(self, path: str, body: str, status: int):
-        self.path = path
-        self.body = body
-        self.status = status
-
-
-def _scenario_row(stub: ParsedStub, scenario: ParsedScenario) -> _Row:
-    path = scenario.url_override or stub.request.url
-    body = scenario.captured_request_body or _synthesise_minimal_body(stub, scenario)
-    return _Row(path=path, body=_collapse_body_whitespace(body), status=scenario.status)
-
-
-def _synthesise_minimal_body(stub: ParsedStub, scenario: ParsedScenario) -> str:
-    """Build a body guaranteed to satisfy this scenario's own match
-    condition, for stubs whose source parser didn't record a real request
-    body (anything other than CA LISA). Never an arbitrary placeholder —
-    always derived from the same match data WireMock itself would check.
-    """
-    if scenario.match.type == MatchType.BODY_XPATH and stub.lookup_discriminator_field and scenario.lookup_key:
-        field = stub.lookup_discriminator_field
-        value = _xml_escape_text(scenario.lookup_key)
-        return f"<request><{field}>{value}</{field}></request>"
-    if scenario.match.type == MatchType.BODY_JSON_PATH and stub.lookup_discriminator_field and scenario.lookup_key:
-        return json.dumps({stub.lookup_discriminator_field: scenario.lookup_key})
-    # No body-based discriminator (url-segment stubs, or a plain
-    # single-scenario stub) — body content doesn't affect matching, so any
-    # well-formed placeholder works. Match the captured Content-Type when
-    # we have one, to at least send a shape a real backend would expect.
-    content_type = next(
-        (v for k, v in stub.request.required_headers.items() if k.lower() == "content-type"), ""
-    ).lower()
-    if "json" in content_type:
-        return "{}"
-    if "xml" in content_type:
-        return "<request/>"
-    return ""
-
-
-def _collapse_body_whitespace(body: str) -> str:
-    """Collapse embedded newlines (and the indentation whitespace that
-    typically follows one in a pretty-printed capture) to a single space.
-    See the module docstring for why this is required for correctness
-    against a real JMeter CSVDataSet, and why it's safe for both XML and
-    JSON bodies.
-    """
-    return _WHITESPACE_RUN_RE.sub(" ", body).strip()
-
-
-# ── CSV ────────────────────────────────────────────────────────────────────────
-
-_CSV_HEADER = "requestPath,requestBody,expectedStatus"
-
-
-def _build_csv(rows: list[_Row]) -> str:
-    lines = [_CSV_HEADER]
-    for row in rows:
-        lines.append(",".join([
-            _csv_field(row.path),
-            _csv_field(row.body),
-            _csv_field(str(row.status)),
-        ]))
-    return "\n".join(lines) + "\n"
-
-
-def _csv_field(value: str) -> str:
-    """RFC4180-style: always quote, double any embedded quote. Value is
-    assumed already single-line (see _collapse_body_whitespace) — see the
-    module docstring for why a real embedded newline would break JMeter's
-    CSVDataSet even with correct quoting."""
-    return '"' + value.replace('"', '""') + '"'
 
 
 # ── JMX rendering ──────────────────────────────────────────────────────────────
@@ -197,15 +110,6 @@ def _esc(value: object) -> str:
     return html.escape(str(value), quote=True)
 
 
-def _xml_escape_text(value: str) -> str:
-    return html.escape(value, quote=False)
-
-
-def _safe_filename(name: str) -> str:
-    safe = _SAFE_CHAR_RE.sub("", name).strip().replace(" ", "-").lower()
-    return safe[:80]
-
-
 # ── README ─────────────────────────────────────────────────────────────────────
 
 def _build_readme(project_label: str, stub_summaries: list[str]) -> str:
@@ -239,7 +143,7 @@ values for a first smoke run — not tuned for your actual TPS target.
 
 ## Out of scope for this generation (Phase 1)
 
-{_OUT_OF_SCOPE_NOTE}
+{OUT_OF_SCOPE_NOTE}
 """
 
 

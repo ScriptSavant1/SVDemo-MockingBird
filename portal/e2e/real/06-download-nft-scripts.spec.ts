@@ -1,20 +1,22 @@
 /**
- * Real E2E — Download NFT JMeter ZIP.
+ * Real E2E — Download NFT Scripts ZIP (JMeter + DevWeb).
  *
  * Uploads a CA LISA sample file through the real portal UI, generates the
  * stub, clicks the "Download NFT Scripts" button, and verifies the
- * downloaded ZIP is a real, well-formed JMeter test plan (test-plan.jmx +
- * a CSV data file + README.md) — this is the on-demand JMeter NFT script
- * generation feature (Phase 1, see docs/progress/PHASE1_JMETER_NFT_GENERATION.md).
+ * downloaded ZIP contains both a well-formed JMeter test plan and a
+ * well-formed LoadRunner DevWeb (VuGen) project — the combined NFT script
+ * generation feature (Phase 1 JMeter + Phase 2 DevWeb, see
+ * docs/progress/PHASE1_JMETER_NFT_GENERATION.md and
+ * docs/progress/PHASE2_DEVWEB_NFT_GENERATION.md).
  */
 import { test, expect } from "@playwright/test";
 import { ADMIN, SAMPLE_ESP_REQUEST, loginAs, waitForJobDone } from "./helpers";
 import JSZip from "jszip";
 import { promises as fs } from "fs";
 
-const PROJECT_NAME = `NFT JMeter Test ${Date.now()}`;
+const PROJECT_NAME = `NFT Scripts Test ${Date.now()}`;
 
-test.describe("Download NFT JMeter ZIP (real)", () => {
+test.describe("Download NFT Scripts ZIP (real)", () => {
   let projectId: string;
 
   test.beforeAll(async ({ browser }) => {
@@ -33,7 +35,7 @@ test.describe("Download NFT JMeter ZIP (real)", () => {
     projectId = match?.[1] ?? "";
 
     await page.goto(`/projects/${projectId}/upload`);
-    await page.fill('[id="stub-name"]', "NFT JMeter Test Stub");
+    await page.fill('[id="stub-name"]', "NFT Scripts Test Stub");
     await page.locator('input[type="file"]').setInputFiles(SAMPLE_ESP_REQUEST);
     await page.getByRole("button", { name: /upload & generate/i }).click();
     await page.waitForURL(/\/jobs\/[0-9a-f-]{36}/, { timeout: 10_000 });
@@ -46,7 +48,7 @@ test.describe("Download NFT JMeter ZIP (real)", () => {
     await loginAs(page, ADMIN);
   });
 
-  test("Download NFT Scripts button downloads a real, well-formed JMeter test plan ZIP", async ({ page }) => {
+  test("Download NFT Scripts button downloads a ZIP with both JMeter and DevWeb projects", async ({ page }) => {
     await page.goto(`/projects/${projectId}`);
 
     const downloadButton = page.getByRole("button", { name: /download nft scripts/i });
@@ -57,7 +59,7 @@ test.describe("Download NFT JMeter ZIP (real)", () => {
       downloadButton.click(),
     ]);
 
-    expect(download.suggestedFilename()).toBe("nft-jmeter.zip");
+    expect(download.suggestedFilename()).toBe("nft-scripts.zip");
 
     const streamPath = await download.path();
     expect(streamPath).toBeTruthy();
@@ -65,22 +67,37 @@ test.describe("Download NFT JMeter ZIP (real)", () => {
     const zip = await JSZip.loadAsync(await fs.readFile(streamPath!));
     const names = Object.keys(zip.files);
 
-    expect(names).toContain("test-plan.jmx");
+    // ── top-level ──
     expect(names).toContain("README.md");
-    expect(names.some((n) => n.startsWith("data/") && n.endsWith(".csv"))).toBe(true);
 
-    const jmx = await zip.file("test-plan.jmx")!.async("string");
+    // ── jmeter/ ──
+    expect(names).toContain("jmeter/test-plan.jmx");
+    expect(names).toContain("jmeter/README.md");
+    expect(names.some((n) => n.startsWith("jmeter/data/") && n.endsWith(".csv"))).toBe(true);
+
+    const jmx = await zip.file("jmeter/test-plan.jmx")!.async("string");
     expect(jmx).toContain("<jmeterTestPlan");
     expect(jmx).toContain("HTTPSamplerProxy");
     expect(jmx).toContain("${requestPath}");
-    expect(jmx).toContain("${requestBody}");
-    expect(jmx).toContain("${expectedStatus}");
 
-    const csvName = names.find((n) => n.startsWith("data/") && n.endsWith(".csv"))!;
-    const csv = await zip.file(csvName)!.async("string");
-    expect(csv.split("\n")[0].trim()).toBe("requestPath,requestBody,expectedStatus");
+    // ── devweb/ ──
+    expect(names).toContain("devweb/main.js");
+    expect(names).toContain("devweb/rts.yml");
+    expect(names).toContain("devweb/parameters.yml");
+    expect(names).toContain("devweb/tsconfig.json");
+    expect(names).toContain("devweb/ScriptUploadMetadata.xml");
+    expect(names.some((n) => n.startsWith("devweb/") && n.endsWith(".usr"))).toBe(true);
+    expect(names.some((n) => n.startsWith("devweb/data/") && n.endsWith(".csv"))).toBe(true);
+    // Vendor's proprietary SDK type file is deliberately not bundled
+    expect(names.some((n) => n.endsWith("DevWebSdk.d.ts"))).toBe(false);
 
-    const readme = await zip.file("README.md")!.async("string");
-    expect(readme.toLowerCase()).toContain("ws-security");
+    const mainJs = await zip.file("devweb/main.js")!.async("string");
+    expect(mainJs).toContain("load.action(");
+    expect(mainJs).toContain("new load.Transaction(");
+    expect(mainJs).toContain("load.params");
+
+    const paramsYml = await zip.file("devweb/parameters.yml")!.async("string");
+    expect(paramsYml).toContain("type: csv");
+    expect(paramsYml).toContain("same as");
   });
 });

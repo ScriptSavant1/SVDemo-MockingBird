@@ -364,9 +364,134 @@ confirmed by inspecting `results.jtl` directly rather than trusting the
 console summary line. Endpoint: 4 ingestion-service tests (valid ZIP
 contents, unknown stub, unknown project, works immediately post-upload
 without requiring a separate generate/deploy step). Delivery: a real
-Playwright E2E (`portal/e2e/real/06-download-nft-jmeter.spec.ts`) that
-logs in, creates a project, uploads a real sample file through the actual
-UI, clicks the real "Download NFT Scripts" button, and parses the
-downloaded ZIP to confirm `test-plan.jmx`/`data/*.csv`/`README.md` are
-present and well-formed — run alongside the full existing real E2E suite
-(26/26 passing, no regressions).
+Playwright E2E that logs in, creates a project, uploads a real sample file
+through the actual UI, clicks the real "Download NFT Scripts" button, and
+parses the downloaded ZIP — run alongside the full existing real E2E suite,
+no regressions (this test now covers the combined zip from Phase 2 below).
+
+---
+
+## Automatic LoadRunner DevWeb (VuGen) Script Generation (Phase 2)
+
+`services/parser-worker/src/parser_worker/generator/devweb.py` +
+`services/parser-worker/src/parser_worker/generator/nft_common.py` (shared
+with `generator/jmeter.py` above) + the combined
+`GET .../stubs/{stub_id}/nft-scripts.zip` endpoint. See
+`docs/progress/PHASE2_DEVWEB_NFT_GENERATION.md` for the full design
+rationale and testing record.
+
+### Why this exists, and the key design decision
+
+Phase 1 covered JMeter; this phase adds LoadRunner DevWeb (VuGen) as a
+second NFT tool, delivered in the **same** download as one combined zip
+with `jmeter/` and `devweb/` top-level folders (the existing
+`nft-jmeter.zip` endpoint is untouched, kept for anything already
+depending on it). Per explicit direction: **one DevWeb script covers every
+stub** in the project — not one VuGen project per stub — mirroring
+JMeter's "one test plan, one Thread Group per stub" shape. The DevWeb
+analogue of a Thread Group is a named `load.action()` + `load.Transaction`
+pair; one CSV parameter file per stub, since DevWeb's `parameters.yml` is
+one flat, script-wide list with no per-action scoping the way a JMeter
+`CSVDataSet` can be scoped to a single Thread Group — parameter names are
+therefore namespaced per stub (`stub00_<slug>_requestPath`, ...) to avoid
+collisions.
+
+### Reused, not duplicated
+
+`generator/jmeter.py`'s per-scenario row logic (`_Row`→`Row`,
+`scenario_row`, body synthesis, the same newline-collapsing safeguard) was
+extracted into `generator/nft_common.py` in a behavior-preserving refactor
+(verified via the full parser-worker suite before any DevWeb-specific code
+was added) and is now imported by both generators — one shared
+implementation of "what a scenario's path/body/status resolve to," not two
+copies that could drift.
+
+### The VuGen project format is copied from a real, working reference
+
+The mandatory/optional file set and every static template (`.usr`,
+`default.cfg`, `default.usp`, `tsconfig.json`, `ScriptUploadMetadata.xml`)
+were taken verbatim from a real, previously VuGen-opened project (an
+internal converter tool's own generated output), not reconstructed from
+documentation alone. `parameters.yml` follows the official DevWeb
+"Parameterize values" documentation field-for-field, including
+`nextRow: "same as <param>"` to keep a stub's `requestBodyFile`/
+`expectedStatus` columns locked to the same row as its `requestPath` — the
+documented mechanism for exactly this (the official doc's own example is
+keeping a password locked to its username).
+
+**Request bodies are not embedded in the CSV** (unlike JMeter, whose
+`CSVDataSet` handles RFC4180-doubled-quote-escaped JSON/XML bodies fine —
+proven in Phase 1's real JMeter runs). A real VuGen open of an early
+version of this generator's output, using real `Sample_SV_Files/Wealth`
+data, failed with `check file format error` on exactly that: a CSV field
+holding a JSON/XML payload with doubled internal quotes. VuGen's CSV
+reader does not accept the same convention JMeter's does. Fixed by moving
+each scenario's body out of the CSV entirely, into its own plain file
+(`data/<stub>-<n>.body.txt`, raw payload, no CSV escaping at all) and
+referencing it via the SDK's own documented `bodyPath` `WebRequest` option
+instead of `body` — the CSV now only ever holds a path, a body-file path,
+and a status code, none of which need quoting in practice, removing the
+entire risk class rather than guessing at a different quoting convention.
+See `docs/progress/PHASE2_DEVWEB_NFT_GENERATION.md` §7 for the full
+root-cause writeup and re-verification against the real Wealth data that
+originally triggered it.
+
+Deliberately **not** bundled: the vendor's own `DevWebSdk.d.ts`. It's
+Micro Focus/OpenText's proprietary SDK type-definition file — redistributing
+a copy in every generated download is a licensing question this generator
+does not decide unilaterally. It's only needed for editor IntelliSense,
+never at runtime (the `load` namespace is injected by the real DevWeb
+engine regardless of whether the file is present); the generated README
+tells the tester to copy their own installation's copy in if they want it.
+
+Also deliberately out of scope, and stated in the generated README rather
+than hidden: no correlation/extractors (every Mockingbird stub is one
+independent captured endpoint, not a chained multi-step journey with a
+session token to correlate), and all stubs sharing one script means they
+share one Vuser pool/schedule — independent per-stub TPS scaling the way
+separate JMeter Thread Groups allow would need separate scripts, which
+this generator does not create.
+
+### Testing
+
+22 parser-worker unit tests: output shape, real JS syntax validity (via
+`node --check` on the actual generated `main.js`, not string matching),
+XML well-formedness of `ScriptUploadMetadata.xml`, `parameters.yml`
+namespacing/collision-safety and `"same as"` row-locking, per-scenario body
+files (including a test that a body containing both quotes and commas
+produces a CSV field with zero quote characters in it), and the same three
+scenario shapes covered for JMeter (shared logic). Beyond unit tests: real
+end-to-end execution — the actual generated `main.js` run under real
+Node.js against a hand-built mock of the `load` namespace (built strictly
+from the official SDK docs: `Transaction`, `WebRequest` via real
+synchronous HTTP calls with `bodyPath` file resolution, a real
+`parameters.yml`/CSV reader implementing `nextRow: sequential`/`"same as"`/
+`onEnd: loop`), replayed against the same real Spring Boot + WireMock
+stub-engine JARs used for Phase 1's JMeter validation — once for all three
+scenario shapes combined in one script, and again against the real
+`Sample_SV_Files/Wealth` data that originally surfaced the CSV-quoting bug
+above. Result: correct URL cycling across iterations (proving row-cycling
+and looping), correct body/status lockstep via `"same as"`, and correct
+pass/fail transaction status for both a 200 and a 404 scenario. Endpoint:
+4 ingestion-service tests for `nft-scripts.zip` (both folders present and
+well-formed, 404s, works immediately post-upload). Delivery: the real
+Playwright E2E above now also asserts the `devweb/` folder's contents.
+Not independently verifiable in this environment and flagged rather than
+assumed: the literal "opens cleanly in VuGen Script Studio" step, which
+needs a real VuGen/DevWeb license to confirm on the user's side.
+
+### Hardening pass for inputs not yet seen
+
+Auditing `generator/devweb.py` for anywhere raw, user-controlled text (stub
+names, captured URLs) is embedded somewhere with its own syntax rules
+turned up a second real bug, reproduced with a real `node --check` before
+fixing it: a project/stub name containing a literal `*/` prematurely
+closes `main.js`'s header docblock comment, corrupting the rest of the
+file into invalid JS. Fixed with two small sanitizers applied only to
+comment text (never to the actual request data). 8 new tests cover this
+plus unicode content, apostrophes, all common HTTP methods, very long
+names, and punctuation-only names — all validated with real `node
+--check`, not string matching. Full writeup, including what's still open
+(a possible UTF-8-vs-Windows-1252 question for non-ASCII content, reasoned
+through but not yet exercised by any real sample data) in
+`docs/progress/PHASE2_DEVWEB_NFT_GENERATION.md` §8.
