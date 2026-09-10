@@ -107,7 +107,16 @@ def test_nft_scripts_zip_contains_both_jmeter_and_devweb_folders(sv_client):
         assert "devweb/rts.yml" in names
         assert "devweb/parameters.yml" in names
         assert any(n.endswith(".usr") and n.startswith("devweb/") for n in names)
-        assert any(n.startswith("devweb/data/") and n.endswith(".csv") for n in names)
+        # DevWeb's CSVs/body files are flat directly under devweb/, not in a
+        # subfolder — a real LRE "upload only runtime files" run silently
+        # dropped files in a data/ subfolder that weren't statically
+        # referenced (see PHASE2_DEVWEB_NFT_GENERATION.md for the writeup).
+        assert any(
+            n.startswith("devweb/") and "/" not in n[len("devweb/"):] and n.endswith(".csv") for n in names
+        )
+        assert any(
+            n.startswith("devweb/") and "/" not in n[len("devweb/"):] and n.endswith(".body.txt") for n in names
+        )
         # DevWeb's proprietary vendor SDK file is deliberately not bundled
         assert not any(n.endswith("DevWebSdk.d.ts") for n in names)
 

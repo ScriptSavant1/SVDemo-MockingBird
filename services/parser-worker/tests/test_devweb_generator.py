@@ -132,14 +132,14 @@ class TestOutputShape:
         assert "tsconfig.json" in files
         assert "ScriptUploadMetadata.xml" in files
         assert "README.md" in files
-        assert any(k.startswith("data/") and k.endswith(".csv") for k in files)
+        assert any(k.endswith(".csv") for k in files)
 
     def test_one_csv_per_stub(self):
         f1 = _single_scenario_file()
         f2 = _body_differentiated_file()
         combined = ParsedFile(format="test", source_file="t", stubs=[*f1.stubs, *f2.stubs])
         files = build_devweb_project_files(combined)
-        csv_files = [k for k in files if k.startswith("data/") and k.endswith(".csv")]
+        csv_files = [k for k in files if k.endswith(".csv")]
         assert len(csv_files) == 2
 
     def test_one_body_file_per_scenario(self):
@@ -150,12 +150,29 @@ class TestOutputShape:
         f2 = _body_differentiated_file()
         combined = ParsedFile(format="test", source_file="t", stubs=[*f1.stubs, *f2.stubs])
         files = build_devweb_project_files(combined)
-        body_files = [k for k in files if k.startswith("data/") and k.endswith(".body.txt")]
+        body_files = [k for k in files if k.endswith(".body.txt")]
         assert len(body_files) == 3
 
     def test_upload_metadata_is_well_formed_xml(self):
         files = build_devweb_project_files(_body_differentiated_file())
         ET.fromstring(files["ScriptUploadMetadata.xml"])
+
+    def test_upload_metadata_lists_every_data_file_as_runtime_needed(self):
+        files = build_devweb_project_files(_url_segment_file(), "Metadata Test")
+        xml_text = files["ScriptUploadMetadata.xml"]
+        root = ET.fromstring(xml_text)
+        entries = {e.get("Name"): e.get("Filter") for e in root.iter("FileEntry")}
+        data_files = [k for k in files if k.endswith(".csv") or k.endswith(".body.txt")]
+        assert len(data_files) == 3  # 1 csv + 2 body files
+        for name in data_files:
+            assert entries.get(name) == "2", f"{name} missing or wrong Filter in ScriptUploadMetadata.xml"
+
+    def test_data_files_are_flat_at_project_root_not_in_a_subfolder(self):
+        files = build_devweb_project_files(_single_scenario_file())
+        data_files = [k for k in files if k.endswith(".csv") or k.endswith(".body.txt")]
+        assert data_files, "expected at least one data file"
+        for name in data_files:
+            assert "/" not in name
 
     def test_does_not_bundle_the_vendor_sdk_file(self):
         """Deliberate: DevWebSdk.d.ts is Micro Focus/OpenText's proprietary
@@ -223,7 +240,7 @@ class TestParametersYml:
     def test_each_param_points_at_its_stub_csv_file(self):
         files = build_devweb_project_files(_url_segment_file())
         params_yml = files["parameters.yml"]
-        [csv_key] = [k for k in files if k.startswith("data/") and k.endswith(".csv")]
+        [csv_key] = [k for k in files if k.endswith(".csv")]
         assert f"fileName: {csv_key}" in params_yml
 
     def test_body_column_holds_a_file_reference_not_the_raw_body(self):
@@ -275,9 +292,34 @@ class TestUsrFile:
         assert "stub00_simple_stub__*delimiter*__stub01_url_segment_stub" in usr
         assert "Type=DevWeb" in usr
 
+    def test_every_data_file_declared_in_manually_extra_files(self):
+        """Real LRE bug: an 'upload only runtime files' run silently
+        dropped every .body.txt file, because a body file's name is only
+        known at runtime (as CSV row data), not statically discoverable —
+        unlike parameters.yml's own CSV references. Fixed by declaring
+        every CSV and .body.txt file explicitly here, same as the user's
+        own confirmed-working manual fix."""
+        f1 = _url_segment_file()  # 2 scenarios -> 1 csv + 2 body files
+        pf = ParsedFile(format="test", source_file="t", stubs=[*f1.stubs])
+        files = build_devweb_project_files(pf, "Extras Test")
+        usr = files["Extras_Test.usr"]
+        assert "[ManuallyExtraFiles]" in usr
+        data_files = [k for k in files if k.endswith(".csv") or k.endswith(".body.txt")]
+        assert len(data_files) == 3  # 1 csv + 2 body files
+        for name in data_files:
+            assert f"{name}=" in usr, f"{name} not declared in [ManuallyExtraFiles]"
+
+    def test_no_manually_extra_files_section_when_there_are_no_stubs(self):
+        """Matches the reference converter's own behavior: omit the
+        section entirely rather than emit an empty header."""
+        pf = ParsedFile(format="test", source_file="t", stubs=[])
+        files = build_devweb_project_files(pf, "Empty Project")
+        usr = files["Empty_Project.usr"]
+        assert "[ManuallyExtraFiles]" not in usr
+
 
 def _csv_files_only(files: dict) -> dict:
-    return {k: v for k, v in files.items() if k.startswith("data/") and k.endswith(".csv")}
+    return {k: v for k, v in files.items() if k.endswith(".csv")}
 
 
 def _body_text(files: dict, body_filename: str) -> str:
@@ -292,7 +334,8 @@ class TestCsvContent:
         assert len(rows) == 1
         assert rows[0]["requestPath"] == "/api/test"
         assert rows[0]["expectedStatus"] == "200"
-        assert rows[0]["requestBodyFile"].startswith("data/") and rows[0]["requestBodyFile"].endswith(".body.txt")
+        assert rows[0]["requestBodyFile"].endswith(".body.txt")
+        assert "/" not in rows[0]["requestBodyFile"]  # flat at project root, not in a subfolder
 
     def test_uses_real_captured_body_when_available(self):
         files = build_devweb_project_files(_single_scenario_file(captured_body="<real>payload</real>"))

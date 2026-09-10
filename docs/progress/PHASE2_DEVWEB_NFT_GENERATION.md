@@ -500,3 +500,54 @@ Full suite: parser-worker 705/705, ingestion-service 38/39 (same pre-existing
 unrelated failure). Re-generated the real `Sample_SV_Files/Wealth` project end-to-end
 and confirmed directly in the output: every `parameters.yml` block now has
 `nextValue: iteration`, and `main.js`'s four requests carry `id: 1` through `id: 4`.
+
+## 10. Third real round: `data/` subfolder broke LRE's "runtime files only" upload
+
+The user reported: uploading only "runtime files" to LRE (not a full script upload)
+silently dropped every `.body.txt` file — "unable to find the .txt files" at replay
+time — and worked around it themselves by (a) flattening every CSV/body file out of
+`data/` into the project root, and (b) manually adding each `.body.txt` file to the
+`.usr` file's `[ManuallyExtraFiles]` section, e.g. `stub00_createadviserpost_request
+-0.body.txt=`.
+
+**Root cause.** `parameters.yml`'s CSV references (`fileName: ...`) are a structured,
+first-class VuGen construct — any packaging tool can discover which CSVs are needed
+just by reading `parameters.yml` itself. A `bodyPath` value, by contrast, is *data
+inside a CSV row*, only known at runtime — there's no static reference anywhere in
+`main.js` or `parameters.yml` for a "runtime files only" packaging step to follow.
+Nothing in the generated project declared these files as needed, so they were
+invisible to that packaging step. Keeping them in a `data/` subfolder made the same
+underlying problem worse rather than causing it.
+
+**Fix — replicates the user's own confirmed-working manual fix exactly, generalized:**
+- Every CSV and `.body.txt` file now lives flat at the project root, not under `data/`.
+- Every one is listed explicitly in `ScriptUploadMetadata.xml`'s `<GeneralFiles>`
+  with `Filter="2"` (matching `parameters.yml`/`rts.yml`'s "uploaded + needed at
+  runtime" classification), rather than only appearing in a CSV's own content.
+- Every one is also listed in the `.usr` file's `[ManuallyExtraFiles]` section — the
+  same section, and the same fix, the user had already found and applied by hand.
+  Matches the reference converter's own behavior of omitting the section entirely
+  when there's nothing to list (verified with a zero-stub test), rather than
+  emitting an empty header.
+
+### Verification
+
+4 new parser-worker tests (every data file declared in `[ManuallyExtraFiles]`;
+`ScriptUploadMetadata.xml` lists every data file at `Filter="2"`; files are flat, not
+in a subfolder; the empty-project case omits `[ManuallyExtraFiles]` entirely) — 37/37
+devweb tests, full suite 709/709. Re-generated the real `Sample_SV_Files/Wealth`
+project end-to-end and confirmed the output byte-for-byte matches the shape of the
+user's own manual fix: all 46 files flat at project root, all 42 CSV/body files
+listed in both `ScriptUploadMetadata.xml` (`Filter="2"`) and `.usr`'s
+`[ManuallyExtraFiles]`. Real `node --check` on the regenerated `main.js` still passes
+(this change is file-layout-only; request logic is untouched).
+
+**Side finding, fixed while re-running the full real E2E suite for this change**: the
+earlier port-migration commit (3000→3010, 3001→3002) had missed several hardcoded
+`localhost:3000`/`:3001` references — `portal/playwright.config.ts`,
+`portal/playwright.real.config.ts`, `portal/e2e/real/05-download-stub.spec.ts`, and
+`portal/e2e/manual-ui-audit.ts` — which broke the real E2E suite (`ECONNREFUSED
+::1:3001`) until corrected here. `scripts/start-services.ps1`,
+`scripts/seed-users.ps1`, `setup.ps1`, and `portal/playwright.screenshots.config.ts`
+still have the same stale references and were intentionally left alone (out of scope
+for this fix) — flagged here rather than silently left for someone to trip over.

@@ -2,10 +2,10 @@
  * Playwright config for REAL E2E tests — hits actual running services.
  *
  * Prerequisites (all must be running):
- *   auth-service      :3001   (JWT_SECRET set)
+ *   auth-service      :3002   (JWT_SECRET set)
  *   project-service   :8001
  *   ingestion-service :8003
- *   portal (Vite)     :3000   (npm run dev)
+ *   portal (Vite)     :3010   (npm run dev)
  *
  * Run:  cd portal && npx playwright test --config=playwright.real.config.ts
  *       OR from repo root: scripts/run-real-tests.ps1
@@ -19,7 +19,7 @@ export default defineConfig({
   workers: 1,
   reporter: [["html", { open: "never", outputFolder: "playwright-report-real" }], ["list"]],
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL: "http://localhost:3010",
     viewport: { width: 1280, height: 800 },
     trace: "on-first-retry",
     screenshot: "only-on-failure",

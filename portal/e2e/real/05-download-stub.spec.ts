@@ -73,7 +73,7 @@ test.describe("Download WireMock ZIP (real)", () => {
 });
 
 async function getToken(page: ReturnType<typeof test.info> extends never ? never : any): Promise<string> {
-  const resp = await page.request.post("http://localhost:3001/api/v1/auth/login", {
+  const resp = await page.request.post("http://localhost:3002/api/v1/auth/login", {
     data: { username: ADMIN.username, password: ADMIN.password },
   });
   const data = await resp.json();

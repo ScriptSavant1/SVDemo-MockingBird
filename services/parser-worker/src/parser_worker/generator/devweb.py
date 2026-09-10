@@ -18,12 +18,29 @@ in Phase 1's real JMeter runs against XML bodies with the same
 quote-heavy shape), but VuGen's CSV reader evidently does not accept it.
 Rather than guess at VuGen's exact undocumented quoting rules, each
 scenario's body is written to its own plain text file
-(`data/<stub-base>-<scenario-index>.body.txt`, containing the raw payload,
+(`<stub-base>-<scenario-index>.body.txt`, containing the raw payload,
 no CSV escaping applied to it at all) and referenced via the SDK's own
 documented `bodyPath` WebRequest option instead of `body`. The CSV itself
 now only ever holds simple values (a URL path, a file path, a status code)
 that never need quoting in practice, sidestepping the whole class of
 CSV-quoting risk for the one field that actually needed it.
+
+All data files (CSVs and body .txt files) live flat at the project root,
+not in a `data/` subfolder, and are explicitly declared — in both
+`ScriptUploadMetadata.xml` and the `.usr` file's `[ManuallyExtraFiles]`
+section — rather than left to be discovered implicitly. A real LRE
+"upload only runtime files" run silently excluded every `.body.txt` file:
+unlike parameters.yml's CSV references (a structured, first-class VuGen
+construct any packaging tool can statically discover by reading
+parameters.yml itself), a body file's name is only known at *runtime*, as
+*data* inside a CSV row (`load.params.X_requestBodyFile`) — there is no
+static reference anywhere in main.js or parameters.yml for a packaging
+tool to follow. A `data/` subfolder made this worse: files that aren't
+statically referenced also weren't being found even when present. The fix
+— confirmed working by the user against a real LRE upload — is to flatten
+every data file to the project root and list each one explicitly as an
+extra file, exactly the way this generator already lists parameters.yml
+and rts.yml.
 
 The mandatory/optional VuGen project file set and every static template
 below (`.usr`, `default.cfg`, `default.usp`, `tsconfig.json`,
@@ -111,10 +128,14 @@ def build_devweb_project_files(parsed: ParsedFile, project_name: str = "") -> di
           "parameters.yml": ...,
           "tsconfig.json": ...,
           "ScriptUploadMetadata.xml": ...,
-          "data/<stub-base>.csv": ...,             (one per stub; requestPath,requestBodyFile,expectedStatus)
-          "data/<stub-base>-<n>.body.txt": ...,    (one per scenario — see module docstring)
+          "<stub-base>.csv": ...,             (one per stub; requestPath,requestBodyFile,expectedStatus)
+          "<stub-base>-<n>.body.txt": ...,    (one per scenario — see module docstring)
           "README.md": ...,
         }
+
+    Every CSV/body-file name is also listed explicitly in
+    ScriptUploadMetadata.xml and the .usr file's [ManuallyExtraFiles] — see
+    the module docstring for why that's required, not optional.
     """
     project_label = project_name or (parsed.stubs[0].name if parsed.stubs else "Mockingbird Stub")
     script_name = _script_name(project_label)
@@ -123,17 +144,20 @@ def build_devweb_project_files(parsed: ParsedFile, project_name: str = "") -> di
     actions: list[tuple[str, str]] = []  # (base_name, action_block)
     param_blocks: list[str] = []
     stub_summaries: list[str] = []
+    data_filenames: list[str] = []  # every CSV + body.txt — must be declared explicitly, see module docstring
 
     for index, stub in enumerate(parsed.stubs):
         base = _stub_base_name(stub, index)
-        csv_filename = f"data/{base}.csv"
+        csv_filename = f"{base}.csv"
         csv_rows: list[tuple[str, str, int]] = []  # (path, bodyFilePath, status)
         for scenario_index, scenario in enumerate(stub.scenarios):
             row = scenario_row(stub, scenario)
-            body_filename = f"data/{base}-{scenario_index}.body.txt"
+            body_filename = f"{base}-{scenario_index}.body.txt"
             files[body_filename] = row.body
+            data_filenames.append(body_filename)
             csv_rows.append((row.path, body_filename, row.status))
         files[csv_filename] = _build_devweb_csv(csv_rows)
+        data_filenames.append(csv_filename)
 
         actions.append((base, _build_action_block(stub, base, request_id=index + 1)))
         param_blocks.append(_build_param_block(base, csv_filename))
@@ -143,13 +167,13 @@ def build_devweb_project_files(parsed: ParsedFile, project_name: str = "") -> di
         )
 
     files["main.js"] = _build_main_js(project_label, actions)
-    files[f"{script_name}.usr"] = _build_usr(script_name, [name for name, _ in actions])
+    files[f"{script_name}.usr"] = _build_usr(script_name, [name for name, _ in actions], data_filenames)
     files["default.cfg"] = _DEFAULT_CFG
     files["default.usp"] = _DEFAULT_USP
     files["rts.yml"] = _RTS_YML
     files["parameters.yml"] = _build_parameters_yml(param_blocks)
     files["tsconfig.json"] = _TSCONFIG_JSON
-    files["ScriptUploadMetadata.xml"] = _build_upload_metadata(script_name)
+    files["ScriptUploadMetadata.xml"] = _build_upload_metadata(script_name, data_filenames)
     files["README.md"] = _build_readme(project_label, stub_summaries)
     return files
 
@@ -237,7 +261,7 @@ def _build_main_js(project_label: str, actions: list[tuple[str, str]]) -> str:
  * Mockingbird NFT Test Script — {safe_label}
  * Auto-generated from this project's parsed stub data (Phase 2 — DevWeb).
  * One named action + one Transaction per stub, one CSV parameter file per
- * stub (see parameters.yml and data/*.csv). See README.md for setup and
+ * stub (see parameters.yml and *.csv). See README.md for setup and
  * scope notes.
  */
 
@@ -514,8 +538,18 @@ _TSCONFIG_JSON = """{
 """
 
 
-def _build_usr(script_name: str, transaction_names: list[str]) -> str:
+def _build_usr(script_name: str, transaction_names: list[str], data_filenames: list[str]) -> str:
     tx_order = "__*delimiter*__".join(transaction_names)
+    # Every CSV/body.txt file is listed here too, not just in
+    # ScriptUploadMetadata.xml — a real LRE "upload only runtime files"
+    # run only picked up files declared as extras in one of these two
+    # places; a body file referenced only indirectly through CSV row data
+    # was invisible to that packaging step otherwise. See module docstring.
+    manual_extras_section = (
+        "\n[ManuallyExtraFiles]\n" + "".join(f"{name}=\n" for name in data_filenames)
+        if data_filenames
+        else ""
+    )
     return f"""[General]
 Type=DevWeb
 DefaultCfg=default.cfg
@@ -572,10 +606,16 @@ LastReplayStatus=0
 [ActiveReplay]
 LastReplayedRunName=
 ActiveRunName=
-"""
+{manual_extras_section}"""
 
 
-def _build_upload_metadata(script_name: str) -> str:
+def _build_upload_metadata(script_name: str, data_filenames: list[str]) -> str:
+    # Filter="2" (uploaded + visible) matches parameters.yml/rts.yml —
+    # every one of these is genuinely needed at runtime, not IDE-only.
+    # Listed explicitly rather than left for LRE's packaging step to
+    # discover on its own — see module docstring for why that discovery
+    # doesn't work for body.txt files.
+    data_entries = "".join(f'    <FileEntry Name="{name}" Filter="2" />\n' for name in data_filenames)
     return f"""<?xml version="1.0" encoding="utf-8"?>
 <VugenScriptMetadata>
   <ScriptName>{script_name}</ScriptName>
@@ -589,7 +629,7 @@ def _build_upload_metadata(script_name: str) -> str:
     <FileEntry Name="default.usp" Filter="4" />
     <FileEntry Name="parameters.yml" Filter="2" />
     <FileEntry Name="rts.yml" Filter="2" />
-    <FileEntry Name="Action.c" Filter="1" />
+{data_entries}    <FileEntry Name="Action.c" Filter="1" />
     <FileEntry Name="Bookmarks.xml" Filter="1" />
     <FileEntry Name="Breakpoints.xml" Filter="1" />
     <FileEntry Name="DevWebSdk.d.ts" Filter="1" />
@@ -628,18 +668,25 @@ a DevWeb project.
 
 - `main.js` — one script, one named `load.action()` + `load.Transaction`
   per stub below.
-- `data/*.csv` + `parameters.yml` — one CSV per stub, one row per captured
-  scenario: `requestPath,requestBodyFile,expectedStatus`. `requestBodyFile`
-  points at a `data/<stub>-<n>.body.txt` file holding that scenario's real
-  captured payload (or a minimal payload synthesised to satisfy that
-  scenario's own match rule when no capture was recorded) — sent via the
-  SDK's `bodyPath` option rather than embedding the body in the CSV, since
-  a real VuGen open failed on a CSV field containing an RFC4180-quoted
-  JSON/XML payload (VuGen's CSV reader does not accept the same
-  doubled-quote convention JMeter's CSVDataSet does). Embedded newlines in
-  a body file are collapsed to single spaces (the same conservative
-  precaution proven necessary for the sibling JMeter CSVDataSet — see that
-  folder's README).
+- `*.csv` + `parameters.yml` — one CSV per stub (flat at the project root,
+  not in a subfolder — see below), one row per captured scenario:
+  `requestPath,requestBodyFile,expectedStatus`. `requestBodyFile` points at
+  a `<stub>-<n>.body.txt` file holding that scenario's real captured
+  payload (or a minimal payload synthesised to satisfy that scenario's own
+  match rule when no capture was recorded) — sent via the SDK's `bodyPath`
+  option rather than embedding the body in the CSV, since a real VuGen open
+  failed on a CSV field containing an RFC4180-quoted JSON/XML payload
+  (VuGen's CSV reader does not accept the same doubled-quote convention
+  JMeter's CSVDataSet does). Embedded newlines in a body file are collapsed
+  to single spaces (the same conservative precaution proven necessary for
+  the sibling JMeter CSVDataSet — see that folder's README).
+- Every CSV and `.body.txt` file is listed explicitly in
+  `ScriptUploadMetadata.xml` and in this `.usr` file's `[ManuallyExtraFiles]`
+  section, and lives flat at the project root rather than in a subfolder —
+  a real LRE "upload only runtime files" run silently dropped `.body.txt`
+  files otherwise, since a body file's name is only known at runtime (as
+  data inside a CSV row), not statically discoverable by a packaging tool
+  the way parameters.yml's own CSV references are.
 - `<ScriptName>.usr`, `default.cfg`, `default.usp`, `tsconfig.json`,
   `ScriptUploadMetadata.xml` — VuGen project files.
 

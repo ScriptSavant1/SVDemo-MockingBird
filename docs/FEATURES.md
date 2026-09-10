@@ -507,3 +507,18 @@ both always include it, which should have been caught the first time. (2) Every
 `WebRequest` was missing the `id` field the reference converter's real output always
 sets (used by VuGen for Replay-view snapshot mapping) — added, 1-based and sequential
 across the script. See `docs/progress/PHASE2_DEVWEB_NFT_GENERATION.md` §9.
+
+### Third real round — `data/` subfolder broke LRE's "runtime files only" upload
+
+The user found this one themselves and fixed it manually before reporting it:
+uploading only "runtime files" to LRE silently dropped every `.body.txt` file, since
+a body file's name is only known at runtime (as data inside a CSV row) — unlike
+`parameters.yml`'s own CSV references, which a packaging tool can discover
+statically. Fixed by replicating the user's own confirmed-working manual fix: every
+CSV and `.body.txt` file now lives flat at the project root (no `data/` subfolder)
+and is declared explicitly in both `ScriptUploadMetadata.xml` (`Filter="2"`) and the
+`.usr` file's `[ManuallyExtraFiles]` section. 4 new tests, full suite 709/709. See
+`docs/progress/PHASE2_DEVWEB_NFT_GENERATION.md` §10, including a side finding (stale
+`localhost:3000`/`:3001` references left over from an earlier port-migration commit,
+fixed in the files that were blocking the real E2E suite; a few more are flagged but
+intentionally left alone as out of scope).

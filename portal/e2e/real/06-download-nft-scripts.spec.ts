@@ -87,7 +87,17 @@ test.describe("Download NFT Scripts ZIP (real)", () => {
     expect(names).toContain("devweb/tsconfig.json");
     expect(names).toContain("devweb/ScriptUploadMetadata.xml");
     expect(names.some((n) => n.startsWith("devweb/") && n.endsWith(".usr"))).toBe(true);
-    expect(names.some((n) => n.startsWith("devweb/data/") && n.endsWith(".csv"))).toBe(true);
+    // DevWeb's CSVs/body files are flat directly under devweb/, not in a
+    // subfolder — a real LRE "upload only runtime files" run silently
+    // dropped files in a data/ subfolder that weren't statically referenced.
+    expect(
+      names.some((n) => n.startsWith("devweb/") && !n.slice("devweb/".length).includes("/") && n.endsWith(".csv")),
+    ).toBe(true);
+    expect(
+      names.some(
+        (n) => n.startsWith("devweb/") && !n.slice("devweb/".length).includes("/") && n.endsWith(".body.txt"),
+      ),
+    ).toBe(true);
     // Vendor's proprietary SDK type file is deliberately not bundled
     expect(names.some((n) => n.endsWith("DevWebSdk.d.ts"))).toBe(false);
 

@@ -28,7 +28,7 @@ async function ss(page: Page, name: string) {
 }
 
 async function login(page: Page, creds = ADMIN) {
-  await page.goto("http://localhost:3000/login");
+  await page.goto("http://localhost:3010/login");
   await page.fill("#username", creds.username);
   await page.fill("#password", creds.password);
   await page.click('button[type="submit"]');
@@ -44,7 +44,7 @@ async function main() {
   const page = await browser.newPage();
   await page.setViewportSize({ width: 1440, height: 900 });
 
-  await page.goto("http://localhost:3000/login");
+  await page.goto("http://localhost:3010/login");
   await ss(page, "01-login-empty");
 
   // Wrong password
@@ -163,7 +163,7 @@ async function main() {
 
   // ── 7. Navigate to an existing project with READY stubs ───────────────────
   console.log("\n=== 7. EXISTING PROJECT WITH READY STUBS ===");
-  await page.goto("http://localhost:3000/");
+  await page.goto("http://localhost:3010/");
   await page.waitForTimeout(1000);
 
   // Find ESP project
@@ -249,7 +249,7 @@ async function main() {
 
   // ── 8. Admin panel ────────────────────────────────────────────────────────
   console.log("\n=== 8. ADMIN PANEL ===");
-  await page.goto("http://localhost:3000/admin");
+  await page.goto("http://localhost:3010/admin");
   await page.waitForTimeout(1000);
   await ss(page, "18-admin-panel");
 
@@ -297,7 +297,7 @@ async function main() {
   console.log(`  Admin link visible for SV_USER: ${adminLinkForUser}`);
 
   // Try accessing admin page directly — should redirect or 403
-  await page2.goto("http://localhost:3000/admin");
+  await page2.goto("http://localhost:3010/admin");
   await page2.waitForTimeout(1000);
   const blockedAdmin = page2.url().includes("/admin");
   console.log(`  SV_USER can access /admin: ${blockedAdmin}`);
@@ -307,7 +307,7 @@ async function main() {
   // ── 10. AI Generate page ──────────────────────────────────────────────────
   console.log("\n=== 10. AI GENERATE PAGE ===");
   // Go to ESP project
-  await page.goto("http://localhost:3000/");
+  await page.goto("http://localhost:3010/");
   await page.fill('input[placeholder*="Search"]', "ESP");
   await page.waitForTimeout(500);
   const espCard2 = page.locator('a, .cursor-pointer').filter({ hasText: /^ESP$/ }).first();
@@ -323,7 +323,7 @@ async function main() {
 
   // ── 11. Sign out flow ─────────────────────────────────────────────────────
   console.log("\n=== 11. SIGN OUT ===");
-  await page.goto("http://localhost:3000/");
+  await page.goto("http://localhost:3010/");
   await page.locator('button', { hasText: /Sign out/i }).click();
   await page.waitForURL("**/login", { timeout: 5000 });
   await ss(page, "24-after-signout");
