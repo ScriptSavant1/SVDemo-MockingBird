@@ -26,21 +26,25 @@ that never need quoting in practice, sidestepping the whole class of
 CSV-quoting risk for the one field that actually needed it.
 
 All data files (CSVs and body .txt files) live flat at the project root,
-not in a `data/` subfolder, and are explicitly declared — in both
-`ScriptUploadMetadata.xml` and the `.usr` file's `[ManuallyExtraFiles]`
-section — rather than left to be discovered implicitly. A real LRE
-"upload only runtime files" run silently excluded every `.body.txt` file:
-unlike parameters.yml's CSV references (a structured, first-class VuGen
-construct any packaging tool can statically discover by reading
-parameters.yml itself), a body file's name is only known at *runtime*, as
-*data* inside a CSV row (`load.params.X_requestBodyFile`) — there is no
-static reference anywhere in main.js or parameters.yml for a packaging
-tool to follow. A `data/` subfolder made this worse: files that aren't
-statically referenced also weren't being found even when present. The fix
-— confirmed working by the user against a real LRE upload — is to flatten
-every data file to the project root and list each one explicitly as an
-extra file, exactly the way this generator already lists parameters.yml
-and rts.yml.
+not in a `data/` subfolder, rather than left to be discovered implicitly.
+A real LRE "upload only runtime files" run silently excluded every
+`.body.txt` file: unlike parameters.yml's CSV references (a structured,
+first-class VuGen construct any packaging tool can statically discover by
+reading parameters.yml itself), a body file's name is only known at
+*runtime*, as *data* inside a CSV row (`load.params.X_requestBodyFile`) —
+there is no static reference anywhere in main.js or parameters.yml for a
+packaging tool to follow. A `data/` subfolder made this worse: files that
+aren't statically referenced also weren't being found even when present.
+
+Every CSV and body file is listed in `ScriptUploadMetadata.xml`. Only the
+`.body.txt` files — not the CSVs — are *also* listed in the `.usr` file's
+`[ManuallyExtraFiles]` section. Both halves of this were confirmed by real
+VuGen/LRE testing, not assumed: omitting `.body.txt` there broke a real
+LRE "upload only runtime files" run (see above), and redundantly listing
+the CSVs there *too* — even though they're already self-declared via
+their own `parameters.yml` entry — caused its own real file-tracking
+problem in VuGen. `[ManuallyExtraFiles]` wants exactly the files with no
+other static declaration anywhere, not "every data file".
 
 The mandatory/optional VuGen project file set and every static template
 below (`.usr`, `default.cfg`, `default.usp`, `tsconfig.json`,
@@ -134,8 +138,9 @@ def build_devweb_project_files(parsed: ParsedFile, project_name: str = "") -> di
         }
 
     Every CSV/body-file name is also listed explicitly in
-    ScriptUploadMetadata.xml and the .usr file's [ManuallyExtraFiles] — see
-    the module docstring for why that's required, not optional.
+    ScriptUploadMetadata.xml; only the .body.txt files (not the CSVs) are
+    additionally listed in the .usr file's [ManuallyExtraFiles] — see the
+    module docstring for why that split, specifically, is required.
     """
     project_label = project_name or (parsed.stubs[0].name if parsed.stubs else "Mockingbird Stub")
     script_name = _script_name(project_label)
@@ -166,8 +171,17 @@ def build_devweb_project_files(parsed: ParsedFile, project_name: str = "") -> di
             f"({len(stub.scenarios)} scenario(s), action `{base}`, data file `{csv_filename}`)"
         )
 
+    # [ManuallyExtraFiles] gets only the .body.txt files, not the CSVs. A
+    # CSV is already self-declared via its parameters.yml `fileName:`
+    # entry — a structured reference VuGen's own tooling discovers on its
+    # own — so listing it again here is redundant and was confirmed (by a
+    # real VuGen test) to cause exactly the kind of file-tracking problem
+    # this whole section exists to avoid. Only .body.txt files have no
+    # other static declaration anywhere and genuinely need this.
+    body_txt_filenames = [name for name in data_filenames if name.endswith(".body.txt")]
+
     files["main.js"] = _build_main_js(project_label, actions)
-    files[f"{script_name}.usr"] = _build_usr(script_name, [name for name, _ in actions], data_filenames)
+    files[f"{script_name}.usr"] = _build_usr(script_name, [name for name, _ in actions], body_txt_filenames)
     files["default.cfg"] = _DEFAULT_CFG
     files["default.usp"] = _DEFAULT_USP
     files["rts.yml"] = _RTS_YML
@@ -538,16 +552,21 @@ _TSCONFIG_JSON = """{
 """
 
 
-def _build_usr(script_name: str, transaction_names: list[str], data_filenames: list[str]) -> str:
+def _build_usr(script_name: str, transaction_names: list[str], body_txt_filenames: list[str]) -> str:
     tx_order = "__*delimiter*__".join(transaction_names)
-    # Every CSV/body.txt file is listed here too, not just in
-    # ScriptUploadMetadata.xml — a real LRE "upload only runtime files"
-    # run only picked up files declared as extras in one of these two
-    # places; a body file referenced only indirectly through CSV row data
-    # was invisible to that packaging step otherwise. See module docstring.
+    # Only .body.txt files go here — NOT the CSVs. A CSV is already
+    # self-declared via its own parameters.yml `fileName:` entry (a
+    # structured reference VuGen's tooling discovers on its own); a
+    # .body.txt file has no such declaration anywhere (it's only ever
+    # named indirectly, as data inside a CSV row) and is invisible to a
+    # packaging step without this. Real VuGen testing confirmed BOTH
+    # halves of this: omitting .body.txt here broke a real LRE "upload
+    # only runtime files" run, and redundantly also listing the CSVs here
+    # caused its own file-tracking problem — this section wants exactly
+    # the files with no other static declaration, not "every data file".
     manual_extras_section = (
-        "\n[ManuallyExtraFiles]\n" + "".join(f"{name}=\n" for name in data_filenames)
-        if data_filenames
+        "\n[ManuallyExtraFiles]\n" + "".join(f"{name}=\n" for name in body_txt_filenames)
+        if body_txt_filenames
         else ""
     )
     return f"""[General]
@@ -680,13 +699,17 @@ a DevWeb project.
   JMeter's CSVDataSet does). Embedded newlines in a body file are collapsed
   to single spaces (the same conservative precaution proven necessary for
   the sibling JMeter CSVDataSet — see that folder's README).
-- Every CSV and `.body.txt` file is listed explicitly in
-  `ScriptUploadMetadata.xml` and in this `.usr` file's `[ManuallyExtraFiles]`
-  section, and lives flat at the project root rather than in a subfolder —
-  a real LRE "upload only runtime files" run silently dropped `.body.txt`
-  files otherwise, since a body file's name is only known at runtime (as
-  data inside a CSV row), not statically discoverable by a packaging tool
-  the way parameters.yml's own CSV references are.
+- Every CSV and `.body.txt` file lives flat at the project root (not in a
+  subfolder) and is listed explicitly in `ScriptUploadMetadata.xml`. Only
+  the `.body.txt` files are *additionally* listed in this `.usr` file's
+  `[ManuallyExtraFiles]` section — CSVs are already self-declared via
+  their own `parameters.yml` entry, so listing them there too is
+  redundant (and was confirmed by real VuGen testing to cause its own
+  file-tracking problem). A real LRE "upload only runtime files" run
+  silently dropped `.body.txt` files without this, since a body file's
+  name is only known at runtime (as data inside a CSV row), not
+  statically discoverable by a packaging tool the way parameters.yml's
+  own CSV references are.
 - `<ScriptName>.usr`, `default.cfg`, `default.usp`, `tsconfig.json`,
   `ScriptUploadMetadata.xml` — VuGen project files.
 

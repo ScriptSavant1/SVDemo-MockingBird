@@ -292,22 +292,32 @@ class TestUsrFile:
         assert "stub00_simple_stub__*delimiter*__stub01_url_segment_stub" in usr
         assert "Type=DevWeb" in usr
 
-    def test_every_data_file_declared_in_manually_extra_files(self):
+    def test_only_body_txt_files_declared_in_manually_extra_files(self):
         """Real LRE bug: an 'upload only runtime files' run silently
         dropped every .body.txt file, because a body file's name is only
         known at runtime (as CSV row data), not statically discoverable —
         unlike parameters.yml's own CSV references. Fixed by declaring
-        every CSV and .body.txt file explicitly here, same as the user's
-        own confirmed-working manual fix."""
+        every .body.txt file explicitly here.
+
+        CSVs are deliberately NOT declared here too — confirmed by a
+        second round of real VuGen testing that doing so is redundant
+        (a CSV is already self-declared via its own parameters.yml entry)
+        and causes its own file-tracking problem in VuGen."""
         f1 = _url_segment_file()  # 2 scenarios -> 1 csv + 2 body files
         pf = ParsedFile(format="test", source_file="t", stubs=[*f1.stubs])
         files = build_devweb_project_files(pf, "Extras Test")
         usr = files["Extras_Test.usr"]
         assert "[ManuallyExtraFiles]" in usr
-        data_files = [k for k in files if k.endswith(".csv") or k.endswith(".body.txt")]
-        assert len(data_files) == 3  # 1 csv + 2 body files
-        for name in data_files:
+
+        body_files = [k for k in files if k.endswith(".body.txt")]
+        csv_files = [k for k in files if k.endswith(".csv")]
+        assert len(body_files) == 2
+        assert len(csv_files) == 1
+
+        for name in body_files:
             assert f"{name}=" in usr, f"{name} not declared in [ManuallyExtraFiles]"
+        for name in csv_files:
+            assert f"{name}=" not in usr, f"{name} should NOT be in [ManuallyExtraFiles] (redundant with parameters.yml)"
 
     def test_no_manually_extra_files_section_when_there_are_no_stubs(self):
         """Matches the reference converter's own behavior: omit the

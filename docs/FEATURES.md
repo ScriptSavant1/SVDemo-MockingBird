@@ -516,9 +516,17 @@ a body file's name is only known at runtime (as data inside a CSV row) — unlik
 `parameters.yml`'s own CSV references, which a packaging tool can discover
 statically. Fixed by replicating the user's own confirmed-working manual fix: every
 CSV and `.body.txt` file now lives flat at the project root (no `data/` subfolder)
-and is declared explicitly in both `ScriptUploadMetadata.xml` (`Filter="2"`) and the
-`.usr` file's `[ManuallyExtraFiles]` section. 4 new tests, full suite 709/709. See
-`docs/progress/PHASE2_DEVWEB_NFT_GENERATION.md` §10, including a side finding (stale
-`localhost:3000`/`:3001` references left over from an earlier port-migration commit,
-fixed in the files that were blocking the real E2E suite; a few more are flagged but
-intentionally left alone as out of scope).
+and is declared explicitly in `ScriptUploadMetadata.xml` (`Filter="2"`). 4 new tests,
+full suite 709/709. See `docs/progress/PHASE2_DEVWEB_NFT_GENERATION.md` §10,
+including a side finding (stale `localhost:3000`/`:3001` references left over from an
+earlier port-migration commit, fixed in the files that were blocking the real E2E
+suite; a few more are flagged but intentionally left alone as out of scope).
+
+### Fourth real round — CSVs don't belong in `[ManuallyExtraFiles]`
+
+A follow-up correction from the same user: only `.body.txt` files go in the `.usr`
+file's `[ManuallyExtraFiles]` section — CSVs don't, since each is already
+self-declared via its own `parameters.yml` entry, and listing it again there was
+confirmed (by real VuGen testing) to cause its own file-tracking problem. `main.js`
+and `ScriptUploadMetadata.xml` are unaffected. See
+`docs/progress/PHASE2_DEVWEB_NFT_GENERATION.md` §11.

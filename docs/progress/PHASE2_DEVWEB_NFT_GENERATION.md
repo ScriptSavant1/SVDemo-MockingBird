@@ -551,3 +551,29 @@ earlier port-migration commit (3000→3010, 3001→3002) had missed several hard
 `scripts/seed-users.ps1`, `setup.ps1`, and `portal/playwright.screenshots.config.ts`
 still have the same stale references and were intentionally left alone (out of scope
 for this fix) — flagged here rather than silently left for someone to trip over.
+
+## 11. Fourth real round: CSVs don't belong in `[ManuallyExtraFiles]`
+
+§10's fix declared every CSV *and* every `.body.txt` file in the `.usr` file's
+`[ManuallyExtraFiles]` section. Real VuGen testing confirmed the CSVs shouldn't be
+there: a CSV is already self-declared via its own `parameters.yml` `fileName:` entry
+— a structured, first-class reference VuGen's tooling discovers on its own —
+so listing it again in `[ManuallyExtraFiles]` is redundant, and the user confirmed
+this redundancy was itself causing a real file-tracking problem in VuGen. Removing
+the CSVs from that section (keeping the `.body.txt` files there, since they have no
+other static declaration anywhere) is what actually fixed it.
+
+**Fix**: `build_devweb_project_files` now filters `data_filenames` down to only the
+`.body.txt` entries before passing them to `_build_usr` for `[ManuallyExtraFiles]`.
+`ScriptUploadMetadata.xml` is unchanged — it still lists every CSV and `.body.txt`
+file at `Filter="2"`, since the user didn't flag that file as wrong, only the `.usr`.
+
+### Verification
+
+Updated `test_every_data_file_declared_in_manually_extra_files` →
+`test_only_body_txt_files_declared_in_manually_extra_files`, now asserting both
+halves explicitly: every `.body.txt` file is present, and every `.csv` file is
+absent. Full suite: parser-worker 709/709, ingestion-service 38/39 (same
+pre-existing unrelated failure). Re-generated the real `Sample_SV_Files/Wealth`
+project end-to-end and confirmed directly: `[ManuallyExtraFiles]` now lists all 38
+`.body.txt` files and none of the 4 `.csv` files.
