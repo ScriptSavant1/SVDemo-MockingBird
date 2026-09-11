@@ -151,3 +151,73 @@ class TestGenerateSpringbootProjectDiskWrapper:
         generate_springboot_project(_simple_parsed_file(), tmp_path, project_id="p", project_name="P")
         assert (tmp_path / "pom.xml").exists()
         assert (tmp_path / "src/main/java/com/mockingbird/stubs/StubApplication.java").exists()
+
+
+class TestProtocolBakedAsDeployDefault:
+    """Regression coverage for a real gap found by comparing two downloaded
+    stubs side by side: the Dockerfile/docker-compose.yml used to always
+    default STUB_PROTOCOL to HTTP regardless of what a stub was actually
+    configured for, so `docker run`/`docker compose up` with no extra flags
+    silently served HTTP even for a stub the user had picked HTTPS for."""
+
+    def test_dockerfile_bakes_selected_protocol_as_env_default(self):
+        files = build_springboot_project_files(_simple_parsed_file(), "p", "P", protocol="HTTPS")
+        dockerfile = files["Dockerfile"].decode("utf-8")
+        assert "ENV STUB_PROTOCOL=HTTPS" in dockerfile
+        assert "{{STUB_PROTOCOL}}" not in dockerfile  # placeholder must be fully substituted
+
+    def test_dockerfile_defaults_to_http_when_protocol_omitted(self):
+        files = build_springboot_project_files(_simple_parsed_file(), "p", "P")
+        dockerfile = files["Dockerfile"].decode("utf-8")
+        assert "ENV STUB_PROTOCOL=HTTP" in dockerfile
+
+    def test_dockerfile_bakes_mtls_enabled_flag(self):
+        files = build_springboot_project_files(_simple_parsed_file(), "p", "P", protocol="HTTPS", mtls_enabled=True)
+        dockerfile = files["Dockerfile"].decode("utf-8")
+        assert "ENV MTLS_ENABLED=true" in dockerfile
+
+    def test_docker_compose_default_matches_selected_protocol(self):
+        files = build_springboot_project_files(_simple_parsed_file(), "p", "P", protocol="HTTPS")
+        compose = files["docker-compose.yml"].decode("utf-8")
+        assert "STUB_PROTOCOL: ${STUB_PROTOCOL:-HTTPS}" in compose
+        assert "{{STUB_PROTOCOL}}" not in compose
+
+    def test_two_stubs_with_different_protocols_produce_different_dockerfiles(self):
+        """The actual comparison the user ran: an HTTP stub vs an HTTPS
+        stub must NOT be byte-identical in the files that carry the deploy
+        default, even though the rest of the project (WireMockConfig.java,
+        application.yml, nginx.conf's non-mTLS directives) is intentionally
+        identical, since the protocol itself is still meant to be
+        overridable at deploy time, not compiled into the jar."""
+        http_files = build_springboot_project_files(_simple_parsed_file(), "p", "P", protocol="HTTP")
+        https_files = build_springboot_project_files(_simple_parsed_file(), "p", "P", protocol="HTTPS")
+        assert http_files["Dockerfile"] != https_files["Dockerfile"]
+        assert http_files["docker-compose.yml"] != https_files["docker-compose.yml"]
+        # Still identical where it should be — protocol doesn't change the app itself.
+        assert http_files["src/main/java/com/mockingbird/stubs/WireMockConfig.java"] == \
+            https_files["src/main/java/com/mockingbird/stubs/WireMockConfig.java"]
+
+    def test_setup_guide_documents_docker_https_for_an_https_stub(self):
+        files = build_springboot_project_files(_simple_parsed_file(), "p", "P", protocol="HTTPS", mtls_enabled=True)
+        guide = files["STUB_ENGINE_SETUP_GUIDE.html"].decode("utf-8")
+        assert 'id="run-docker"' in guide
+        assert "HTTPS" in guide
+        assert "mutual TLS" in guide
+        assert "--cert client.crt.pem" in guide
+
+    def test_setup_guide_for_http_stub_has_no_mtls_instructions(self):
+        files = build_springboot_project_files(_simple_parsed_file(), "p", "P", protocol="HTTP")
+        guide = files["STUB_ENGINE_SETUP_GUIDE.html"].decode("utf-8")
+        assert 'id="run-docker"' in guide  # section always present, informative even for HTTP
+        assert "--cert client.crt.pem" not in guide
+
+    def test_zip_wrapper_also_bakes_protocol(self):
+        zip_bytes = generate_springboot_project_zip(_simple_parsed_file(), project_id="p", project_name="P", protocol="HTTPS")
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            dockerfile = zf.read("Dockerfile").decode("utf-8")
+        assert "ENV STUB_PROTOCOL=HTTPS" in dockerfile
+
+    def test_disk_wrapper_also_bakes_protocol(self, tmp_path):
+        generate_springboot_project(_simple_parsed_file(), tmp_path, project_id="p", project_name="P", protocol="HTTPS")
+        dockerfile = (tmp_path / "Dockerfile").read_text(encoding="utf-8")
+        assert "ENV STUB_PROTOCOL=HTTPS" in dockerfile

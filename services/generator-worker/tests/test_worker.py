@@ -81,12 +81,13 @@ def _build_db():
             ")"
         ))
         # Minimal mirror of project-service's stubs table — process_message
-        # reads mtls_enabled off it (per-stub, not per-project — see
-        # migration 006) to decide whether generated nginx.conf should
-        # require client certs (see _get_stub_mtls_enabled).
-        conn.execute(text("CREATE TABLE stubs (id TEXT PRIMARY KEY, mtls_enabled INTEGER DEFAULT 0)"))
+        # reads protocol/mtls_enabled off it (per-stub, not per-project —
+        # see migration 006) to bake into the generated Dockerfile/
+        # docker-compose.yml defaults and nginx.conf (see
+        # _get_stub_protocol_config).
+        conn.execute(text("CREATE TABLE stubs (id TEXT PRIMARY KEY, protocol TEXT DEFAULT 'HTTP', mtls_enabled INTEGER DEFAULT 0)"))
         conn.execute(
-            text("INSERT INTO stubs (id, mtls_enabled) VALUES (:id, 0)"),
+            text("INSERT INTO stubs (id, protocol, mtls_enabled) VALUES (:id, 'HTTP', 0)"),
             {"id": STUB_ID},
         )
         conn.commit()

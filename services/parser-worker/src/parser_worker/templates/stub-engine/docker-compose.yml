@@ -12,10 +12,14 @@ services:
       STUB_PROJECT_ID: ${STUB_PROJECT_ID:-local-test}
       STUB_PROJECT_NAME: ${STUB_PROJECT_NAME:-Local Test Stub}
       STUB_ENVIRONMENT: ${STUB_ENVIRONMENT:-local}
-      # HTTPS/mTLS (see docs/STUB_HTTPS_MTLS_DESIGN.md) — set STUB_PROTOCOL to
-      # HTTPS or BOTH to test locally; entrypoint.sh then auto-generates a
-      # self-signed cert on first start (TLS_CERT_SOURCE=AUTO_GENERATED).
-      STUB_PROTOCOL: ${STUB_PROTOCOL:-HTTP}
+      # HTTPS/mTLS (see docs/STUB_HTTPS_MTLS_DESIGN.md). Defaults below match
+      # THIS stub's actual configured protocol/mTLS setting — override with a
+      # shell env var (e.g. STUB_PROTOCOL=HTTP docker compose up) if you want
+      # to run it differently than it was configured. entrypoint.sh
+      # auto-generates a self-signed cert on first start when
+      # TLS_CERT_SOURCE=AUTO_GENERATED.
+      STUB_PROTOCOL: ${STUB_PROTOCOL:-{{STUB_PROTOCOL}}}
+      MTLS_ENABLED: ${MTLS_ENABLED:-{{MTLS_ENABLED}}}
       TLS_CERT_SOURCE: ${TLS_CERT_SOURCE:-AUTO_GENERATED}
       JAVA_OPTS: >-
         -Xmx4g

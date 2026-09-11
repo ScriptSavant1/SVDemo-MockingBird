@@ -57,6 +57,18 @@ COPY nginx.conf /etc/nginx/nginx.conf
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+# Defaults matching THIS stub's protocol/mTLS setting as configured at
+# generate time — still overridable at `docker run`/compose time via -e,
+# but a plain `docker run` or `docker compose up` with no overrides now
+# does what this stub was actually configured to do, instead of always
+# silently falling back to plain HTTP regardless of what was selected.
+# TLS_CERT_SOURCE defaults to AUTO_GENERATED here specifically because an
+# UPLOADED cert is only meaningful with the real cert files mounted in —
+# see the "Run it with HTTPS" section of STUB_ENGINE_SETUP_GUIDE.html.
+ENV STUB_PROTOCOL={{STUB_PROTOCOL}}
+ENV MTLS_ENABLED={{MTLS_ENABLED}}
+ENV TLS_CERT_SOURCE=AUTO_GENERATED
+
 # JVM tuning above already assumes port 8080 stays the WireMock backend
 # regardless of protocol — nginx (when running) proxies 443 to it over
 # loopback, it is never itself published for an HTTPS-only project (see

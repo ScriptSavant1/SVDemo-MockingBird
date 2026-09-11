@@ -252,6 +252,7 @@ def upload_stub_file(
                 project_id=_slug,
                 project_name=stub_name,
                 mtls_enabled=mtls_enabled,
+                protocol=protocol,
             )
             upload_local(springboot_key, gen_bytes)
         except Exception:

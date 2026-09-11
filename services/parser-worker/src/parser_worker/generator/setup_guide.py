@@ -24,8 +24,20 @@ from .wiremock import build_wiremock_mappings
 _BODY_PREVIEW_LIMIT = 700
 
 
-def generate_setup_guide_html(parsed: ParsedFile, project_name: str) -> str:
-    """Render the full self-contained HTML guide for this specific stub."""
+def generate_setup_guide_html(
+    parsed: ParsedFile,
+    project_name: str,
+    protocol: str = "HTTP",
+    mtls_enabled: bool = False,
+) -> str:
+    """Render the full self-contained HTML guide for this specific stub.
+
+    protocol/mtls_enabled reflect this stub's actual TLS settings (see
+    project-service migration 006) and drive the "Run it with Docker"
+    section — without this, the guide never mentioned Docker/HTTPS/nginx at
+    all, so a stub configured for HTTPS carried no instructions for how to
+    actually run it that way.
+    """
     triples = build_wiremock_mappings(parsed)  # excludes lookup-table stubs
     lookup_stubs = [s for s in parsed.stubs if should_use_lookup_table(s)]
 
@@ -46,7 +58,64 @@ def generate_setup_guide_html(parsed: ParsedFile, project_name: str) -> str:
         method_pills=stats["method_pills_html"],
         service_cards=all_cards_html or _EMPTY_STATE,
         endpoint_summary_sentence=stats["summary_sentence"],
+        https_run_section=_render_https_run_section(protocol, mtls_enabled),
     )
+
+
+def _render_https_run_section(protocol: str, mtls_enabled: bool) -> str:
+    """The "Run it with Docker" section — protocol-aware, since the
+    Dockerfile/docker-compose.yml in this same download bake in this
+    stub's actual protocol/mTLS setting as their default (see
+    generator/springboot.py). Always rendered, even for an HTTP-only stub,
+    so the reader knows the capability exists and how to opt into it."""
+    protocol = protocol if protocol in ("HTTP", "HTTPS", "BOTH") else "HTTP"
+
+    if protocol == "HTTP":
+        port_args = "-p 8080:8080 -p 8081:8081"
+        configured_sentence = "This stub is configured for <strong>plain HTTP</strong> (the default) — that's already baked in as the Dockerfile/docker-compose.yml default below, so nothing extra is needed."
+    elif protocol == "HTTPS":
+        port_args = "-p 443:443 -p 8081:8081"
+        configured_sentence = "This stub is configured for <strong>HTTPS</strong>" + (" with <strong>mutual TLS</strong>" if mtls_enabled else "") + " — that's already baked in as the Dockerfile/docker-compose.yml default below. <strong>Note: plain 8080 is intentionally not published</strong> in the example below, matching how the real AWS auto-deploy path behaves for an HTTPS-only stub — see the port table further down if you want it anyway for local testing."
+    else:  # BOTH
+        port_args = "-p 8080:8080 -p 443:443 -p 8081:8081"
+        configured_sentence = "This stub is configured for <strong>both HTTP and HTTPS</strong>" + (" with <strong>mutual TLS</strong> on the HTTPS side" if mtls_enabled else "") + " — that's already baked in as the Dockerfile/docker-compose.yml default below."
+
+    https_block = ""
+    if protocol != "HTTP":
+        mtls_block = ""
+        if mtls_enabled:
+            mtls_block = """
+    <p>This stub also has <strong>mutual TLS</strong> enabled — nginx requires and verifies a client certificate signed by your CA bundle, rejecting any request that doesn't present one. Mount the CA bundle in the same volume as the server cert (<code>/etc/nginx/certs/ca-bundle.pem</code>), then present a client cert when testing:</p>
+    <pre><code>curl -vk https://localhost/ --cert client.crt.pem --key client.key.pem</code></pre>"""
+
+        https_block = f"""
+    <h4>Certificate</h4>
+    <p>A self-signed certificate is generated automatically <em>inside the container</em> on first start (<code>TLS_CERT_SOURCE=AUTO_GENERATED</code>) — nothing to configure for a quick test. To use a real certificate instead, mount it and override the env var:</p>
+    <pre><code>docker run -d --name stub-engine {port_args} \\
+  -e TLS_CERT_SOURCE=UPLOADED \\
+  -v /path/to/your/certs:/etc/nginx/certs:ro \\
+  stub-engine
+# expects /etc/nginx/certs/server.crt.pem and server.key.pem inside that mount</code></pre>
+{mtls_block}
+    <h4>Verify HTTPS is actually working</h4>
+    <pre><code>curl -vk https://localhost/   # -k: skip cert validation, expected for a self-signed cert</code></pre>"""
+
+    return f"""
+    <h2 id="run-docker">Run it with Docker (HTTP or HTTPS)</h2>
+    <p>{configured_sentence}</p>
+    <pre><code>docker build -t stub-engine .
+docker run -d --name stub-engine {port_args} stub-engine</code></pre>
+    <p>Or, for local testing with the bundled <code>docker-compose.yml</code>:</p>
+    <pre><code>docker compose up --build</code></pre>
+{https_block}
+    <h4>Overriding the protocol at run time</h4>
+    <p>The Dockerfile/docker-compose.yml default above matches this stub's configured setting, but it's a normal environment variable — override it any time without rebuilding:</p>
+    <pre><code># Force plain HTTP even though this stub is configured for HTTPS/BOTH:
+docker run -d --name stub-engine -p 8080:8080 -e STUB_PROTOCOL=HTTP stub-engine
+
+# Force HTTPS even though this stub is configured for HTTP:
+docker run -d --name stub-engine -p 443:443 -e STUB_PROTOCOL=HTTPS stub-engine</code></pre>
+"""
 
 
 # ── stats / summary ───────────────────────────────────────────────────────────
@@ -481,6 +550,7 @@ _PAGE_TEMPLATE = r"""<!DOCTYPE html>
     <div class="section-label">Setup</div>
     <a href="#build">Build it</a>
     <a href="#run">Run it</a>
+    <a href="#run-docker">Run it with Docker (HTTP or HTTPS)</a>
     <a href="#verify">Verify it's up</a>
     <a href="#stop">Stop it</a>
     <a href="#ports">Default &amp; custom ports</a>
@@ -560,7 +630,7 @@ WantedBy=multi-user.target</code></pre>
     <pre><code>sudo systemctl daemon-reload
 sudo systemctl enable --now mockingbird-stub
 journalctl -u mockingbird-stub -f</code></pre>
-
+{https_run_section}
     <h2 id="verify">Verify it's up</h2>
     <p>Check the startup log for a line like this — the mapping count should read <strong>{wiremock_mapping_count}</strong>
     (this counts actual WireMock mappings only — endpoints served by a dynamic lookup table, if any, load separately and are logged on their own line):</p>
@@ -623,7 +693,8 @@ ss -tlnp | grep -E ':8080|:8081'   # should print nothing at all</code></pre>
     <h2 id="ports">Default &amp; custom ports</h2>
     <table>
       <tr><th>Port</th><th>What's on it</th></tr>
-      <tr><td><code>8080</code></td><td>Actual stub traffic — every service call below goes here.</td></tr>
+      <tr><td><code>8080</code></td><td>Actual stub traffic (plain HTTP) — every service call below goes here when running the jar directly (<code>java -jar</code>), or via Docker with <code>STUB_PROTOCOL=HTTP</code>/<code>BOTH</code>.</td></tr>
+      <tr><td><code>443</code></td><td>Actual stub traffic over HTTPS — <strong>Docker only</strong> (nginx terminates TLS here, proxying to 8080 internally). Active when <code>STUB_PROTOCOL=HTTPS</code>/<code>BOTH</code> — see <a class="crosslink" href="#run-docker">Run it with Docker</a>.</td></tr>
       <tr><td><code>8081</code></td><td>Spring Boot Actuator only — health checks, Prometheus metrics. <strong>Not</strong> stub traffic.</td></tr>
     </table>
     <pre><code>java -jar target/app.jar --stub.port=9090 --server.port=9091</code></pre>
@@ -632,7 +703,8 @@ ss -tlnp | grep -E ':8080|:8081'   # should print nothing at all</code></pre>
     <table>
       <tr><th>Path</th><th>What it is</th></tr>
       <tr><td><code>pom.xml</code></td><td>Maven build file — all dependencies, Java 21 target.</td></tr>
-      <tr><td><code>Dockerfile</code></td><td>Only used for the AWS deploy path. Not needed for local <code>mvn</code>/<code>java</code> use.</td></tr>
+      <tr><td><code>Dockerfile</code></td><td>Used for the AWS deploy path and for running this stub with Docker locally (see <a class="crosslink" href="#run-docker">Run it with Docker</a>). Not needed for local <code>mvn</code>/<code>java</code> use.</td></tr>
+      <tr><td><code>nginx.conf</code> / <code>entrypoint.sh</code></td><td>TLS termination for HTTPS — only relevant if you're running via Docker with <code>STUB_PROTOCOL=HTTPS</code>/<code>BOTH</code>. Not used at all when running the jar directly with <code>java -jar</code>.</td></tr>
       <tr><td><code>src/main/resources/mappings/*.json</code></td><td><strong>The actual contract for every service this stub serves</strong> — one file per scenario. The section below is generated directly from these files.</td></tr>
       <tr><td><code>src/main/resources/application.yml</code></td><td>Ports, WS-Security toggle, logging config.</td></tr>
     </table>

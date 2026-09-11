@@ -67,8 +67,6 @@ _SAFE_ID_RE = re.compile(r'[^\w-]')
 
 _JAVA_PKG = "src/main/java/com/mockingbird/stubs"
 _STATIC_FILES = (
-    "Dockerfile",
-    "docker-compose.yml",
     "settings.xml",
     "entrypoint.sh",
     f"{_JAVA_PKG}/StubApplication.java",
@@ -107,6 +105,7 @@ def build_springboot_project_files(
     project_id: str = "",
     project_name: str = "",
     mtls_enabled: bool = False,
+    protocol: str = "HTTP",
 ) -> dict[str, bytes]:
     """Build the full Spring Boot project as {relative_path: content_bytes},
     entirely in memory — no filesystem writes, and only the read-only
@@ -114,16 +113,22 @@ def build_springboot_project_files(
     generate_springboot_project (disk) and generate_springboot_project_zip
     (ZIP bytes) are thin wrappers around this single build.
 
-    mtls_enabled comes from the project's TLS settings (see project-service
-    migration 005) and only affects nginx.conf's mTLS directives —
-    WireMockConfig.java and everything else about the stub itself are
-    identical regardless. Which PROTOCOL actually runs (HTTP/HTTPS/BOTH) is
-    a deploy-time decision, not a generate-time one — it's read from the
-    STUB_PROTOCOL env var by entrypoint.sh at container startup (see
-    deployer-worker), so the same generated image works unchanged if a
-    project's protocol changes later. nginx.conf and entrypoint.sh are
-    therefore included unconditionally (harmless on an HTTP-only project:
-    entrypoint.sh never starts nginx unless STUB_PROTOCOL != HTTP).
+    protocol/mtls_enabled come from the stub's TLS settings (see
+    project-service migration 006). Which protocol actually runs is still a
+    *deploy-time* decision in the sense that STUB_PROTOCOL is a normal env
+    var entrypoint.sh reads at container startup, not something compiled
+    into the jar — but the Dockerfile/docker-compose.yml now bake in this
+    stub's actual selection as the env var's *default*, via a
+    {{STUB_PROTOCOL}}/{{MTLS_ENABLED}} placeholder (same pattern as
+    pom.xml's {{project_id}}). Without this, a plain `docker run` or
+    `docker compose up` on a downloaded HTTPS stub would silently serve
+    HTTP, because the template's old hardcoded default was always HTTP
+    regardless of what the stub was actually configured for — still
+    overridable via `-e`/a shell env var, just no longer silently wrong by
+    default. mtls_enabled additionally bakes nginx.conf's
+    ssl_verify_client directives at generate time (that part genuinely
+    can't be a runtime toggle, since it changes what nginx's config parses
+    as valid).
     """
     if not project_id:
         project_id = _to_id(parsed.stubs[0].name if parsed.stubs else "stub")
@@ -138,7 +143,19 @@ def build_springboot_project_files(
         if content is not None:
             files[relative_path] = content
 
-    # 1b. nginx.conf — static except for its mTLS placeholders, filled in
+    # 1b. Dockerfile / docker-compose.yml — static except for the
+    # STUB_PROTOCOL/MTLS_ENABLED defaults, filled in with this stub's
+    # actual configured values (same placeholder-substitution pattern as
+    # pom.xml's {{project_id}} below).
+    for relative_path in ("Dockerfile", "docker-compose.yml"):
+        raw = _read_template_bytes(relative_path)
+        if raw is not None:
+            text = raw.decode("utf-8")
+            text = text.replace("{{STUB_PROTOCOL}}", protocol)
+            text = text.replace("{{MTLS_ENABLED}}", "true" if mtls_enabled else "false")
+            files[relative_path] = text.encode("utf-8")
+
+    # 1c. nginx.conf — static except for its mTLS placeholders, filled in
     # here the same way pom.xml's {{project_id}} placeholder is below.
     nginx_conf_bytes = _read_template_bytes("nginx.conf")
     if nginx_conf_bytes is not None:
@@ -152,8 +169,11 @@ def build_springboot_project_files(
         files["nginx.conf"] = nginx_conf_text.encode("utf-8")
 
     # 2. Setup guide — generated fresh for THIS stub, not a copied static
-    # file. The service-reference section reflects this stub's actual mappings.
-    files["STUB_ENGINE_SETUP_GUIDE.html"] = generate_setup_guide_html(parsed, project_name).encode("utf-8")
+    # file. The service-reference section reflects this stub's actual
+    # mappings, and now also this stub's actual protocol/mTLS setting.
+    files["STUB_ENGINE_SETUP_GUIDE.html"] = generate_setup_guide_html(
+        parsed, project_name, protocol=protocol, mtls_enabled=mtls_enabled,
+    ).encode("utf-8")
 
     # 3. pom.xml — project-specific placeholders filled in
     pom_bytes = _read_template_bytes("pom.xml")
@@ -182,6 +202,7 @@ def generate_springboot_project(
     project_id: str = "",
     project_name: str = "",
     mtls_enabled: bool = False,
+    protocol: str = "HTTP",
 ) -> Path:
     """Write a complete Spring Boot project ready for 'docker build'.
 
@@ -192,12 +213,16 @@ def generate_springboot_project(
         project_name: Human-readable name (e.g., 'Payment Processing API').
         mtls_enabled: Whether nginx.conf should require+verify client certs
                       (see build_springboot_project_files docstring).
+        protocol:     HTTP/HTTPS/BOTH — baked in as this stub's default
+                      STUB_PROTOCOL in the Dockerfile/docker-compose.yml.
 
     Returns:
         output_dir (the generated project root).
     """
     output_dir.mkdir(parents=True, exist_ok=True)
-    files = build_springboot_project_files(parsed, project_id, project_name, mtls_enabled=mtls_enabled)
+    files = build_springboot_project_files(
+        parsed, project_id, project_name, mtls_enabled=mtls_enabled, protocol=protocol,
+    )
     for relative_path, content in files.items():
         path = output_dir / relative_path
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -210,6 +235,7 @@ def generate_springboot_project_zip(
     project_id: str = "",
     project_name: str = "",
     mtls_enabled: bool = False,
+    protocol: str = "HTTP",
 ) -> bytes:
     """Return the full Spring Boot project as ZIP bytes — no filesystem
     access at all beyond reading the (read-only) bundled templates. Use this
@@ -219,7 +245,9 @@ def generate_springboot_project_zip(
     scenarios) purely to immediately discard the directory afterwards.
     """
     buf = io.BytesIO()
-    files = build_springboot_project_files(parsed, project_id, project_name, mtls_enabled=mtls_enabled)
+    files = build_springboot_project_files(
+        parsed, project_id, project_name, mtls_enabled=mtls_enabled, protocol=protocol,
+    )
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for relative_path, content in files.items():
             zf.writestr(relative_path, content)
