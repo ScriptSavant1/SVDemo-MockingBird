@@ -5,20 +5,20 @@
 #
 # Downloads Java + the app jar from S3, installs Java, and runs the stub as
 # a systemd service (under a dedicated non-root user) that restarts on
-# failure and starts on boot.
+# failure and starts on boot. Optionally also installs nginx as a native
+# RHEL package to terminate HTTPS (and, if requested, verify a client
+# certificate for mutual TLS) on port 443, proxying to the same unchanged
+# Spring Boot app on loopback 8080 — the same architecture the Docker
+# auto-deploy path uses (see docs/STUB_HTTPS_MTLS_DESIGN.md), just running
+# nginx as a host package here instead of inside a container.
 #
 # Run as root:   sudo ./deploy-stub-ec2.sh
 #
 # Requirements:
 #   - The instance must have an IAM role/instance profile with S3 read access
 #     to the bucket below (the script verifies this before doing any work).
-#   - Internet/repo access to install the AWS CLI if it is not already present.
-#
-# NOTE: this path does not (yet) support the HTTPS/mTLS stub protocol —
-# that's only wired into the Docker image built by the Terraform auto-deploy
-# path (see terraform/stub-ec2/ and docs/STUB_HTTPS_MTLS_DESIGN.md), because
-# TLS termination there runs via nginx baked into that image. A stub
-# deployed with this script always serves plain HTTP on 8080.
+#   - Internet/repo access to install the AWS CLI (and nginx, if HTTPS is
+#     requested) if not already present.
 
 set -euo pipefail
 
@@ -28,6 +28,24 @@ BUCKET="CHANGE_ME_your-s3-bucket"
 JAVA_FILE="CHANGE_ME_corretto-21-linux-x64.tar.gz"
 JAR_FILE="CHANGE_ME_your-stub-app.jar"
 REGION="CHANGE_ME_aws-region"
+
+# ---- protocol: HTTP (default) | HTTPS | BOTH ----
+# HTTPS/BOTH install nginx and terminate TLS on 443, proxying to the
+# Spring Boot app's unchanged loopback 8080 — 8080 is NOT opened to the
+# network when STUB_PROTOCOL=HTTPS, so TLS can't be bypassed. See the
+# "HTTPS / TLS setup" section of the runbook for the full walkthrough.
+STUB_PROTOCOL="HTTP"
+
+# AUTO_GENERATED: nginx gets a self-signed cert generated on first run —
+#   no input needed, fine for a POC / NFT run.
+# UPLOADED: scp your real cert/key (and CA bundle, if MTLS_ENABLED=true) to
+#   the paths below BEFORE running this script — the script uses them as-is
+#   and will refuse to run if they're missing.
+TLS_CERT_SOURCE="AUTO_GENERATED"
+TLS_CERT_PATH="/opt/mockingbird-stub/certs/server.crt.pem"
+TLS_KEY_PATH="/opt/mockingbird-stub/certs/server.key.pem"
+TLS_CA_BUNDLE_PATH="/opt/mockingbird-stub/certs/ca-bundle.pem"
+MTLS_ENABLED="false"
 
 # ---- where things get installed ----
 JAVA_DIR="/opt/corretto-21"
@@ -55,6 +73,27 @@ for var in BUCKET JAVA_FILE JAR_FILE REGION; do
             ;;
     esac
 done
+
+# --- validate protocol/mTLS config ---
+case "$STUB_PROTOCOL" in
+    HTTP|HTTPS|BOTH) ;;
+    *) fail "STUB_PROTOCOL must be HTTP, HTTPS, or BOTH (got: $STUB_PROTOCOL)" ;;
+esac
+case "$TLS_CERT_SOURCE" in
+    AUTO_GENERATED|UPLOADED) ;;
+    *) fail "TLS_CERT_SOURCE must be AUTO_GENERATED or UPLOADED (got: $TLS_CERT_SOURCE)" ;;
+esac
+if [ "$MTLS_ENABLED" = "true" ] && [ "$STUB_PROTOCOL" = "HTTP" ]; then
+    fail "MTLS_ENABLED=true requires STUB_PROTOCOL=HTTPS or BOTH (mTLS has no meaning over plain HTTP)."
+fi
+if [ "$STUB_PROTOCOL" != "HTTP" ] && [ "$TLS_CERT_SOURCE" = "UPLOADED" ]; then
+    [ -f "$TLS_CERT_PATH" ] && [ -f "$TLS_KEY_PATH" ] \
+        || fail "TLS_CERT_SOURCE=UPLOADED but $TLS_CERT_PATH / $TLS_KEY_PATH don't both exist. scp your real cert+key there first, or switch TLS_CERT_SOURCE to AUTO_GENERATED."
+    if [ "$MTLS_ENABLED" = "true" ]; then
+        [ -f "$TLS_CA_BUNDLE_PATH" ] \
+            || fail "MTLS_ENABLED=true but $TLS_CA_BUNDLE_PATH doesn't exist. scp your CA bundle there first."
+    fi
+fi
 
 # --- OS package patching (CVE remediation) ---------------------------------
 # Runs a full `dnf update -y` before anything else so the box is patched
@@ -89,28 +128,140 @@ ensure_service_user() {
     fi
 }
 
-# --- firewall: open the stub port so load generators can reach it ----------
-# The stub serves client traffic on 8080; the whole point of the box is to be
-# reachable there. 8081 (actuator/Prometheus) is deliberately NOT opened to the
-# world — scrape it over the internal monitoring path only. Set
-# OPEN_ACTUATOR_CIDR=10.x.x.x/xx to allow 8081 from a specific monitoring range.
+# --- firewall: open exactly the ports this protocol setting needs ----------
+# HTTP: 8080 only. HTTPS: 443 only — 8080 is deliberately NOT opened to the
+# network, so TLS can't be bypassed by hitting the plaintext port directly
+# (nginx reaches the app over loopback, which isn't subject to this rule at
+# all). BOTH: both ports open. 8081 (actuator/Prometheus) is never opened to
+# the world regardless of protocol — scrape it over the internal monitoring
+# path only. Set OPEN_ACTUATOR_CIDR=10.x.x.x/xx to allow 8081 from a specific
+# monitoring range.
 configure_firewall() {
     if ! command -v firewall-cmd >/dev/null 2>&1; then
-        log "firewalld not present — skipping firewall config (ensure 8080 is reachable by other means)."
+        log "firewalld not present — skipping firewall config (ensure the right port is reachable by other means)."
         return
     fi
     if ! systemctl is-active --quiet firewalld; then
-        log "firewalld installed but not active — skipping (nothing blocking 8080 locally)."
+        log "firewalld installed but not active — skipping (nothing blocking traffic locally)."
         return
     fi
-    log "Opening stub port 8080/tcp in firewalld..."
-    firewall-cmd --permanent --add-port=8080/tcp >/dev/null 2>&1 || fail "Failed to open 8080/tcp"
+    case "$STUB_PROTOCOL" in
+        HTTP)  log "Opening stub port 8080/tcp in firewalld..."
+               firewall-cmd --permanent --add-port=8080/tcp >/dev/null 2>&1 || fail "Failed to open 8080/tcp" ;;
+        HTTPS) log "Opening stub port 443/tcp in firewalld (8080 stays closed — HTTPS only)..."
+               firewall-cmd --permanent --add-port=443/tcp >/dev/null 2>&1 || fail "Failed to open 443/tcp" ;;
+        BOTH)  log "Opening stub ports 8080/tcp and 443/tcp in firewalld..."
+               firewall-cmd --permanent --add-port=8080/tcp >/dev/null 2>&1 || fail "Failed to open 8080/tcp"
+               firewall-cmd --permanent --add-port=443/tcp  >/dev/null 2>&1 || fail "Failed to open 443/tcp" ;;
+    esac
     if [ -n "${OPEN_ACTUATOR_CIDR:-}" ]; then
         log "Allowing actuator 8081/tcp from ${OPEN_ACTUATOR_CIDR}..."
         firewall-cmd --permanent --add-rich-rule="rule family=ipv4 source address=${OPEN_ACTUATOR_CIDR} port port=8081 protocol=tcp accept" >/dev/null 2>&1 || true
     fi
     firewall-cmd --reload >/dev/null 2>&1 || fail "firewall-cmd --reload failed"
     log "Firewall open ports: $(firewall-cmd --list-ports 2>/dev/null)"
+}
+
+# --- nginx: only installed/configured when STUB_PROTOCOL != HTTP -----------
+install_nginx() {
+    if command -v nginx >/dev/null 2>&1; then
+        log "nginx already installed ($(nginx -v 2>&1))."
+        return
+    fi
+    log "Installing nginx (needed for STUB_PROTOCOL=$STUB_PROTOCOL)..."
+    if command -v dnf >/dev/null 2>&1; then
+        dnf install -y nginx || fail "Failed to install nginx"
+    else
+        fail "dnf not found — install nginx manually, then re-run this script."
+    fi
+}
+
+# Generates a self-signed cert if TLS_CERT_SOURCE=AUTO_GENERATED and none is
+# present yet (won't overwrite one from a previous run/redeploy). If
+# TLS_CERT_SOURCE=UPLOADED, the files are already confirmed present by the
+# validation block near the top of this script — nothing to generate.
+ensure_tls_certs() {
+    mkdir -p "$(dirname "$TLS_CERT_PATH")"
+    if [ "$TLS_CERT_SOURCE" = "AUTO_GENERATED" ] && { [ ! -f "$TLS_CERT_PATH" ] || [ ! -f "$TLS_KEY_PATH" ]; }; then
+        log "Generating a self-signed certificate at $TLS_CERT_PATH..."
+        openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
+            -keyout "$TLS_KEY_PATH" -out "$TLS_CERT_PATH" \
+            -subj "/CN=mockingbird-stub/O=Mockingbird" \
+            -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
+            || fail "Self-signed certificate generation failed"
+    else
+        log "Using existing certificate at $TLS_CERT_PATH (source: $TLS_CERT_SOURCE)."
+    fi
+    chmod 600 "$TLS_KEY_PATH"
+    chmod 644 "$TLS_CERT_PATH"
+    [ -f "$TLS_CA_BUNDLE_PATH" ] && chmod 644 "$TLS_CA_BUNDLE_PATH"
+}
+
+# Writes nginx's TLS-termination config: 443 -> loopback 8080 (WireMock,
+# unchanged). Tuned the same way as the Docker path's nginx.conf (see
+# services/parser-worker/.../templates/stub-engine/nginx.conf) — TLS session
+# reuse + upstream keepalive so repeated connections don't pay a fresh
+# handshake/TCP-connect every request, which is what actually costs
+# throughput at NFT-grade connection rates.
+configure_nginx_tls() {
+    local mtls_directives=""
+    local mtls_headers=""
+    if [ "$MTLS_ENABLED" = "true" ]; then
+        mtls_directives="    ssl_client_certificate $TLS_CA_BUNDLE_PATH;
+    ssl_verify_client on;
+    ssl_verify_depth 2;"
+        mtls_headers="        proxy_set_header X-SSL-Client-CN \$ssl_client_s_dn_cn;
+        proxy_set_header X-SSL-Client-Verify \$ssl_client_verify;"
+    fi
+
+    log "Writing nginx TLS config (/etc/nginx/conf.d/mockingbird-stub.conf)..."
+    cat > /etc/nginx/conf.d/mockingbird-stub.conf <<EOF
+upstream mockingbird_stub_backend {
+    server 127.0.0.1:8080;
+    keepalive 256;
+}
+
+server {
+    listen 443 ssl;
+    server_name _;
+
+    ssl_certificate     $TLS_CERT_PATH;
+    ssl_certificate_key $TLS_KEY_PATH;
+    ssl_session_cache shared:SSL:20m;
+    ssl_session_timeout 1d;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+$mtls_directives
+
+    client_max_body_size 20m;
+
+    location / {
+        proxy_pass http://mockingbird_stub_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+$mtls_headers
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 60s;
+    }
+}
+EOF
+
+    # RHEL's stock /etc/nginx/nginx.conf also ships a default server block
+    # listening on port 80 (the "Welcome to nginx" page). Deliberately left
+    # alone rather than edited here — firewalld never opens port 80 for this
+    # stub (only 8080/443, per configure_firewall), so that default page is
+    # unreachable from the network either way. Editing RHEL's stock config
+    # file with a regex isn't worth the fragility for something already
+    # blocked at the firewall.
+    nginx -t || fail "nginx config test failed — check /etc/nginx/conf.d/mockingbird-stub.conf"
+    systemctl enable nginx >/dev/null 2>&1 || true
+    systemctl restart nginx || fail "nginx failed to (re)start — check: journalctl -u nginx -n 50"
+    log "nginx is terminating TLS on :443, proxying to the app on loopback :8080."
 }
 
 # --- OS tuning for high TPS (sockets, ephemeral ports, accept backlog) ----
@@ -257,10 +408,19 @@ LimitNOFILE=1048576
 WantedBy=multi-user.target
 EOF
 
-    log "Step 8: Configuring the firewall (open stub port 8080)..."
+    if [ "$STUB_PROTOCOL" != "HTTP" ]; then
+        log "Step 8: Installing/configuring nginx for STUB_PROTOCOL=$STUB_PROTOCOL..."
+        install_nginx
+        ensure_tls_certs
+        configure_nginx_tls
+    else
+        log "Step 8: STUB_PROTOCOL=HTTP — nginx not needed, skipping."
+    fi
+
+    log "Step 9: Configuring the firewall..."
     configure_firewall
 
-    log "Step 9: Starting the stub service..."
+    log "Step 10: Starting the stub service..."
     systemctl daemon-reload
     systemctl enable mockingbird-stub >/dev/null 2>&1 || true
     systemctl restart mockingbird-stub
@@ -274,14 +434,27 @@ EOF
         journalctl -u mockingbird-stub -n 30 --no-pager || true
         fail "mockingbird-stub failed to start (see logs above)"
     fi
+    if [ "$STUB_PROTOCOL" != "HTTP" ] && ! systemctl is-active --quiet nginx; then
+        log "WARNING: nginx is not active. Recent logs:"
+        journalctl -u nginx -n 30 --no-pager || true
+        fail "nginx failed to start (see logs above) — the app is running but nothing is serving HTTPS"
+    fi
 
     echo ""
     log "Done."
-    echo "  Health:   curl $HEALTH_URL"
-    echo "  Logs:     journalctl -u mockingbird-stub -f"
-    echo "  Stop:     systemctl stop mockingbird-stub"
-    echo "  Redeploy: upload a new $JAR_FILE to S3, then re-run this script."
-    echo "            For a fast redeploy (skip OS re-patching): SKIP_OS_UPDATE=1 sudo -E $0"
+    case "$STUB_PROTOCOL" in
+        HTTP)  echo "  Stub URL: http://<this-host>:8080" ;;
+        HTTPS) echo "  Stub URL: https://<this-host>  (plain http://<this-host>:8080 is NOT reachable from the network)" ;;
+        BOTH)  echo "  Stub URL: http://<this-host>:8080  AND  https://<this-host>" ;;
+    esac
+    echo "  Health:      curl $HEALTH_URL"
+    echo "  App logs:    journalctl -u mockingbird-stub -f"
+    if [ "$STUB_PROTOCOL" != "HTTP" ]; then
+        echo "  nginx logs:  journalctl -u nginx -f"
+    fi
+    echo "  Stop:        systemctl stop mockingbird-stub$([ "$STUB_PROTOCOL" != "HTTP" ] && echo "   (and: systemctl stop nginx, if you also want to stop answering HTTPS)")"
+    echo "  Redeploy:    upload a new $JAR_FILE to S3, then re-run this script."
+    echo "               For a fast redeploy (skip OS re-patching): SKIP_OS_UPDATE=1 sudo -E $0"
 }
 
 main "$@"

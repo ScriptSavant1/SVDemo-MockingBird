@@ -56,20 +56,29 @@
 <div class="wrap">
 
 <h1>Mockingbird Stub — EC2 POC Setup &amp; Operations Runbook</h1>
-<p class="lead">Standalone guide for running the <strong>Mockingbird stub</strong> as a plain JAR + systemd service on a RHEL9/RHEL10 EC2 box — an alternative to the Terraform/Docker auto-deploy path in <code>terraform/stub-ec2/</code>, for teams doing a manual EC2 proof-of-concept. Independent of any load-generator pipeline — it's a standalone Spring Boot jar run on its own EC2 instance.</p>
+<p class="lead">Standalone guide for running the <strong>Mockingbird stub</strong> as a JAR + systemd service on a RHEL9/RHEL10 EC2 box — an alternative to the Terraform/Docker auto-deploy path in <code>terraform/stub-ec2/</code>, for teams doing a manual EC2 proof-of-concept. Independent of any load-generator pipeline — it's a standalone Spring Boot jar run on its own EC2 instance. Supports plain HTTP (default), HTTPS on port 443, or both at once — see §3.</p>
 
 <blockquote class="warn"><strong>All bucket/file/region values below are placeholders.</strong> Edit the top of <code>scripts/deploy-stub-ec2.sh</code> with your real S3 bucket, object keys, and region before running it — the script itself refuses to run until every <code>CHANGE_ME</code> value has been replaced.</blockquote>
 
-<blockquote><strong>No HTTPS/mTLS on this path (yet).</strong> This script deploys a plain JAR — TLS termination (nginx in front of the stub) is only wired into the Docker image built by the Terraform auto-deploy path. A stub deployed with this script always serves plain HTTP on 8080. See <a href="STUB_HTTPS_MTLS_DESIGN.md">STUB_HTTPS_MTLS_DESIGN.md</a> if you need HTTPS and can use that path instead.</blockquote>
+<div class="meta" style="border-left: 4px solid var(--accent);">
+  <p style="margin: 0 0 8px; font-weight: 600;">Quick answers (SSH onto the box, then):</p>
+  <ul>
+    <li><strong>Stop the stub:</strong> <code>sudo systemctl stop mockingbird-stub</code> &nbsp;<span class="pill">that's the whole command</span></li>
+    <li><strong>Confirm it's really stopped:</strong> <code>curl -v http://localhost:8081/actuator/health</code> should say <code>Connection refused</code>, not return JSON. See §7 for the full explanation and common gotchas.</li>
+    <li><strong>Start it again:</strong> <code>sudo systemctl start mockingbird-stub</code> (no need to re-run the install script — see §7).</li>
+    <li><strong>Want HTTPS / port 443?</strong> Yes, this is supported — set <code>STUB_PROTOCOL="HTTPS"</code> (or <code>"BOTH"</code>) at the top of the script before running it. See §3.</li>
+  </ul>
+</div>
 
 <div class="meta">
 <ul>
   <li><strong>Install script:</strong> <code>scripts/deploy-stub-ec2.sh</code></li>
   <li><strong>Platform:</strong> RHEL9 / RHEL10 EC2 instance</li>
-  <li><strong>App API port:</strong> <code>8080</code> &nbsp;|&nbsp; <strong>Management/health port:</strong> <code>8081</code></li>
+  <li><strong>Protocol:</strong> <code>STUB_PROTOCOL</code> in the script — <code>HTTP</code> (default, port <code>8080</code>), <code>HTTPS</code> (port <code>443</code>, via nginx), or <code>BOTH</code>. See §3.</li>
+  <li><strong>App API port:</strong> <code>8080</code> (HTTP) and/or <code>443</code> (HTTPS) &nbsp;|&nbsp; <strong>Management/health port:</strong> <code>8081</code> (never exposed to the network)</li>
   <li><strong>S3 bucket:</strong> <code>&lt;your-s3-bucket&gt;</code> (edit in the script — placeholder in this doc)</li>
-  <li><strong>Install locations:</strong> Java <code>/opt/corretto-21</code>, app <code>/opt/mockingbird-stub/app.jar</code></li>
-  <li><strong>Service name:</strong> <code>mockingbird-stub</code> (systemd), runs as the dedicated <code>mockingbird</code> user — not root</li>
+  <li><strong>Install locations:</strong> Java <code>/opt/corretto-21</code>, app <code>/opt/mockingbird-stub/app.jar</code>, TLS certs (if any) <code>/opt/mockingbird-stub/certs/</code></li>
+  <li><strong>Service name(s):</strong> <code>mockingbird-stub</code> (systemd), runs as the dedicated <code>mockingbird</code> user — not root. Plus <code>nginx</code> (systemd) if HTTPS/BOTH.</li>
 </ul>
 </div>
 
@@ -78,13 +87,14 @@
 <ol>
   <li><a href="#s1">What the install script does</a></li>
   <li><a href="#s2">First-time install (detailed steps)</a></li>
-  <li><a href="#s3">Network — the load generator must clear THREE layers</a></li>
-  <li><a href="#s4">Weekend shutdown &amp; Monday restart</a></li>
-  <li><a href="#s5">Load-test script configuration</a></li>
-  <li><a href="#s6">Service management (day-to-day)</a></li>
-  <li><a href="#s7">Scaling to 10,000+ TPS</a></li>
-  <li><a href="#s8">Troubleshooting</a></li>
-  <li><a href="#s9">Quick reference</a></li>
+  <li><a href="#s3">HTTPS / TLS setup (port 443)</a></li>
+  <li><a href="#s4">Network — the load generator must clear THREE layers</a></li>
+  <li><a href="#s5">Weekend shutdown &amp; Monday restart</a></li>
+  <li><a href="#s6">Load-test script configuration</a></li>
+  <li><a href="#s7">Service management (day-to-day)</a></li>
+  <li><a href="#s8">Scaling to 10,000+ TPS</a></li>
+  <li><a href="#s9">Troubleshooting</a></li>
+  <li><a href="#s10">Quick reference</a></li>
 </ol>
 </div>
 
@@ -94,7 +104,7 @@
 <p><code>scripts/deploy-stub-ec2.sh</code> (run as root) performs, in order:</p>
 <ol>
   <li>Confirms it is running as root, and that every placeholder value (bucket, file keys, region) has actually been edited.</li>
-  <li><strong>Patches the OS</strong> with <code>dnf update -y</code> (CVE remediation). Skip with <code>SKIP_OS_UPDATE=1</code> — useful in PROD where patching needs a change window, or on a <strong>redeploy</strong> where the box was already patched on first install (see §6). A kernel update only takes effect after a <strong>reboot</strong> — plan one on first install.</li>
+  <li><strong>Patches the OS</strong> with <code>dnf update -y</code> (CVE remediation). Skip with <code>SKIP_OS_UPDATE=1</code> — useful in PROD where patching needs a change window, or on a <strong>redeploy</strong> where the box was already patched on first install (see §7). A kernel update only takes effect after a <strong>reboot</strong> — plan one on first install.</li>
   <li>Creates a dedicated, unprivileged <code>mockingbird</code> system user — the stub runs as this user, never as root.</li>
   <li>Resolves the AWS CLI; if missing, installs it automatically.</li>
   <li>Preflight: verifies AWS credentials (instance IAM role) and that both S3 objects exist.</li>
@@ -102,7 +112,8 @@
   <li><strong>Applies kernel tuning for high TPS</strong> (<code>/etc/sysctl.d/99-mockingbird-stub.conf</code>): widened ephemeral port range, <code>tcp_tw_reuse</code>, and <code>somaxconn=4096</code> (to match WireMock's accept queue). Needed to sustain multi-thousand TPS without accept-queue drops or socket exhaustion.</li>
   <li>Downloads + installs Java to <code>/opt/corretto-21</code>, exports <code>JAVA_HOME</code> system-wide.</li>
   <li>Downloads the app jar to <code>/opt/mockingbird-stub/app.jar</code>, owned by the <code>mockingbird</code> user.</li>
-  <li><strong>Opens stub port 8080/tcp in firewalld</strong> (if firewalld is active). 8081 (actuator) is left closed to the world — open it to a monitoring range only via <code>OPEN_ACTUATOR_CIDR=&lt;cidr&gt;</code>. Without this step the load generator gets <code>no route to host</code> even when the security group allows 8080 (a host firewall silently rejects it).</li>
+  <li>If <code>STUB_PROTOCOL</code> is <code>HTTPS</code> or <code>BOTH</code>: installs <strong>nginx</strong>, generates a self-signed certificate (or uses one you've placed yourself), and writes an nginx config that terminates TLS on <code>443</code> and proxies to the app on loopback <code>8080</code>. See §3 for the full walkthrough — skipped entirely when <code>STUB_PROTOCOL=HTTP</code> (the default).</li>
+  <li><strong>Opens exactly the ports the chosen protocol needs in firewalld</strong> (if firewalld is active): <code>8080</code> for HTTP, <code>443</code> for HTTPS, both for BOTH. 8081 (actuator) is <em>never</em> opened to the world — open it to a monitoring range only via <code>OPEN_ACTUATOR_CIDR=&lt;cidr&gt;</code>. Without this step the load generator gets <code>no route to host</code> even when the security group allows the port (a host firewall silently rejects it).</li>
   <li>Creates a <strong>systemd</strong> service <code>mockingbird-stub</code> that:
     <ul>
       <li>runs as the unprivileged <code>mockingbird</code> user, not root,</li>
@@ -150,10 +161,73 @@ curl -s http://localhost:8081/actuator/health      # {"status":"UP"}</code></pre
 
 <hr>
 
-<h2 id="s3">3. Network — the load generator must clear THREE layers to reach the stub</h2>
-<p>Reaching the stub on 8080 from the load generator (LG) requires <strong>all three</strong> of these to allow it. Missing any one produces a different symptom (see the table). This is the single most common cause of "works from a local test client, fails from the AWS LG".</p>
+<h2 id="s3">3. HTTPS / TLS setup (port 443)</h2>
+<p><strong>Yes, this is fully supported.</strong> Set <code>STUB_PROTOCOL</code> at the top of <code>scripts/deploy-stub-ec2.sh</code> before running it (or before a redeploy, to change it):</p>
 <table>
-  <thead><tr><th>Layer</th><th>Where</th><th>Symptom if it blocks 8080</th></tr></thead>
+  <thead><tr><th><code>STUB_PROTOCOL</code></th><th>What you get</th><th>Port(s) opened</th></tr></thead>
+  <tbody>
+    <tr><td><code>HTTP</code> <span class="pill">default</span></td><td>Plain HTTP only — unchanged from before this feature existed.</td><td><code>8080</code></td></tr>
+    <tr><td><code>HTTPS</code></td><td>nginx terminates TLS on <code>443</code>, proxying to the app on loopback <code>8080</code>. <strong>Plain <code>8080</code> is not reachable from the network at all</strong> — only <code>443</code> is opened in firewalld, so HTTPS can't be bypassed.</td><td><code>443</code></td></tr>
+    <tr><td><code>BOTH</code></td><td>Both plain HTTP and HTTPS answer at the same time — useful while migrating a team from one to the other.</td><td><code>8080</code> and <code>443</code></td></tr>
+  </tbody>
+</table>
+<p>How it works: nginx is installed as a normal RHEL package (<code>dnf install -y nginx</code>) and configured to terminate TLS — the same architecture as the Docker auto-deploy path (see <a href="STUB_HTTPS_MTLS_DESIGN.md">STUB_HTTPS_MTLS_DESIGN.md</a>), just running as a host service here instead of inside a container. The Spring Boot app itself never changes — it always listens on loopback <code>8080</code> regardless of protocol; nginx (when enabled) is what's actually reachable from outside.</p>
+
+<h3>Certificate: auto-generated (default) or your own</h3>
+<table>
+  <thead><tr><th><code>TLS_CERT_SOURCE</code></th><th>What happens</th></tr></thead>
+  <tbody>
+    <tr><td><code>AUTO_GENERATED</code> <span class="pill">default</span></td><td>The script generates a self-signed certificate on first run (825 days validity) at <code>/opt/mockingbird-stub/certs/</code>. No input needed — fine for a POC or NFT run where the load-test tool doesn't validate the certificate chain. A re-run/redeploy reuses the existing cert rather than generating a new one each time.</td></tr>
+    <tr><td><code>UPLOADED</code></td><td>You provide the real certificate. <strong>Before running the script</strong>, <code>scp</code> your files to the box at exactly these paths:
+      <pre><code>/opt/mockingbird-stub/certs/server.crt.pem
+/opt/mockingbird-stub/certs/server.key.pem</code></pre>
+      The script checks both files exist and refuses to run with a clear error if they don't (or if you forgot to switch <code>TLS_CERT_SOURCE</code> to <code>UPLOADED</code>).</td></tr>
+  </tbody>
+</table>
+
+<h3>Mutual TLS (client certificates)</h3>
+<p>Set <code>MTLS_ENABLED="true"</code> to make nginx require and verify a client certificate on every connection — independent of which <code>TLS_CERT_SOURCE</code> you chose for the server side. This needs a CA bundle (the certificate authority that issued your clients' certs) placed at:</p>
+<pre><code>/opt/mockingbird-stub/certs/ca-bundle.pem</code></pre>
+<p>The script refuses to run if <code>MTLS_ENABLED=true</code> and this file is missing, or if it's set without <code>STUB_PROTOCOL</code> also being <code>HTTPS</code>/<code>BOTH</code> (mTLS has no meaning over plain HTTP).</p>
+
+<h3>Example: turning on HTTPS with mTLS</h3>
+<p>Edit the top of the script:</p>
+<pre><code>STUB_PROTOCOL="HTTPS"
+TLS_CERT_SOURCE="UPLOADED"
+MTLS_ENABLED="true"</code></pre>
+<pre><code># Before running — put your real files on the box first:
+scp server.crt.pem  ec2-user@&lt;host&gt;:/tmp/
+scp server.key.pem  ec2-user@&lt;host&gt;:/tmp/
+scp ca-bundle.pem    ec2-user@&lt;host&gt;:/tmp/
+# then on the box, as root:
+mkdir -p /opt/mockingbird-stub/certs
+mv /tmp/server.crt.pem /tmp/server.key.pem /tmp/ca-bundle.pem /opt/mockingbird-stub/certs/
+
+sudo ./deploy-stub-ec2.sh</code></pre>
+
+<h3>Verify HTTPS is actually working</h3>
+<pre><code># On the stub box:
+sudo systemctl status nginx --no-pager             # active (running)
+sudo ss -tlnp | grep ':443'                         # nginx listening on 443
+curl -vk https://localhost/                         # -k: skip cert validation (self-signed) — should connect, not refuse
+
+# Confirm 8080 is NOT reachable from another host when STUB_PROTOCOL=HTTPS
+# (run this FROM a different machine, not the stub box itself — loopback
+# always works regardless of the firewall):
+curl -v http://&lt;stub-private-ip&gt;:8080/            # should time out / connection refused</code></pre>
+<p>If you're using a real (non-self-signed) certificate, drop the <code>-k</code> and confirm <code>curl -v</code> reports the certificate chain validating cleanly.</p>
+
+<h3>Changing protocol later</h3>
+<p>Edit <code>STUB_PROTOCOL</code> (and cert settings, if relevant) at the top of the script and re-run it — the same as any other config change:</p>
+<pre><code>SKIP_OS_UPDATE=1 sudo -E ./deploy-stub-ec2.sh</code></pre>
+<p>The script re-writes the firewall rules and the nginx config to match, and restarts both services.</p>
+
+<hr>
+
+<h2 id="s4">4. Network — the load generator must clear THREE layers to reach the stub</h2>
+<p>Reaching the stub from the load generator (LG) requires <strong>all three</strong> of these to allow it. Missing any one produces a different symptom (see the table). This is the single most common cause of "works from a local test client, fails from the AWS LG". <strong>Port note:</strong> everything below is written for <code>8080</code> (the <code>STUB_PROTOCOL=HTTP</code> default) — if you're running <code>HTTPS</code> or <code>BOTH</code> (§3), open/check <code>443</code> the same way instead of (or in addition to) <code>8080</code>.</p>
+<table>
+  <thead><tr><th>Layer</th><th>Where</th><th>Symptom if it blocks the port</th></tr></thead>
   <tbody>
     <tr><td><strong>1. Security Group</strong> (stateful)</td><td>Stub EC2's SG, inbound</td><td><code>context deadline exceeded</code> (silent drop → timeout)</td></tr>
     <tr><td><strong>2. NACL</strong> (stateless)</td><td>Stub subnet's NACL, in + out</td><td><code>no route to host</code> (fast reject)</td></tr>
@@ -161,31 +235,32 @@ curl -s http://localhost:8081/actuator/health      # {"status":"UP"}</code></pre
   </tbody>
 </table>
 
-<h3>3a. Security Group (survives stop/start — one-time)</h3>
+<h3>4a. Security Group (survives stop/start — one-time)</h3>
 <p>Inbound rule on the <strong>stub instance's</strong> SG:</p>
 <table>
   <thead><tr><th>Port</th><th>Purpose</th><th>Source (recommended)</th></tr></thead>
   <tbody>
-    <tr><td>8080</td><td>Application API</td><td>LG security group, or subnet CIDR (e.g. <code>10.0.1.0/24</code> — use your own subnet's actual range)</td></tr>
+    <tr><td>8080</td><td>Application API (HTTP)</td><td>LG security group, or subnet CIDR (e.g. <code>10.0.1.0/24</code> — use your own subnet's actual range)</td></tr>
+    <tr><td>443</td><td>Application API (HTTPS) — only if <code>STUB_PROTOCOL</code> is <code>HTTPS</code>/<code>BOTH</code></td><td>Same as above</td></tr>
     <tr><td>8081</td><td>Health/management</td><td>(optional) monitoring range only, if scraped remotely</td></tr>
   </tbody>
 </table>
 <p>Scope the source to the <strong>whole LG subnet CIDR</strong>, not a single IP — on-demand LGs get a new IP each provision. A <code>/32</code> rule breaks on the next run.</p>
 
-<h3>3b. NACL (stateless — needs BOTH directions)</h3>
+<h3>4b. NACL (stateless — needs BOTH directions)</h3>
 <p>If the stub and LG are in different subnets, the stub subnet's NACL must allow:</p>
 <ul>
-  <li><strong>Inbound:</strong> TCP 8080 from the LG CIDR</li>
+  <li><strong>Inbound:</strong> TCP 8080 (or 443 for HTTPS) from the LG CIDR</li>
   <li><strong>Outbound:</strong> TCP ephemeral <code>1024-65535</code> back to the LG CIDR (return traffic)</li>
 </ul>
 <p>Give the allow rules a <strong>lower rule number</strong> than any deny. (If both hosts share one subnet, the NACL isn't in the path.)</p>
 
-<h3>3c. Host firewall (firewalld on the stub)</h3>
-<p>RHEL9/10 runs firewalld by default, allowing only SSH. <strong>8080 must be opened on the host</strong>, or the LG gets <code>no route to host</code> even when the SG and NACL are correct. The install script does this automatically. To do it manually:</p>
-<pre><code>sudo firewall-cmd --permanent --add-port=8080/tcp
+<h3>4c. Host firewall (firewalld on the stub)</h3>
+<p>RHEL9/10 runs firewalld by default, allowing only SSH. <strong>The relevant port must be opened on the host</strong>, or the LG gets <code>no route to host</code> even when the SG and NACL are correct. The install script does this automatically, matching whatever <code>STUB_PROTOCOL</code> you set (§3). To do it manually:</p>
+<pre><code>sudo firewall-cmd --permanent --add-port=8080/tcp   # HTTP — or 443/tcp for HTTPS
 sudo firewall-cmd --reload
-sudo firewall-cmd --list-ports              # confirm 8080/tcp</code></pre>
-<blockquote>Security-group rules survive stop/start. The <strong>firewalld</strong> rule is baked into the host by the install script, so it persists too — but a freshly-provisioned host that did NOT run the install script will not have it. Always run the install script (or open 8080) on every new stub host.</blockquote>
+sudo firewall-cmd --list-ports              # confirm the right port is listed</code></pre>
+<blockquote>Security-group rules survive stop/start. The <strong>firewalld</strong> rule is baked into the host by the install script, so it persists too — but a freshly-provisioned host that did NOT run the install script will not have it. Always run the install script (or open the right port) on every new stub host.</blockquote>
 
 <h3>Prove reachability from the LG (before running a real test)</h3>
 <p>Run on the <strong>LG instance</strong>:</p>
@@ -200,7 +275,7 @@ curl -v http://&lt;mockingbird-private-ip&gt;:8080/api/v1/example-endpoint \
 
 <hr>
 
-<h2 id="s4">4. Weekend shutdown (save cost) &amp; Monday restart</h2>
+<h2 id="s5">5. Weekend shutdown (save cost) &amp; Monday restart</h2>
 <h3>Cost summary</h3>
 <ul>
   <li><strong>Stopping the instance stops the compute charge</strong> (the main cost).</li>
@@ -229,7 +304,7 @@ curl -s http://localhost:8081/actuator/health      # {"status":"UP"}</code></pre
 
 <hr>
 
-<h2 id="s5">5. Load-test script configuration</h2>
+<h2 id="s6">6. Load-test script configuration</h2>
 <p>Example API request (recorded against <code>localhost</code>, which must be replaced):</p>
 <pre><code>POST http://&lt;mockingbird-private-ip&gt;:8080/api/v1/example-endpoint
 Content-Type: application/json
@@ -238,7 +313,7 @@ Content-Type: application/json
 <h3>Key points</h3>
 <ul>
   <li><strong>Host:</strong> use the mockingbird <strong>private IP</strong>, NOT <code>localhost</code>. <code>localhost</code> on the LG points at the LG itself.</li>
-  <li><strong>Port:</strong> <code>8080</code> (application API). <code>8081</code> is health only.</li>
+  <li><strong>Port:</strong> <code>8080</code> for HTTP, <code>443</code> for HTTPS (no port needed in the URL for 443 — it's the HTTPS default). <code>8081</code> is health only, never reachable from the LG.</li>
   <li><strong>Parameterize the host:</strong> define a parameter (e.g. <code>HOST</code> / <code>{MockHost}</code>) so a new IP after stop/start or redeploy needs a one-line change, not a re-record/re-zip. <span class="pill">avoids the stale-IP trap</span></li>
   <li><strong>Parameterize request data:</strong> vary per-iteration fields for realistic load.</li>
   <li><strong>Validate responses:</strong> check response status/body so failures (e.g. 404 "Request was not matched") are caught during the run.</li>
@@ -248,21 +323,47 @@ Content-Type: application/json
 
 <hr>
 
-<h2 id="s6">6. Service management (day-to-day)</h2>
-<pre><code># Status / logs
+<h2 id="s7">7. Service management (day-to-day)</h2>
+
+<h3>How to manually stop the stub (SSH onto the box, then...)</h3>
+<div class="meta" style="border-left: 4px solid var(--accent);">
+<pre><code>sudo systemctl stop mockingbird-stub</code></pre>
+<p style="margin: 8px 0 0;">That's it — this is the one command that actually stops the Spring Boot app, regardless of when/how it was started (fresh install, a redeploy, after a reboot, doesn't matter — it's always managed by this same systemd service). You do <strong>not</strong> need to find/kill a Java PID by hand.</p>
+</div>
+<p>If you're running <code>STUB_PROTOCOL=HTTPS</code> or <code>BOTH</code> (§3), stopping <code>mockingbird-stub</code> alone stops the <em>application</em>, but <strong>nginx keeps running</strong> and will answer on 443 with a <code>502 Bad Gateway</code> (nginx is up, but has nothing to proxy to) rather than refusing the connection outright. If you want the stub to stop answering on 443 entirely too:</p>
+<pre><code>sudo systemctl stop mockingbird-stub
+sudo systemctl stop nginx</code></pre>
+
+<h3>Confirm it's actually stopped</h3>
+<p>A genuinely stopped stub must refuse new connections — <code>curl</code> should return <code>Connection refused</code>, never a normal HTTP response (and, for HTTPS, never a <code>502</code> either — that still means nginx is up and answering):</p>
+<pre><code>curl -v http://localhost:8081/actuator/health       # HTTP — should say "Connection refused"
+curl -vk https://localhost/                         # HTTPS — should say "Connection refused" once nginx is also stopped
+sudo ss -tlnp | grep -E ':8080|:443|:8081'          # should print nothing at all once both are stopped</code></pre>
+<p>If you stop it and still get a response, something else is still listening: check <code>sudo ss -tlnp</code> for a leftover process (e.g. a manual <code>java -jar</code> run from before you set up systemd), and confirm you're testing the right host/IP.</p>
+
+<h3>Full status / logs / start / restart / auto-start</h3>
+<pre><code># Status / logs — the app
 systemctl status mockingbird-stub --no-pager
 journalctl -u mockingbird-stub -f                  # live logs
 journalctl -u mockingbird-stub -n 100 --no-pager
 
-# Start / stop / restart
+# Status / logs — nginx (only relevant if STUB_PROTOCOL != HTTP)
+systemctl status nginx --no-pager
+journalctl -u nginx -f
+
+# Start / stop / restart the app
 sudo systemctl start   mockingbird-stub
 sudo systemctl stop    mockingbird-stub
 sudo systemctl restart mockingbird-stub
 
+# Start / stop / restart nginx (HTTPS/BOTH only)
+sudo systemctl start   nginx
+sudo systemctl stop    nginx
+sudo systemctl restart nginx
+
 # Disable / enable auto-start on boot
 sudo systemctl disable mockingbird-stub
 sudo systemctl enable  mockingbird-stub</code></pre>
-<p>A genuinely stopped stub must refuse new connections — <code>curl</code> should return <code>Connection refused</code>, never a normal HTTP response. If you stop it and still get a response, something else is still listening: check <code>sudo ss -tlnp | grep -E ':8080|:8081'</code> for a leftover process, and confirm you're testing the right host/IP.</p>
 
 <h3>Redeploy a new jar</h3>
 <ol>
@@ -278,7 +379,7 @@ sudo systemctl enable  mockingbird-stub</code></pre>
 
 <hr>
 
-<h2 id="s7">7. Scaling to 10,000+ TPS</h2>
+<h2 id="s8">8. Scaling to 10,000+ TPS</h2>
 <p>The stub <strong>application</strong> is already tuned for high TPS (Jetty acceptors = vCPU count, async response threads, request journal disabled, G1GC low-pause, Java 21 virtual threads). At 10K TPS the limits you hit are almost always the <strong>host</strong> and the <strong>load generator</strong>, not the stub code.</p>
 
 <h3>Stub host (done by the install script)</h3>
@@ -307,7 +408,7 @@ watch -n1 'sudo ss -tan | grep TIME-WAIT | wc -l'   # TIME_WAIT climbing = no re
 
 <hr>
 
-<h2 id="s8">8. Troubleshooting</h2>
+<h2 id="s9">9. Troubleshooting</h2>
 <table>
   <thead><tr><th>Symptom</th><th>Likely cause</th><th>Action</th></tr></thead>
   <tbody>
@@ -316,15 +417,20 @@ watch -n1 'sudo ss -tan | grep TIME-WAIT | wc -l'   # TIME_WAIT climbing = no re
     <tr><td><code>... is still set to its placeholder value</code></td><td>Script run before editing BUCKET/JAVA_FILE/JAR_FILE/REGION</td><td>Edit the top of <code>scripts/deploy-stub-ec2.sh</code> with your real values</td></tr>
     <tr><td><code>... not found: s3://...</code></td><td>jar/Java tarball not uploaded, or wrong key name</td><td>Upload the file, or fix the corresponding variable in the script</td></tr>
     <tr><td>Service not active after start</td><td>jar crash (e.g. heap too big)</td><td><code>journalctl -u mockingbird-stub -n 50</code>; lower <code>MOCK_XMX</code></td></tr>
-    <tr><td><code>context deadline exceeded</code> from LG</td><td>Security group dropping 8080</td><td>Add inbound 8080 to the stub SG from the LG CIDR (§3a)</td></tr>
-    <tr><td><code>no route to host</code> from LG</td><td>Host firewall (or NACL) rejecting 8080</td><td>Open 8080 in firewalld on the stub (§3c); check NACL (§3b)</td></tr>
+    <tr><td><code>context deadline exceeded</code> from LG</td><td>Security group dropping 8080</td><td>Add inbound 8080 to the stub SG from the LG CIDR (§4a)</td></tr>
+    <tr><td><code>no route to host</code> from LG</td><td>Host firewall (or NACL) rejecting 8080</td><td>Open 8080 in firewalld on the stub (§4c); check NACL (§4b)</td></tr>
     <tr><td><code>cannot assign requested address</code> (on the <strong>LG</strong>)</td><td>LG ran out of ephemeral source ports (no connection reuse)</td><td>Enable HTTP keep-alive in the LG runtime settings (non-zero keep-alive timeout, small max-connections-per-server); widen ephemeral ports on the LG. Not a stub problem.</td></tr>
     <tr><td>Requests connect but return HTTP 404 "Request was not matched"</td><td>Wrong stub project deployed on that host</td><td>Verify mappings: <code>curl -s http://&lt;ip&gt;:8080/__admin/mappings</code>; deploy the correct project or retarget</td></tr>
     <tr><td><code>no such file or directory ... .body.txt</code> (on the LG)</td><td>DevWeb data files not shipped with the script folder</td><td>Upload the whole script folder (not "runtime files only"); ensure body files + CSVs are included</td></tr>
-    <tr><td>LG cannot connect to 8080</td><td>Security group / host firewall / wrong host</td><td>Work through the 3 layers in §3; use private IP not localhost</td></tr>
+    <tr><td>LG cannot connect to 8080</td><td>Security group / host firewall / wrong host</td><td>Work through the 3 layers in §4; use private IP not localhost</td></tr>
     <tr><td>Works locally, fails from LG</td><td>Used <code>localhost</code> in the load-test script</td><td>Point the script at the mockingbird private IP</td></tr>
     <tr><td>Connection works, IP changed</td><td>Instance was stopped/started or redeployed</td><td>Get new private IP (<code>hostname -I</code>), update the <code>HOST</code> param</td></tr>
-    <tr><td>Still getting a response after stopping the service</td><td>A different process is still listening (e.g. a leftover manual run), or a client-side cache</td><td><code>sudo ss -tlnp | grep -E ':8080|:8081'</code> to find what's really listening; use <code>curl -v</code> to rule out browser caching</td></tr>
+    <tr><td>Still getting a response after stopping the service</td><td>A different process is still listening (e.g. a leftover manual run), or a client-side cache</td><td><code>sudo ss -tlnp | grep -E ':8080|:443|:8081'</code> to find what's really listening; use <code>curl -v</code> to rule out browser caching</td></tr>
+    <tr><td>HTTPS request gets <code>502 Bad Gateway</code></td><td>nginx is up but <code>mockingbird-stub</code> is stopped/crashed — nginx has nothing to proxy to</td><td><code>systemctl status mockingbird-stub</code>; start/restart it. This is expected right after only running <code>systemctl stop mockingbird-stub</code> (§7) while leaving nginx running.</td></tr>
+    <tr><td><code>nginx: [emerg] cannot load certificate</code> / nginx fails to start after enabling HTTPS</td><td><code>TLS_CERT_SOURCE=UPLOADED</code> but the cert/key files are missing, empty, or not valid PEM</td><td>Confirm <code>/opt/mockingbird-stub/certs/server.crt.pem</code> and <code>server.key.pem</code> exist and are valid: <code>openssl x509 -in server.crt.pem -noout -text</code>; re-<code>scp</code> them if needed and re-run the script</td></tr>
+    <tr><td><code>curl: (60) SSL certificate problem</code> from a load-test tool</td><td>Using a self-signed cert (<code>TLS_CERT_SOURCE=AUTO_GENERATED</code>) and the client validates the chain</td><td>Either configure the load-test tool to skip cert validation (fine for a POC), or switch to <code>TLS_CERT_SOURCE=UPLOADED</code> with a cert from your org's CA</td></tr>
+    <tr><td>mTLS: client gets rejected even with a certificate</td><td>Client cert wasn't signed by the CA in <code>ca-bundle.pem</code>, or <code>MTLS_ENABLED</code> wasn't actually turned on</td><td>Confirm <code>MTLS_ENABLED="true"</code> in the script and that <code>ca-bundle.pem</code> is the CA that actually issued the client's cert, not the client cert itself</td></tr>
+    <tr><td>Connecting to 8080 works even though <code>STUB_PROTOCOL=HTTPS</code></td><td>Testing from the stub box itself (loopback bypasses the firewall) rather than from another host</td><td>Re-test from a genuinely different machine — loopback traffic is never subject to firewalld's port rules</td></tr>
   </tbody>
 </table>
 
@@ -338,20 +444,25 @@ curl -v http://&lt;mockingbird-private-ip&gt;:8081/actuator/health     # network
 
 <hr>
 
-<h2 id="s9">9. Quick reference</h2>
+<h2 id="s10">10. Quick reference</h2>
 <table>
   <thead><tr><th>Item</th><th>Value</th></tr></thead>
   <tbody>
     <tr><td>Install script</td><td><code>scripts/deploy-stub-ec2.sh</code></td></tr>
-    <tr><td>Service</td><td><code>mockingbird-stub</code> (systemd, runs as user <code>mockingbird</code>, auto-start on boot)</td></tr>
-    <tr><td>API URL</td><td><code>http://&lt;private-ip&gt;:8080/&lt;your-endpoint&gt;</code></td></tr>
-    <tr><td>Health URL</td><td><code>http://&lt;private-ip&gt;:8081/actuator/health</code></td></tr>
+    <tr><td>App service</td><td><code>mockingbird-stub</code> (systemd, runs as user <code>mockingbird</code>, auto-start on boot)</td></tr>
+    <tr><td>TLS service</td><td><code>nginx</code> (systemd) — only installed/running if <code>STUB_PROTOCOL</code> is <code>HTTPS</code> or <code>BOTH</code></td></tr>
+    <tr><td>Stop the stub</td><td><code>sudo systemctl stop mockingbird-stub</code> &nbsp;(add <code>sudo systemctl stop nginx</code> too if you also want 443 to stop answering)</td></tr>
+    <tr><td>API URL (HTTP)</td><td><code>http://&lt;private-ip&gt;:8080/&lt;your-endpoint&gt;</code></td></tr>
+    <tr><td>API URL (HTTPS)</td><td><code>https://&lt;private-ip&gt;/&lt;your-endpoint&gt;</code> — only when <code>STUB_PROTOCOL</code> is <code>HTTPS</code>/<code>BOTH</code></td></tr>
+    <tr><td>Health URL</td><td><code>http://&lt;private-ip&gt;:8081/actuator/health</code> (never exposed to the network — check from the box itself)</td></tr>
     <tr><td>Java</td><td><code>/opt/corretto-21</code> (Corretto 21)</td></tr>
     <tr><td>App jar</td><td><code>/opt/mockingbird-stub/app.jar</code></td></tr>
+    <tr><td>TLS certs</td><td><code>/opt/mockingbird-stub/certs/</code> (<code>server.crt.pem</code>, <code>server.key.pem</code>, <code>ca-bundle.pem</code>)</td></tr>
     <tr><td>S3</td><td><code>s3://&lt;your-bucket&gt;/</code> — edit in the script</td></tr>
-    <tr><td>Restart jar after reboot?</td><td>No — systemd auto-starts it</td></tr>
+    <tr><td>Restart jar after reboot?</td><td>No — systemd auto-starts it (and nginx, if enabled)</td></tr>
     <tr><td>Re-check after stop/start?</td><td>Yes — private IP changes; update <code>HOST</code></td></tr>
-    <tr><td>HTTPS/mTLS supported here?</td><td>No — plain HTTP only on this path (see note at top)</td></tr>
+    <tr><td>HTTPS / port 443 supported here?</td><td><strong>Yes</strong> — set <code>STUB_PROTOCOL="HTTPS"</code> or <code>"BOTH"</code> in the script. See §3.</td></tr>
+    <tr><td>Mutual TLS (client certs) supported here?</td><td><strong>Yes</strong> — set <code>MTLS_ENABLED="true"</code> plus <code>STUB_PROTOCOL=HTTPS</code>/<code>BOTH</code>. See §3.</td></tr>
   </tbody>
 </table>
 
