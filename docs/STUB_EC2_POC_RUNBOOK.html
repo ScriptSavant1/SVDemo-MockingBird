@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockingbird Stub — EC2 POC Setup &amp; Operations Runbook</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1f2328; --muted: #57606a; --border: #d0d7de;
+    --accent: #0969da; --code-bg: #f6f8fa; --note-bg: #fff8c5; --note-border: #d4a72c;
+    --th-bg: #f6f8fa; --warn-bg: #fff1e5; --warn-border: #e16f24;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--fg); background: var(--bg); line-height: 1.55;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 32px 24px 80px; }
+  h1 { font-size: 30px; border-bottom: 2px solid var(--border); padding-bottom: 12px; margin-top: 0; }
+  h2 { font-size: 22px; margin-top: 40px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  h3 { font-size: 17px; margin-top: 26px; color: #24292f; }
+  p, li { font-size: 15px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    background: var(--code-bg); padding: 2px 6px; border-radius: 6px;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 85%;
+  }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 16px; overflow-x: auto; font-size: 13px; line-height: 1.45;
+  }
+  pre code { background: none; padding: 0; font-size: 100%; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--th-bg); font-weight: 600; }
+  tr:nth-child(even) td { background: #fafbfc; }
+  blockquote {
+    margin: 16px 0; padding: 12px 16px; background: var(--note-bg);
+    border-left: 4px solid var(--note-border); border-radius: 4px; font-size: 14px;
+  }
+  blockquote.warn { background: var(--warn-bg); border-left-color: var(--warn-border); }
+  .lead { color: var(--muted); font-size: 15px; }
+  .meta { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; margin: 20px 0; }
+  .meta ul { margin: 0; padding-left: 20px; }
+  .toc { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; margin: 24px 0; }
+  .toc h2 { margin: 0 0 8px; border: none; font-size: 16px; padding: 0; }
+  .toc ol { margin: 0; padding-left: 22px; }
+  .toc a { font-size: 14px; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
+  .pill { display: inline-block; background: #ddf4ff; color: #0969da; border-radius: 999px; padding: 1px 10px; font-size: 12px; font-weight: 600; }
+  .nowrap { white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Mockingbird Stub — EC2 POC Setup &amp; Operations Runbook</h1>
+<p class="lead">Standalone guide for running the <strong>Mockingbird stub</strong> as a plain JAR + systemd service on a RHEL9/RHEL10 EC2 box — an alternative to the Terraform/Docker auto-deploy path in <code>terraform/stub-ec2/</code>, for teams doing a manual EC2 proof-of-concept. Independent of any load-generator pipeline — it's a standalone Spring Boot jar run on its own EC2 instance.</p>
+
+<blockquote class="warn"><strong>All bucket/file/region values below are placeholders.</strong> Edit the top of <code>scripts/deploy-stub-ec2.sh</code> with your real S3 bucket, object keys, and region before running it — the script itself refuses to run until every <code>CHANGE_ME</code> value has been replaced.</blockquote>
+
+<blockquote><strong>No HTTPS/mTLS on this path (yet).</strong> This script deploys a plain JAR — TLS termination (nginx in front of the stub) is only wired into the Docker image built by the Terraform auto-deploy path. A stub deployed with this script always serves plain HTTP on 8080. See <a href="STUB_HTTPS_MTLS_DESIGN.md">STUB_HTTPS_MTLS_DESIGN.md</a> if you need HTTPS and can use that path instead.</blockquote>
+
+<div class="meta">
+<ul>
+  <li><strong>Install script:</strong> <code>scripts/deploy-stub-ec2.sh</code></li>
+  <li><strong>Platform:</strong> RHEL9 / RHEL10 EC2 instance</li>
+  <li><strong>App API port:</strong> <code>8080</code> &nbsp;|&nbsp; <strong>Management/health port:</strong> <code>8081</code></li>
+  <li><strong>S3 bucket:</strong> <code>&lt;your-s3-bucket&gt;</code> (edit in the script — placeholder in this doc)</li>
+  <li><strong>Install locations:</strong> Java <code>/opt/corretto-21</code>, app <code>/opt/mockingbird-stub/app.jar</code></li>
+  <li><strong>Service name:</strong> <code>mockingbird-stub</code> (systemd), runs as the dedicated <code>mockingbird</code> user — not root</li>
+</ul>
+</div>
+
+<div class="toc">
+<h2>Contents</h2>
+<ol>
+  <li><a href="#s1">What the install script does</a></li>
+  <li><a href="#s2">First-time install (detailed steps)</a></li>
+  <li><a href="#s3">Network — the load generator must clear THREE layers</a></li>
+  <li><a href="#s4">Weekend shutdown &amp; Monday restart</a></li>
+  <li><a href="#s5">Load-test script configuration</a></li>
+  <li><a href="#s6">Service management (day-to-day)</a></li>
+  <li><a href="#s7">Scaling to 10,000+ TPS</a></li>
+  <li><a href="#s8">Troubleshooting</a></li>
+  <li><a href="#s9">Quick reference</a></li>
+</ol>
+</div>
+
+<hr>
+
+<h2 id="s1">1. What the install script does</h2>
+<p><code>scripts/deploy-stub-ec2.sh</code> (run as root) performs, in order:</p>
+<ol>
+  <li>Confirms it is running as root, and that every placeholder value (bucket, file keys, region) has actually been edited.</li>
+  <li><strong>Patches the OS</strong> with <code>dnf update -y</code> (CVE remediation). Skip with <code>SKIP_OS_UPDATE=1</code> — useful in PROD where patching needs a change window, or on a <strong>redeploy</strong> where the box was already patched on first install (see §6). A kernel update only takes effect after a <strong>reboot</strong> — plan one on first install.</li>
+  <li>Creates a dedicated, unprivileged <code>mockingbird</code> system user — the stub runs as this user, never as root.</li>
+  <li>Resolves the AWS CLI; if missing, installs it automatically.</li>
+  <li>Preflight: verifies AWS credentials (instance IAM role) and that both S3 objects exist.</li>
+  <li>Auto-sizes the JVM heap to ~50% of system RAM (cap 24g, min 1g). Override with <code>MOCK_XMX</code>, e.g. <code>MOCK_XMX=8g sudo -E ./scripts/deploy-stub-ec2.sh</code>.</li>
+  <li><strong>Applies kernel tuning for high TPS</strong> (<code>/etc/sysctl.d/99-mockingbird-stub.conf</code>): widened ephemeral port range, <code>tcp_tw_reuse</code>, and <code>somaxconn=4096</code> (to match WireMock's accept queue). Needed to sustain multi-thousand TPS without accept-queue drops or socket exhaustion.</li>
+  <li>Downloads + installs Java to <code>/opt/corretto-21</code>, exports <code>JAVA_HOME</code> system-wide.</li>
+  <li>Downloads the app jar to <code>/opt/mockingbird-stub/app.jar</code>, owned by the <code>mockingbird</code> user.</li>
+  <li><strong>Opens stub port 8080/tcp in firewalld</strong> (if firewalld is active). 8081 (actuator) is left closed to the world — open it to a monitoring range only via <code>OPEN_ACTUATOR_CIDR=&lt;cidr&gt;</code>. Without this step the load generator gets <code>no route to host</code> even when the security group allows 8080 (a host firewall silently rejects it).</li>
+  <li>Creates a <strong>systemd</strong> service <code>mockingbird-stub</code> that:
+    <ul>
+      <li>runs as the unprivileged <code>mockingbird</code> user, not root,</li>
+      <li>starts on boot (<code>WantedBy=multi-user.target</code>),</li>
+      <li>restarts on failure (<code>Restart=on-failure</code>),</li>
+      <li>raises the open-file-descriptor limit (<code>LimitNOFILE=1048576</code>) for high TPS,</li>
+      <li>runs the JVM with G1GC low-pause flags.</li>
+    </ul>
+  </li>
+  <li>Starts the service and verifies it is active (dumps logs and fails if not).</li>
+</ol>
+
+<h3>Prerequisites</h3>
+<ul>
+  <li>The instance has an <strong>IAM instance profile</strong> with <strong>S3 read</strong> access to your bucket. (The script fails early with a clear message if not.)</li>
+  <li>Network/proxy access to install the AWS CLI (only needed the first time).</li>
+</ul>
+
+<hr>
+
+<h2 id="s2">2. First-time install (detailed steps)</h2>
+<blockquote>Do NOT create/run the script from <code>/etc</code>. Use <code>/opt</code> or your home directory.</blockquote>
+<pre><code># 1. Copy scripts/deploy-stub-ec2.sh onto the box (scp, or paste via vi)
+cd /opt
+sudo vi deploy-stub-ec2.sh      # paste the script content, save &amp; quit (:wq)
+
+# 2. Edit the placeholder values at the top of the script
+sudo vi deploy-stub-ec2.sh      # BUCKET, JAVA_FILE, JAR_FILE, REGION
+
+# 3. Make it executable
+sudo chmod +x deploy-stub-ec2.sh
+
+# 4. Run it as root
+sudo ./deploy-stub-ec2.sh</code></pre>
+
+<h3>Expected successful output (tail)</h3>
+<pre><code>[..] Service mockingbird-stub is running (as user 'mockingbird').
+[..] Done.
+  Health:   curl http://localhost:8081/actuator/health</code></pre>
+
+<h3>Verify the install</h3>
+<pre><code>systemctl status mockingbird-stub --no-pager      # active (running)
+sudo ss -tlnp | grep java                          # listening on 8080 and 8081
+curl -s http://localhost:8081/actuator/health      # {"status":"UP"}</code></pre>
+
+<hr>
+
+<h2 id="s3">3. Network — the load generator must clear THREE layers to reach the stub</h2>
+<p>Reaching the stub on 8080 from the load generator (LG) requires <strong>all three</strong> of these to allow it. Missing any one produces a different symptom (see the table). This is the single most common cause of "works from a local test client, fails from the AWS LG".</p>
+<table>
+  <thead><tr><th>Layer</th><th>Where</th><th>Symptom if it blocks 8080</th></tr></thead>
+  <tbody>
+    <tr><td><strong>1. Security Group</strong> (stateful)</td><td>Stub EC2's SG, inbound</td><td><code>context deadline exceeded</code> (silent drop → timeout)</td></tr>
+    <tr><td><strong>2. NACL</strong> (stateless)</td><td>Stub subnet's NACL, in + out</td><td><code>no route to host</code> (fast reject)</td></tr>
+    <tr><td><strong>3. Host firewall</strong> (firewalld)</td><td>On the stub OS itself</td><td><code>no route to host</code> (ICMP admin-prohibited)</td></tr>
+  </tbody>
+</table>
+
+<h3>3a. Security Group (survives stop/start — one-time)</h3>
+<p>Inbound rule on the <strong>stub instance's</strong> SG:</p>
+<table>
+  <thead><tr><th>Port</th><th>Purpose</th><th>Source (recommended)</th></tr></thead>
+  <tbody>
+    <tr><td>8080</td><td>Application API</td><td>LG security group, or subnet CIDR (e.g. <code>10.0.1.0/24</code> — use your own subnet's actual range)</td></tr>
+    <tr><td>8081</td><td>Health/management</td><td>(optional) monitoring range only, if scraped remotely</td></tr>
+  </tbody>
+</table>
+<p>Scope the source to the <strong>whole LG subnet CIDR</strong>, not a single IP — on-demand LGs get a new IP each provision. A <code>/32</code> rule breaks on the next run.</p>
+
+<h3>3b. NACL (stateless — needs BOTH directions)</h3>
+<p>If the stub and LG are in different subnets, the stub subnet's NACL must allow:</p>
+<ul>
+  <li><strong>Inbound:</strong> TCP 8080 from the LG CIDR</li>
+  <li><strong>Outbound:</strong> TCP ephemeral <code>1024-65535</code> back to the LG CIDR (return traffic)</li>
+</ul>
+<p>Give the allow rules a <strong>lower rule number</strong> than any deny. (If both hosts share one subnet, the NACL isn't in the path.)</p>
+
+<h3>3c. Host firewall (firewalld on the stub)</h3>
+<p>RHEL9/10 runs firewalld by default, allowing only SSH. <strong>8080 must be opened on the host</strong>, or the LG gets <code>no route to host</code> even when the SG and NACL are correct. The install script does this automatically. To do it manually:</p>
+<pre><code>sudo firewall-cmd --permanent --add-port=8080/tcp
+sudo firewall-cmd --reload
+sudo firewall-cmd --list-ports              # confirm 8080/tcp</code></pre>
+<blockquote>Security-group rules survive stop/start. The <strong>firewalld</strong> rule is baked into the host by the install script, so it persists too — but a freshly-provisioned host that did NOT run the install script will not have it. Always run the install script (or open 8080) on every new stub host.</blockquote>
+
+<h3>Prove reachability from the LG (before running a real test)</h3>
+<p>Run on the <strong>LG instance</strong>:</p>
+<pre><code># Health probe
+curl -v http://&lt;mockingbird-private-ip&gt;:8081/actuator/health
+
+# API probe — replace with a real path/method/body from this stub's own
+# generated setup guide (STUB_ENGINE_SETUP_GUIDE.html), not this example
+curl -v http://&lt;mockingbird-private-ip&gt;:8080/api/v1/example-endpoint \
+  -H "Content-Type: application/json" --data-binary @/tmp/payload.json</code></pre>
+<p>If these connect from the LG, your load-test tool will connect too.</p>
+
+<hr>
+
+<h2 id="s4">4. Weekend shutdown (save cost) &amp; Monday restart</h2>
+<h3>Cost summary</h3>
+<ul>
+  <li><strong>Stopping the instance stops the compute charge</strong> (the main cost).</li>
+  <li>You still pay a <strong>small EBS storage</strong> charge while stopped (negligible for a weekend — a ~50 GB gp3 volume is a few dollars/month, i.e. pennies for 2 days).</li>
+  <li>An <strong>Elastic IP</strong> (if attached) incurs a small idle fee while the instance is stopped. If the instance uses an auto-assigned IP (no EIP), there is no such fee.</li>
+</ul>
+<p><strong>Verdict:</strong> stopping over the weekend is worthwhile and safe.</p>
+
+<h3>To stop (Friday)</h3>
+<p>Stop the instance from the AWS console (EC2 → Instances → Instance state → Stop), or via CLI. Stop the <strong>LG instance</strong> too if it is running.</p>
+
+<h3>On restart (Monday) — the jar auto-starts</h3>
+<p>Because <code>mockingbird-stub</code> is a systemd service enabled at boot, <strong>you do NOT need to re-run the script or restart the jar manually.</strong> It comes up automatically.</p>
+<blockquote class="warn"><strong>IMPORTANT:</strong> a stop/start usually assigns a <strong>new private IP</strong>. Re-check it.</blockquote>
+<p>Monday checklist (run on the mockingbird box after it boots):</p>
+<pre><code># 1. New private IP (update your LG/load-test host with this)
+hostname -I | awk '{print $1}'
+
+# 2. Confirm the service auto-started
+systemctl status mockingbird-stub --no-pager      # 8080 + 8081 present
+sudo ss -tlnp | grep java
+curl -s http://localhost:8081/actuator/health      # {"status":"UP"}</code></pre>
+<p>One-liner status check:</p>
+<pre><code>echo "IP: $(hostname -I | awk '{print $1}')"; systemctl is-active mockingbird-stub; sudo ss -tlnp | grep java</code></pre>
+<p>If you also stopped the <strong>LG</strong>, its IP changes too — re-add/verify it in your load-test tool with the new address, and re-point the host parameter.</p>
+
+<hr>
+
+<h2 id="s5">5. Load-test script configuration</h2>
+<p>Example API request (recorded against <code>localhost</code>, which must be replaced):</p>
+<pre><code>POST http://&lt;mockingbird-private-ip&gt;:8080/api/v1/example-endpoint
+Content-Type: application/json
+
+{ "...": "..." }</code></pre>
+<h3>Key points</h3>
+<ul>
+  <li><strong>Host:</strong> use the mockingbird <strong>private IP</strong>, NOT <code>localhost</code>. <code>localhost</code> on the LG points at the LG itself.</li>
+  <li><strong>Port:</strong> <code>8080</code> (application API). <code>8081</code> is health only.</li>
+  <li><strong>Parameterize the host:</strong> define a parameter (e.g. <code>HOST</code> / <code>{MockHost}</code>) so a new IP after stop/start or redeploy needs a one-line change, not a re-record/re-zip. <span class="pill">avoids the stale-IP trap</span></li>
+  <li><strong>Parameterize request data:</strong> vary per-iteration fields for realistic load.</li>
+  <li><strong>Validate responses:</strong> check response status/body so failures (e.g. 404 "Request was not matched") are caught during the run.</li>
+</ul>
+<blockquote>LoadRunner DevWeb note: the generated script builds its URL from <code>load.config.user.args["HOST"]</code> and <code>["PORT"]</code>. When uploading to LRE, include the whole script folder (with the body/data files) — "runtime files only" can cause <code>no such file or directory</code> on the LG.
+</blockquote>
+
+<hr>
+
+<h2 id="s6">6. Service management (day-to-day)</h2>
+<pre><code># Status / logs
+systemctl status mockingbird-stub --no-pager
+journalctl -u mockingbird-stub -f                  # live logs
+journalctl -u mockingbird-stub -n 100 --no-pager
+
+# Start / stop / restart
+sudo systemctl start   mockingbird-stub
+sudo systemctl stop    mockingbird-stub
+sudo systemctl restart mockingbird-stub
+
+# Disable / enable auto-start on boot
+sudo systemctl disable mockingbird-stub
+sudo systemctl enable  mockingbird-stub</code></pre>
+<p>A genuinely stopped stub must refuse new connections — <code>curl</code> should return <code>Connection refused</code>, never a normal HTTP response. If you stop it and still get a response, something else is still listening: check <code>sudo ss -tlnp | grep -E ':8080|:8081'</code> for a leftover process, and confirm you're testing the right host/IP.</p>
+
+<h3>Redeploy a new jar</h3>
+<ol>
+  <li>Upload the new jar to your S3 bucket, under the same key the script is configured to use (<code>JAR_FILE</code>).</li>
+  <li>Re-run the script. <strong>For a fast redeploy that skips re-patching the OS</strong> (already done on first install):
+    <pre><code>SKIP_OS_UPDATE=1 sudo -E ./deploy-stub-ec2.sh</code></pre>
+  </li>
+</ol>
+
+<h3>Change the heap size</h3>
+<pre><code>MOCK_XMX=8g sudo -E ./deploy-stub-ec2.sh    # note: sudo -E to pass the var</code></pre>
+<p>(The <code>-E</code> preserves the <code>MOCK_XMX</code> environment variable through sudo.)</p>
+
+<hr>
+
+<h2 id="s7">7. Scaling to 10,000+ TPS</h2>
+<p>The stub <strong>application</strong> is already tuned for high TPS (Jetty acceptors = vCPU count, async response threads, request journal disabled, G1GC low-pause, Java 21 virtual threads). At 10K TPS the limits you hit are almost always the <strong>host</strong> and the <strong>load generator</strong>, not the stub code.</p>
+
+<h3>Stub host (done by the install script)</h3>
+<ul>
+  <li><strong>File descriptors:</strong> <code>LimitNOFILE=1048576</code> in the systemd unit. Default 1024 chokes at high TPS (every socket is an FD).</li>
+  <li><strong>Kernel tuning:</strong> <code>/etc/sysctl.d/99-mockingbird-stub.conf</code> — ephemeral port range, <code>tcp_tw_reuse</code>, <code>somaxconn=4096</code> (≥ WireMock's accept queue of 1000).</li>
+  <li><strong>Instance size:</strong> c6i.2xlarge (8 vCPU / 16 GB) sustains ~12-18K TPS for REST. Heap auto-sizes to ~50% RAM (~8g on 16 GB) — leave headroom for Jetty/OS.</li>
+</ul>
+
+<h3>Load generator (NOT the stub — but the usual real bottleneck)</h3>
+<ul>
+  <li><strong>Enable HTTP keep-alive / connection reuse.</strong> Without it the LG opens a new TCP connection (and burns a source port) per request — <code>cannot assign requested address</code> after a few minutes at high TPS. Set a <strong>non-zero keep-alive timeout</strong> and a <strong>small max-connections-per-server</strong> in the LG runtime settings.
+  </li>
+  <li><strong>Prefer clean HTTP/1.1 keep-alive</strong> over HTTP/2 cleartext against WireMock (h2c fallback can churn connections).</li>
+  <li><strong>Use multiple LGs.</strong> A single LG typically cannot <em>generate</em> a clean 10K TPS; plan 2-3 LGs and split the load.</li>
+  <li><strong>Widen ephemeral ports on the LG</strong> too (<code>net.ipv4.ip_local_port_range</code>, <code>tcp_tw_reuse</code>) — same tuning as the stub host.</li>
+</ul>
+
+<h3>How to confirm where the ceiling is</h3>
+<pre><code># On the stub host, during a run:
+sudo ss -s                                    # total sockets / TIME-WAIT count
+sudo ss -tan | grep -c ':8080'                # active connections to the stub
+journalctl -u mockingbird-stub -f             # any errors / GC pauses?
+watch -n1 'sudo ss -tan | grep TIME-WAIT | wc -l'   # TIME_WAIT climbing = no reuse</code></pre>
+<p>If TIME_WAIT climbs into the tens of thousands, connection reuse isn't happening — fix keep-alive on the LG before blaming the stub.</p>
+
+<hr>
+
+<h2 id="s8">8. Troubleshooting</h2>
+<table>
+  <thead><tr><th>Symptom</th><th>Likely cause</th><th>Action</th></tr></thead>
+  <tbody>
+    <tr><td><code>aws: command not found</code></td><td>AWS CLI not installed</td><td>The script auto-installs it; if it still fails, check network/proxy</td></tr>
+    <tr><td><code>No usable AWS credentials</code></td><td>No IAM role on the instance</td><td>Attach an instance profile with S3 read to your bucket</td></tr>
+    <tr><td><code>... is still set to its placeholder value</code></td><td>Script run before editing BUCKET/JAVA_FILE/JAR_FILE/REGION</td><td>Edit the top of <code>scripts/deploy-stub-ec2.sh</code> with your real values</td></tr>
+    <tr><td><code>... not found: s3://...</code></td><td>jar/Java tarball not uploaded, or wrong key name</td><td>Upload the file, or fix the corresponding variable in the script</td></tr>
+    <tr><td>Service not active after start</td><td>jar crash (e.g. heap too big)</td><td><code>journalctl -u mockingbird-stub -n 50</code>; lower <code>MOCK_XMX</code></td></tr>
+    <tr><td><code>context deadline exceeded</code> from LG</td><td>Security group dropping 8080</td><td>Add inbound 8080 to the stub SG from the LG CIDR (§3a)</td></tr>
+    <tr><td><code>no route to host</code> from LG</td><td>Host firewall (or NACL) rejecting 8080</td><td>Open 8080 in firewalld on the stub (§3c); check NACL (§3b)</td></tr>
+    <tr><td><code>cannot assign requested address</code> (on the <strong>LG</strong>)</td><td>LG ran out of ephemeral source ports (no connection reuse)</td><td>Enable HTTP keep-alive in the LG runtime settings (non-zero keep-alive timeout, small max-connections-per-server); widen ephemeral ports on the LG. Not a stub problem.</td></tr>
+    <tr><td>Requests connect but return HTTP 404 "Request was not matched"</td><td>Wrong stub project deployed on that host</td><td>Verify mappings: <code>curl -s http://&lt;ip&gt;:8080/__admin/mappings</code>; deploy the correct project or retarget</td></tr>
+    <tr><td><code>no such file or directory ... .body.txt</code> (on the LG)</td><td>DevWeb data files not shipped with the script folder</td><td>Upload the whole script folder (not "runtime files only"); ensure body files + CSVs are included</td></tr>
+    <tr><td>LG cannot connect to 8080</td><td>Security group / host firewall / wrong host</td><td>Work through the 3 layers in §3; use private IP not localhost</td></tr>
+    <tr><td>Works locally, fails from LG</td><td>Used <code>localhost</code> in the load-test script</td><td>Point the script at the mockingbird private IP</td></tr>
+    <tr><td>Connection works, IP changed</td><td>Instance was stopped/started or redeployed</td><td>Get new private IP (<code>hostname -I</code>), update the <code>HOST</code> param</td></tr>
+    <tr><td>Still getting a response after stopping the service</td><td>A different process is still listening (e.g. a leftover manual run), or a client-side cache</td><td><code>sudo ss -tlnp | grep -E ':8080|:8081'</code> to find what's really listening; use <code>curl -v</code> to rule out browser caching</td></tr>
+  </tbody>
+</table>
+
+<h3>Quick end-to-end health matrix</h3>
+<pre><code># On the mockingbird box:
+curl -s http://localhost:8081/actuator/health          # app healthy?
+sudo ss -tlnp | grep java                               # ports bound?
+
+# On the LG box:
+curl -v http://&lt;mockingbird-private-ip&gt;:8081/actuator/health     # network + SG OK?</code></pre>
+
+<hr>
+
+<h2 id="s9">9. Quick reference</h2>
+<table>
+  <thead><tr><th>Item</th><th>Value</th></tr></thead>
+  <tbody>
+    <tr><td>Install script</td><td><code>scripts/deploy-stub-ec2.sh</code></td></tr>
+    <tr><td>Service</td><td><code>mockingbird-stub</code> (systemd, runs as user <code>mockingbird</code>, auto-start on boot)</td></tr>
+    <tr><td>API URL</td><td><code>http://&lt;private-ip&gt;:8080/&lt;your-endpoint&gt;</code></td></tr>
+    <tr><td>Health URL</td><td><code>http://&lt;private-ip&gt;:8081/actuator/health</code></td></tr>
+    <tr><td>Java</td><td><code>/opt/corretto-21</code> (Corretto 21)</td></tr>
+    <tr><td>App jar</td><td><code>/opt/mockingbird-stub/app.jar</code></td></tr>
+    <tr><td>S3</td><td><code>s3://&lt;your-bucket&gt;/</code> — edit in the script</td></tr>
+    <tr><td>Restart jar after reboot?</td><td>No — systemd auto-starts it</td></tr>
+    <tr><td>Re-check after stop/start?</td><td>Yes — private IP changes; update <code>HOST</code></td></tr>
+    <tr><td>HTTPS/mTLS supported here?</td><td>No — plain HTTP only on this path (see note at top)</td></tr>
+  </tbody>
+</table>
+
+</div>
+</body>
+</html>

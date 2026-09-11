@@ -482,6 +482,7 @@ _PAGE_TEMPLATE = r"""<!DOCTYPE html>
     <a href="#build">Build it</a>
     <a href="#run">Run it</a>
     <a href="#verify">Verify it's up</a>
+    <a href="#stop">Stop it</a>
     <a href="#ports">Default &amp; custom ports</a>
     <div class="section-label">Testing the services</div>
     <a href="#project-structure">What's in the project</a>
@@ -566,6 +567,58 @@ journalctl -u mockingbird-stub -f</code></pre>
     <pre><code>WireMockConfig : Loaded {wiremock_mapping_count} stub mappings</code></pre>
     <pre><code>curl http://localhost:8081/actuator/health
 # {{"status":"UP"}}</code></pre>
+
+    <h2 id="stop">Stop it</h2>
+    <p>Use whichever matches how you started it — stopping the wrong thing (or a leftover process from an
+    earlier run) is the most common reason someone still gets responses after they think they've stopped it.</p>
+
+    <h4>Foreground (<code>java -jar target/app.jar</code>, running in your terminal)</h4>
+    <pre><code>Ctrl+C</code></pre>
+
+    <h4>Background / <code>nohup</code></h4>
+    <pre><code>pkill -f 'app.jar'
+# or, to stop one specific process:
+ps aux | grep app.jar
+kill &lt;PID&gt;</code></pre>
+
+    <h4>systemd (the RHEL service set up <a class="crosslink" href="#run">above</a>)</h4>
+    <pre><code>sudo systemctl stop mockingbird-stub
+sudo systemctl status mockingbird-stub   # should show "inactive (dead)"</code></pre>
+    <p><code>Restart=on-failure</code> in the unit file only restarts the service if the process crashes on its
+    own — an explicit <code>systemctl stop</code> is respected and the service stays down.</p>
+
+    <h4>Docker (the AWS auto-deploy path)</h4>
+    <pre><code>docker stop stub-engine
+docker ps -a --filter name=stub-engine   # should show "Exited"</code></pre>
+    <p>The container is normally run with <code>--restart unless-stopped</code>, which means an explicit
+    <code>docker stop</code> is respected and it stays stopped — but the container <em>will</em> come back on
+    its own the next time Docker (or the EC2 instance) restarts, since that policy doesn't know why it stopped
+    last time. If you need it to stay down permanently, also run <code>docker update --restart=no stub-engine</code>,
+    or terminate the EC2 instance if the whole stub is being decommissioned.</p>
+
+    <h4>Confirming it's actually down</h4>
+    <p>A genuinely stopped stub must refuse new connections — you should get <code>curl: (7) Failed to connect</code>
+    / <code>Connection refused</code>, never a normal HTTP response (even an error response like a 404 or 500 still
+    means something is listening and answering):</p>
+    <pre><code>curl -v http://&lt;host&gt;:8080/
+ss -tlnp | grep -E ':8080|:8081'   # should print nothing at all</code></pre>
+
+    <div class="callout warn">
+      <strong>Still getting a response after "stopping" it?</strong> In rough order of likelihood:
+      <ul style="margin:8px 0 0 18px; padding:0;">
+        <li>A <strong>different, still-running instance</strong> is answering — e.g. a leftover foreground/nohup
+        process from before you set up systemd or Docker, or (if this was redeployed via Terraform) an old EC2
+        instance that hasn't been terminated yet. <code>ss -tlnp</code> tells you if <em>anything</em> local is
+        still bound to the port; if nothing is, you're not actually reaching this host at all.</li>
+        <li><strong>Browser caching</strong> — if you're checking in a browser rather than <code>curl</code>, it
+        may be showing a cached copy of a previous response rather than making a new request. Use
+        <code>curl -v</code> or a hard refresh (disable cache in DevTools) to rule this out.</li>
+        <li><strong>Wrong host/IP</strong> — double-check you're hitting the same Elastic IP / hostname this
+        stub is actually deployed to, especially after a redeploy.</li>
+        <li>The Docker <code>--restart unless-stopped</code> policy silently brought it back after an instance
+        reboot — see above.</li>
+      </ul>
+    </div>
 
     <h2 id="ports">Default &amp; custom ports</h2>
     <table>
