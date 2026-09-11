@@ -31,7 +31,7 @@ variable "subnet_id" {
 }
 
 variable "security_group_id" {
-  description = "Security group to attach (must allow inbound TCP 8080)"
+  description = "Security group to attach (must allow inbound TCP 8080; also TCP 443 for any project with stub_protocol = HTTPS or BOTH — not managed by this module, see docs/STUB_HTTPS_MTLS_DESIGN.md)"
   type        = string
 }
 
@@ -42,7 +42,7 @@ variable "key_name" {
 }
 
 variable "iam_instance_profile" {
-  description = "IAM instance profile that allows the EC2 to pull from the GitLab Container Registry via Secrets Manager"
+  description = "IAM instance profile that allows the EC2 to pull from the GitLab Container Registry via Secrets Manager. For any project with tls_cert_source = UPLOADED, this profile's role also needs s3:GetObject on the tls_*_s3_uri objects below — not managed by this module."
   type        = string
   default     = "MockingbirdStubInstanceProfile"
 }
@@ -67,6 +67,49 @@ variable "gitlab_registry_token" {
 
 variable "java_base_image" {
   description = "Base Java 21 image URL from GitLab Container Registry (used by the stub-engine image)"
+  type        = string
+  default     = ""
+}
+
+# ── HTTPS / mTLS (see docs/STUB_HTTPS_MTLS_DESIGN.md) ────────────────────────
+
+variable "stub_protocol" {
+  description = "Stub traffic protocol: HTTP (default), HTTPS, or BOTH. Defaulted so every project that predates this feature deploys exactly as before."
+  type        = string
+  default     = "HTTP"
+
+  validation {
+    condition     = contains(["HTTP", "HTTPS", "BOTH"], var.stub_protocol)
+    error_message = "stub_protocol must be HTTP, HTTPS, or BOTH."
+  }
+}
+
+variable "mtls_enabled" {
+  description = "Whether nginx should require and verify a client certificate. Only meaningful when stub_protocol != HTTP."
+  type        = bool
+  default     = false
+}
+
+variable "tls_cert_source" {
+  description = "AUTO_GENERATED (nginx generates a self-signed cert on first boot) or UPLOADED (cert/key fetched from S3 below). Only meaningful when stub_protocol != HTTP."
+  type        = string
+  default     = "AUTO_GENERATED"
+}
+
+variable "tls_cert_s3_uri" {
+  description = "s3://bucket/key for the uploaded server certificate (PEM). Empty when tls_cert_source = AUTO_GENERATED."
+  type        = string
+  default     = ""
+}
+
+variable "tls_key_s3_uri" {
+  description = "s3://bucket/key for the uploaded server private key (PEM). Empty when tls_cert_source = AUTO_GENERATED."
+  type        = string
+  default     = ""
+}
+
+variable "tls_ca_bundle_s3_uri" {
+  description = "s3://bucket/key for the CA bundle used to verify client certs. Empty unless mtls_enabled."
   type        = string
   default     = ""
 }

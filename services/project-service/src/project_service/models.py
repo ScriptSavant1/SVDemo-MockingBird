@@ -77,6 +77,18 @@ class Stub(Base):
     wiremock_mapping_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # Lifecycle: READY → DEPLOYING → LIVE → SUSPENDED; FAILED if something went wrong
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="READY")
+    # Stub traffic protocol: HTTP  HTTPS  BOTH (HTTP+HTTPS simultaneously).
+    # Per-stub, not per-project — each stub deploys as its own container/EC2
+    # instance (see deployer-worker), so different stubs in the same project
+    # can legitimately want different protocols.
+    protocol: Mapped[str] = mapped_column(String(20), nullable=False, default="HTTP")
+    mtls_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # AUTO_GENERATED (self-signed, generated at container startup) or UPLOADED
+    tls_cert_source: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    tls_cert_s3_key: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    tls_key_s3_key: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    # Only set when mtls_enabled — validates client certs
+    tls_ca_bundle_s3_key: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)

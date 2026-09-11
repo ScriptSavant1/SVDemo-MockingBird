@@ -55,12 +55,13 @@ describe("UploadPage", () => {
   });
 
   it("shows validation errors returned from ingestion API", async () => {
-    vi.spyOn(global, "fetch").mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ valid: false, errors: ["Missing response body on line 42"], stub_id: null, warnings: [], stub_count: 0, scenario_count: 0, format_detected: null }),
-        { status: 200 },
-      ),
-    );
+    vi.spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ valid: false, errors: ["Missing response body on line 42"], stub_id: null, warnings: [], stub_count: 0, scenario_count: 0, format_detected: null }),
+          { status: 200 },
+        ),
+      );
 
     renderUpload();
 
@@ -140,7 +141,8 @@ describe("UploadPage", () => {
         expect(screen.getByText(/1 of 1 stub created successfully/i)).toBeDefined();
       });
 
-      // Exactly ONE upload + one generate call, not four (or two) independent ones.
+      // Exactly ONE upload + one generate call, not four (or two) independent
+      // upload/generate calls.
       expect(global.fetch).toHaveBeenCalledTimes(2);
       const uploadCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
       const uploadBody = uploadCall[1].body as FormData;
@@ -260,7 +262,8 @@ describe("UploadPage", () => {
         expect(screen.getByText(/1 of 1 stub created successfully/i)).toBeDefined();
       });
 
-      // Exactly one upload + one generate call — not two failed independent uploads
+      // Exactly one upload + one generate call — not two failed independent
+      // uploads.
       expect(global.fetch).toHaveBeenCalledTimes(2);
       const uploadCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
       const uploadBody = uploadCall[1].body as FormData;

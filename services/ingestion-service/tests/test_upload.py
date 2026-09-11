@@ -300,6 +300,134 @@ def test_s3_key_contains_project_and_filename(sv_client):
     assert "myspec.txt" in s3_key
 
 
+# ── Protocol / TLS cert at upload time ────────────────────────────────────────
+# A stub's protocol/cert are set here, per-stub, at upload time — not on the
+# project (see project-service migration 006). Cert is optional even for
+# HTTPS: omitting it means "auto-generate a self-signed one at deploy time".
+
+
+def test_upload_default_protocol_is_http(sv_client, db_engine):
+    from sqlalchemy.orm import sessionmaker
+    from ingestion_service.models import Stub
+
+    resp = sv_client.post(
+        f"/api/v1/projects/{PROJECT_ID}/stubs/upload",
+        data={"stub_name": "Default Protocol"},
+        files={"file": ("payment.txt", io.BytesIO(LEVEL1_TXT), "text/plain")},
+    )
+    assert resp.status_code == 200
+    stub_id = uuid.UUID(resp.json()["stub_id"])
+
+    VerifySession = sessionmaker(bind=db_engine)
+    verify = VerifySession()
+    try:
+        stub = verify.get(Stub, stub_id)
+        assert stub.protocol == "HTTP"
+        assert stub.tls_cert_source is None
+    finally:
+        verify.close()
+
+
+def test_upload_https_without_cert_defaults_to_auto_generated(sv_client, db_engine):
+    from sqlalchemy.orm import sessionmaker
+    from ingestion_service.models import Stub
+
+    resp = sv_client.post(
+        f"/api/v1/projects/{PROJECT_ID}/stubs/upload",
+        data={"stub_name": "HTTPS No Cert", "protocol": "HTTPS"},
+        files={"file": ("payment.txt", io.BytesIO(LEVEL1_TXT), "text/plain")},
+    )
+    assert resp.status_code == 200
+    stub_id = uuid.UUID(resp.json()["stub_id"])
+
+    VerifySession = sessionmaker(bind=db_engine)
+    verify = VerifySession()
+    try:
+        stub = verify.get(Stub, stub_id)
+        assert stub.protocol == "HTTPS"
+        assert stub.tls_cert_source == "AUTO_GENERATED"
+        assert stub.tls_cert_s3_key is None
+    finally:
+        verify.close()
+
+
+def test_upload_https_with_valid_cert_stores_it(sv_client, db_engine):
+    from sqlalchemy.orm import sessionmaker
+    from ingestion_service.models import Stub
+    from tests.test_tls import _fresh_cert_and_key
+
+    cert_pem, key_pem = _fresh_cert_and_key()
+    resp = sv_client.post(
+        f"/api/v1/projects/{PROJECT_ID}/stubs/upload",
+        data={"stub_name": "HTTPS With Cert", "protocol": "HTTPS"},
+        files={
+            "file": ("payment.txt", io.BytesIO(LEVEL1_TXT), "text/plain"),
+            "server_cert": ("server.crt.pem", io.BytesIO(cert_pem), "application/x-pem-file"),
+            "server_key": ("server.key.pem", io.BytesIO(key_pem), "application/x-pem-file"),
+        },
+    )
+    assert resp.status_code == 200
+    stub_id = uuid.UUID(resp.json()["stub_id"])
+
+    VerifySession = sessionmaker(bind=db_engine)
+    verify = VerifySession()
+    try:
+        stub = verify.get(Stub, stub_id)
+        assert stub.tls_cert_source == "UPLOADED"
+        assert stub.tls_cert_s3_key == f"stubs/{PROJECT_ID}/{stub_id}/tls/server.crt.pem"
+    finally:
+        verify.close()
+
+
+def test_upload_with_mismatched_cert_key_returns_validation_error(sv_client):
+    from tests.test_tls import _fresh_cert_and_key
+
+    cert_pem, _unused = _fresh_cert_and_key()
+    _unused2, other_key_pem = _fresh_cert_and_key()
+    resp = sv_client.post(
+        f"/api/v1/projects/{PROJECT_ID}/stubs/upload",
+        data={"stub_name": "Bad Pair", "protocol": "HTTPS"},
+        files={
+            "file": ("payment.txt", io.BytesIO(LEVEL1_TXT), "text/plain"),
+            "server_cert": ("server.crt.pem", io.BytesIO(cert_pem), "application/x-pem-file"),
+            "server_key": ("server.key.pem", io.BytesIO(other_key_pem), "application/x-pem-file"),
+        },
+    )
+    assert resp.status_code == 200  # IngestionResult(valid=False, ...), not a 4xx
+    body = resp.json()
+    assert body["valid"] is False
+    assert "does not match" in body["errors"][0]
+
+
+def test_upload_invalid_protocol_returns_validation_error(sv_client):
+    resp = sv_client.post(
+        f"/api/v1/projects/{PROJECT_ID}/stubs/upload",
+        data={"stub_name": "Bad Protocol", "protocol": "FTP"},
+        files={"file": ("payment.txt", io.BytesIO(LEVEL1_TXT), "text/plain")},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["valid"] is False
+
+
+def test_upload_mtls_without_ca_bundle_returns_validation_error(sv_client):
+    from tests.test_tls import _fresh_cert_and_key
+
+    cert_pem, key_pem = _fresh_cert_and_key()
+    resp = sv_client.post(
+        f"/api/v1/projects/{PROJECT_ID}/stubs/upload",
+        data={"stub_name": "mTLS No Bundle", "protocol": "HTTPS", "mtls_enabled": "true"},
+        files={
+            "file": ("payment.txt", io.BytesIO(LEVEL1_TXT), "text/plain"),
+            "server_cert": ("server.crt.pem", io.BytesIO(cert_pem), "application/x-pem-file"),
+            "server_key": ("server.key.pem", io.BytesIO(key_pem), "application/x-pem-file"),
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["valid"] is False
+    assert "CA bundle" in body["errors"][0]
+
+
 # ── Presigned URL ─────────────────────────────────────────────────────────────
 
 

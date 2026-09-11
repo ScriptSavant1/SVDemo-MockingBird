@@ -80,6 +80,15 @@ def _build_db():
             "created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP"
             ")"
         ))
+        # Minimal mirror of project-service's stubs table — process_message
+        # reads mtls_enabled off it (per-stub, not per-project — see
+        # migration 006) to decide whether generated nginx.conf should
+        # require client certs (see _get_stub_mtls_enabled).
+        conn.execute(text("CREATE TABLE stubs (id TEXT PRIMARY KEY, mtls_enabled INTEGER DEFAULT 0)"))
+        conn.execute(
+            text("INSERT INTO stubs (id, mtls_enabled) VALUES (:id, 0)"),
+            {"id": STUB_ID},
+        )
         conn.commit()
     Session = sessionmaker(bind=engine)
     return Session
@@ -167,6 +176,36 @@ def test_generated_zip_contains_expected_files():
     assert any(n.endswith("pom.xml") for n in names), "pom.xml not in zip"
     assert any(n.endswith("Dockerfile") for n in names), "Dockerfile not in zip"
     assert any("mappings" in n for n in names), "mappings/ not in zip"
+
+    db.close()
+
+
+@mock_aws
+def test_mtls_enabled_on_stub_bakes_client_cert_directives_into_nginx_conf():
+    """mtls_enabled is read per-STUB (not per-project — see migration 006).
+    Flip it on this test's stub row and confirm the generated nginx.conf
+    actually contains the ssl_verify_client directive."""
+    from generator_worker.worker import process_message
+
+    s3 = boto3.client("s3", region_name=REGION)
+    s3.create_bucket(Bucket=S3_BUCKET, CreateBucketConfiguration={"LocationConstraint": REGION})
+    s3.put_object(Bucket=S3_BUCKET, Key=PARSED_S3_KEY, Body=PARSED_FILE_JSON.encode())
+
+    Session = _build_db()
+    db = Session()
+    db.execute(text("UPDATE stubs SET mtls_enabled = 1 WHERE id = :id"), {"id": STUB_ID})
+    db.commit()
+    job_id = str(uuid.uuid4())
+    _insert_job(db, job_id)
+
+    process_message(_build_message(job_id), s3, S3_BUCKET, db)
+
+    result = json.loads(_get_job(db, job_id)["result"])
+    zip_obj = s3.get_object(Bucket=S3_BUCKET, Key=result["generated_s3_key"])
+    with zipfile.ZipFile(__import__("io").BytesIO(zip_obj["Body"].read())) as zf:
+        nginx_conf = zf.read("nginx.conf").decode("utf-8")
+
+    assert "ssl_verify_client on;" in nginx_conf
 
     db.close()
 

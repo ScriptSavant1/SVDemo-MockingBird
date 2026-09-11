@@ -9,6 +9,8 @@ export type StubStatus = "DRAFT" | "READY" | "DEPLOYING" | "LIVE" | "SUSPENDED" 
 export type DeploymentStatus = "PENDING" | "BUILDING" | "PROVISIONING" | "LIVE" | "SUSPENDED" | "FAILED";
 export type JobStatus = "QUEUED" | "RUNNING" | "DONE" | "FAILED";
 export type UserRole = "ADMIN" | "SV_TEAM" | "PROJECT_OWNER" | "VIEWER";
+export type Protocol = "HTTP" | "HTTPS" | "BOTH";
+export type TlsCertSource = "AUTO_GENERATED" | "UPLOADED";
 
 export interface Project {
   id: string;
@@ -35,6 +37,11 @@ export interface Stub {
   generated_at: string | null;
   created_at: string;
   updated_at: string;
+  protocol: Protocol;
+  mtls_enabled: boolean;
+  tls_cert_source: TlsCertSource | null;
+  has_uploaded_cert: boolean;
+  has_ca_bundle: boolean;
 }
 
 export interface Deployment {
@@ -75,6 +82,13 @@ export interface IngestionResult {
   warnings: string[];
   stub_count: number;
   scenario_count: number;
+}
+
+export interface TlsCertUploadResult {
+  tls_cert_s3_key: string;
+  tls_key_s3_key: string;
+  tls_ca_bundle_s3_key: string | null;
+  warnings: string[];
 }
 
 export interface JobOut {

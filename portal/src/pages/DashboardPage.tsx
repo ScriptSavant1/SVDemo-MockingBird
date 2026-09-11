@@ -29,6 +29,10 @@ export function DashboardPage() {
   const [listView, setListView] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
 
   const { data: projects = [], isPending, isError } = useQuery({
     queryKey: ["projects"],
@@ -46,6 +50,43 @@ export function DashboardPage() {
       setDeleteError(err instanceof ApiError ? err.detail : "Delete failed. Please try again.");
     },
   });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const results = await Promise.allSettled(ids.map((id) => projectsApi.delete(id)));
+      const failed = results.filter((r) => r.status === "rejected").length;
+      if (failed > 0) {
+        throw new Error(`${failed} of ${ids.length} project(s) failed to delete.`);
+      }
+    },
+    onSuccess: () => {
+      setShowBulkDeleteConfirm(false);
+      setBulkDeleteError(null);
+      setSelectedIds(new Set());
+      setSelectMode(false);
+      void qc.invalidateQueries({ queryKey: ["projects"] });
+    },
+    onError: (err: Error) => {
+      setBulkDeleteError(err.message);
+      void qc.invalidateQueries({ queryKey: ["projects"] });
+    },
+  });
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function toggleSelectAllVisible(ids: string[]) {
+    setSelectedIds((prev) => (prev.size === ids.length ? new Set() : new Set(ids)));
+  }
 
   const visible = useMemo(() => {
     const all = (projects as Project[]).filter((p) => p.status !== "ARCHIVED");
@@ -106,7 +147,32 @@ export function DashboardPage() {
             className="w-full rounded-md border border-input bg-background py-1.5 pl-8 pr-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
           />
         </div>
-        <div className="ml-auto flex items-center gap-1 rounded-md border border-border p-0.5">
+        {canDelete && (
+          <div className="ml-auto flex items-center gap-2">
+            {selectMode && selectedIds.size > 0 && (
+              <Button
+                size="sm"
+                variant="danger"
+                data-testid="bulk-delete-projects-button"
+                onClick={() => { setBulkDeleteError(null); setShowBulkDeleteConfirm(true); }}
+              >
+                Delete Selected ({selectedIds.size})
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="secondary"
+              data-testid="toggle-select-mode-button"
+              onClick={() => {
+                setSelectMode((v) => !v);
+                setSelectedIds(new Set());
+              }}
+            >
+              {selectMode ? "Cancel" : "Select"}
+            </Button>
+          </div>
+        )}
+        <div className={cn("flex items-center gap-1 rounded-md border border-border p-0.5", !canDelete && "ml-auto")}>
           <button
             title="Grid view"
             onClick={() => setListView(false)}
@@ -168,13 +234,23 @@ export function DashboardPage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {visible.map((p: Project) => (
             <div key={p.id} className="group relative" data-testid="project-card-wrapper">
-              <Link to={`/projects/${p.id}`}>
+              {selectMode && (
+                <input
+                  type="checkbox"
+                  aria-label={`Select ${p.name}`}
+                  checked={selectedIds.has(p.id)}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={() => toggleSelected(p.id)}
+                  className="absolute left-3 top-3 z-10 h-4 w-4"
+                />
+              )}
+              <Link to={`/projects/${p.id}`} onClick={(e) => { if (selectMode) e.preventDefault(); }}>
                 <Card
                   data-testid="project-card"
                   className="h-full cursor-pointer transition-all hover:border-primary hover:shadow-md"
                 >
                   <CardHeader>
-                    <CardTitle className="truncate pr-6">{p.name}</CardTitle>
+                    <CardTitle className={cn("truncate pr-6", selectMode && "pl-6")}>{p.name}</CardTitle>
                     <StatusBadge status={p.status} />
                   </CardHeader>
                   {p.status === "DRAFT" && (
@@ -186,7 +262,7 @@ export function DashboardPage() {
                   <p className="mt-3 text-xs text-muted-foreground">Updated {formatDate(p.updated_at)}</p>
                 </Card>
               </Link>
-              {canDelete && (
+              {canDelete && !selectMode && (
                 <button
                   type="button"
                   title="Delete project"
@@ -213,11 +289,21 @@ export function DashboardPage() {
           <table className="w-full text-sm">
             <thead className="bg-muted text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
+                {selectMode && (
+                  <th className="px-4 py-3 w-8">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all visible projects"
+                      checked={selectedIds.size > 0 && selectedIds.size === visible.length}
+                      onChange={() => toggleSelectAllVisible(visible.map((p) => p.id))}
+                    />
+                  </th>
+                )}
                 <th className="px-4 py-3 text-left">Name</th>
                 <th className="px-4 py-3 text-left">Team</th>
                 <th className="px-4 py-3 text-left">Status</th>
                 <th className="px-4 py-3 text-left">Updated</th>
-                {canDelete && <th className="px-4 py-3" />}
+                {canDelete && !selectMode && <th className="px-4 py-3" />}
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -225,13 +311,23 @@ export function DashboardPage() {
                 <tr
                   key={p.id}
                   className="cursor-pointer transition-colors hover:bg-muted/50"
-                  onClick={() => window.location.assign(`/projects/${p.id}`)}
+                  onClick={() => (selectMode ? toggleSelected(p.id) : window.location.assign(`/projects/${p.id}`))}
                 >
+                  {selectMode && (
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${p.name}`}
+                        checked={selectedIds.has(p.id)}
+                        onChange={() => toggleSelected(p.id)}
+                      />
+                    </td>
+                  )}
                   <td className="px-4 py-3 font-medium text-foreground">{p.name}</td>
                   <td className="px-4 py-3 text-muted-foreground">{p.team ?? "—"}</td>
                   <td className="px-4 py-3"><StatusBadge status={p.status} /></td>
                   <td className="px-4 py-3 text-muted-foreground">{formatDate(p.updated_at)}</td>
-                  {canDelete && (
+                  {canDelete && !selectMode && (
                     <td className="px-4 py-3 text-right">
                       <button
                         type="button"
@@ -292,6 +388,50 @@ export function DashboardPage() {
               loading={deleteMutation.isPending}
               data-testid="confirm-delete-project-button"
               onClick={() => deleteMutation.mutate(deleteTarget.id)}
+            >
+              Delete permanently
+            </Button>
+          </div>
+        </Modal>
+      )}
+
+      {showBulkDeleteConfirm && (
+        <Modal
+          open={showBulkDeleteConfirm}
+          title="Delete Selected Projects"
+          onClose={() => setShowBulkDeleteConfirm(false)}
+        >
+          <p className="text-sm text-muted-foreground">
+            Permanently delete <strong className="text-foreground">{selectedIds.size}</strong> selected
+            project{selectedIds.size === 1 ? "" : "s"}? This deletes all of their stubs, deployments,
+            and job history. Any live AWS deployments are <strong>not</strong> automatically suspended
+            first — suspend them separately if currently deployed.
+          </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            This cannot be undone. A record of each deletion is kept in the audit log.
+          </p>
+
+          {bulkDeleteError && (
+            <div className="mt-3 rounded bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+              {bulkDeleteError}
+            </div>
+          )}
+
+          <div className="mt-5 flex justify-end gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setShowBulkDeleteConfirm(false)}
+              disabled={bulkDeleteMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              loading={bulkDeleteMutation.isPending}
+              data-testid="confirm-bulk-delete-projects-button"
+              onClick={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}
             >
               Delete permanently
             </Button>

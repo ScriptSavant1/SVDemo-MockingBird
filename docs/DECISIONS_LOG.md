@@ -159,7 +159,7 @@
 | ID | What We Need | Impact | Who Provides |
 |----|-------------|--------|-------------|
 | I1-partial | Vault dev URL confirmed. **Still need:** production Vault URL + confirm Mockingbird can get its own Vault role (`mockingbird`) + confirm EC2 (in AWS) can reach Vault (via Direct Connect)? | Secrets in all services | Vault/security team |
-| I2 | **TLS type for stubs**: Server-side TLS only (standard HTTPS), OR mutual TLS where clients also present a certificate (mTLS)? | Nginx config on every stub EC2. mTLS = client cert verification added | User — check with security team |
+| I2 | **TLS type for stubs**: Server-side TLS only (standard HTTPS), OR mutual TLS where clients also present a certificate (mTLS)? Design approved 2026-09-10 (nginx sidecar, per-project opt-in) — see [STUB_HTTPS_MTLS_DESIGN.md](STUB_HTTPS_MTLS_DESIGN.md); not yet implemented, awaiting confirmation on cert source. | Nginx config on every stub EC2. mTLS = client cert verification added | User — check with security team |
 | I3 | **Splunk HEC endpoint** + **token** e.g. `https://splunk.mockingbird.internal:8088` + token | Log forwarding from CloudWatch to existing Splunk | User — check with Splunk/logging team |
 | I4 | **AppDynamics controller hostname** + **agent key** | APM Java agent injected into stub containers | User — check with monitoring team |
 | I5 | **LDAP server hostname + port** + **base DN** e.g. `ldap.mockingbird.internal:389`, `DC=company,DC=com` | LDAP authentication (Phase 2 auth service) | User — will provide when ready |

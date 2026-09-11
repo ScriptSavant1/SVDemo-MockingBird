@@ -43,6 +43,24 @@ COPY --from=builder /build/target/app.jar app.jar
 
 RUN mkdir -p /app/mappings /app/__files
 
-EXPOSE 8080
+# nginx + openssl: only used when this project's protocol is HTTPS/BOTH (see
+# entrypoint.sh). Installed unconditionally so one image works for every
+# protocol setting without a build-time branch — nginx/openssl add a few MB
+# and sit idle (no listening socket, no process started) on HTTP-only
+# projects. bash is needed for entrypoint.sh's `wait -n` (not available in
+# alpine's default ash/busybox shell).
+RUN apk add --no-cache nginx bash openssl
 
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+# nginx.conf is only meaningful for HTTPS/BOTH projects (entrypoint.sh
+# decides whether to actually start nginx); harmless to always include it.
+COPY nginx.conf /etc/nginx/nginx.conf
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# JVM tuning above already assumes port 8080 stays the WireMock backend
+# regardless of protocol — nginx (when running) proxies 443 to it over
+# loopback, it is never itself published for an HTTPS-only project (see
+# deployer-worker's docker run port mapping).
+EXPOSE 8080 443
+
+ENTRYPOINT ["/entrypoint.sh"]

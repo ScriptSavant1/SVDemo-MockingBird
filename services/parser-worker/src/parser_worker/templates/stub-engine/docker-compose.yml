@@ -5,12 +5,18 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"   # Stub traffic (clients call this)
+      - "8080:8080"   # Stub traffic (clients call this) — used when STUB_PROTOCOL is HTTP or BOTH
       - "8081:8081"   # Actuator / Prometheus metrics
+      - "443:443"     # TLS stub traffic — only listening when STUB_PROTOCOL is HTTPS or BOTH
     environment:
       STUB_PROJECT_ID: ${STUB_PROJECT_ID:-local-test}
       STUB_PROJECT_NAME: ${STUB_PROJECT_NAME:-Local Test Stub}
       STUB_ENVIRONMENT: ${STUB_ENVIRONMENT:-local}
+      # HTTPS/mTLS (see docs/STUB_HTTPS_MTLS_DESIGN.md) — set STUB_PROTOCOL to
+      # HTTPS or BOTH to test locally; entrypoint.sh then auto-generates a
+      # self-signed cert on first start (TLS_CERT_SOURCE=AUTO_GENERATED).
+      STUB_PROTOCOL: ${STUB_PROTOCOL:-HTTP}
+      TLS_CERT_SOURCE: ${TLS_CERT_SOURCE:-AUTO_GENERATED}
       JAVA_OPTS: >-
         -Xmx4g
         -XX:+UseG1GC

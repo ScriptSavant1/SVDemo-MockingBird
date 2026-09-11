@@ -21,6 +21,19 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # SQLite has no real ALTER-a-constraint support, and (unlike Postgres)
+    # doesn't reliably expose the FK's name for alembic's batch/copy-move
+    # mode to target either — the "audit_log_project_id_fkey" name only
+    # ever existed because the *model* declares it via ForeignKey(...,
+    # name=...); SQLite's own schema reflection doesn't preserve it the
+    # same way. SQLite also only enforces FK ondelete behavior at all when
+    # a session sets `PRAGMA foreign_keys=ON` (this project's engine
+    # doesn't), so skipping this rename there changes nothing observable —
+    # it's a no-op on the one dialect where it can't be done cleanly.
+    # Postgres (the real production target — see CLAUDE.md) still gets the
+    # actual constraint change below.
+    if op.get_bind().dialect.name == "sqlite":
+        return
     op.drop_constraint("audit_log_project_id_fkey", "audit_log", type_="foreignkey")
     op.create_foreign_key(
         "audit_log_project_id_fkey",
@@ -33,6 +46,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if op.get_bind().dialect.name == "sqlite":
+        return
     op.drop_constraint("audit_log_project_id_fkey", "audit_log", type_="foreignkey")
     op.create_foreign_key(
         "audit_log_project_id_fkey",

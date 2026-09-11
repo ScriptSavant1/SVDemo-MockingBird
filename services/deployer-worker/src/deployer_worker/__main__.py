@@ -47,4 +47,5 @@ def main() -> None:
         ec2_iam_instance_profile=settings.ec2_iam_instance_profile,
         java_base_image=settings.java_base_image,
         poll_wait=settings.sqs_poll_wait_seconds,
+        s3_bucket=settings.s3_bucket,
     )

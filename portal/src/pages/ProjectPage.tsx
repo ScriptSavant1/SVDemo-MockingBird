@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Trash2, ShieldCheck } from "lucide-react";
 import { projectsApi, type UpdateProjectBody } from "@/api/projects";
 import { ingestionApi } from "@/api/ingestion";
 import { useAuthStore } from "@/store/auth";
@@ -9,7 +10,10 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { StatusBadge } from "@/components/StatusBadge";
 import { formatDate } from "@/utils/formatters";
-import type { Project, Stub } from "@/api/types";
+import { ApiError } from "@/api/client";
+import type { Project, Stub, Protocol } from "@/api/types";
+
+const UNDEPLOYABLE_STATUSES = new Set(["LIVE", "DEPLOYING"]);
 
 const ENVIRONMENTS = ["TEST", "STAGING", "PROD"] as const;
 
@@ -30,6 +34,23 @@ export function ProjectPage() {
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
   const [editForm, setEditForm] = useState<UpdateProjectBody>({});
   const [editError, setEditError] = useState<string | null>(null);
+  const [selectedStubIds, setSelectedStubIds] = useState<Set<string>>(new Set());
+  const [stubDeleteTarget, setStubDeleteTarget] = useState<Stub | null>(null);
+  const [showBulkStubDeleteConfirm, setShowBulkStubDeleteConfirm] = useState(false);
+  const [stubDeleteError, setStubDeleteError] = useState<string | null>(null);
+
+  // Per-stub TLS settings modal — protocol/mTLS/cert are set per stub (each
+  // stub deploys as its own Docker image + EC2 instance), not per project.
+  const [tlsStubTarget, setTlsStubTarget] = useState<Stub | null>(null);
+  const [tlsProtocol, setTlsProtocol] = useState<Protocol>("HTTP");
+  const [tlsMtlsEnabled, setTlsMtlsEnabled] = useState(false);
+  const [tlsCertFiles, setTlsCertFiles] = useState<{
+    server_cert: File | null;
+    server_key: File | null;
+    ca_bundle: File | null;
+  }>({ server_cert: null, server_key: null, ca_bundle: null });
+  const [tlsSaving, setTlsSaving] = useState(false);
+  const [tlsError, setTlsError] = useState<string | null>(null);
 
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
@@ -91,6 +112,63 @@ export function ProjectPage() {
     },
   });
 
+  const deleteStubMutation = useMutation({
+    mutationFn: (stubId: string) => projectsApi.deleteStub(projectId!, stubId),
+    onSuccess: (_data, stubId) => {
+      setStubDeleteTarget(null);
+      setStubDeleteError(null);
+      setSelectedStubIds((prev) => {
+        const next = new Set(prev);
+        next.delete(stubId);
+        return next;
+      });
+      void qc.invalidateQueries({ queryKey: ["stubs", projectId] });
+    },
+    onError: (err: unknown) => {
+      setStubDeleteError(err instanceof ApiError ? err.detail : "Delete failed. Please try again.");
+    },
+  });
+
+  const bulkDeleteStubsMutation = useMutation({
+    mutationFn: async (stubIds: string[]) => {
+      const results = await Promise.allSettled(
+        stubIds.map((id) => projectsApi.deleteStub(projectId!, id)),
+      );
+      const failed = results.filter((r) => r.status === "rejected").length;
+      if (failed > 0) {
+        throw new Error(`${failed} of ${stubIds.length} stub(s) failed to delete.`);
+      }
+    },
+    onSuccess: () => {
+      setShowBulkStubDeleteConfirm(false);
+      setStubDeleteError(null);
+      setSelectedStubIds(new Set());
+      void qc.invalidateQueries({ queryKey: ["stubs", projectId] });
+    },
+    onError: (err: Error) => {
+      setStubDeleteError(err.message);
+      void qc.invalidateQueries({ queryKey: ["stubs", projectId] });
+    },
+  });
+
+  function toggleStubSelected(stubId: string) {
+    setSelectedStubIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(stubId)) {
+        next.delete(stubId);
+      } else {
+        next.add(stubId);
+      }
+      return next;
+    });
+  }
+
+  function toggleSelectAllStubs(deletableStubs: Stub[]) {
+    setSelectedStubIds((prev) =>
+      prev.size === deletableStubs.length ? new Set() : new Set(deletableStubs.map((s) => s.id)),
+    );
+  }
+
   async function handleDownloadStubProject(stubId: string) {
     setDownloadingId(stubId);
     setDownloadError(null);
@@ -139,14 +217,86 @@ export function ProjectPage() {
     setShowEdit(true);
   }
 
-  function setEditField(k: keyof UpdateProjectBody, v: string | number) {
+  function setEditField(k: keyof UpdateProjectBody, v: string | number | boolean) {
     setEditForm((prev) => ({ ...prev, [k]: v }));
     setEditError(null);
+  }
+
+  function handleEditSave(e: React.FormEvent) {
+    e.preventDefault();
+    setEditError(null);
+    updateMutation.mutate(editForm);
+  }
+
+  function openTlsSettings(stub: Stub) {
+    setTlsStubTarget(stub);
+    setTlsProtocol(stub.protocol);
+    setTlsMtlsEnabled(stub.mtls_enabled);
+    setTlsCertFiles({ server_cert: null, server_key: null, ca_bundle: null });
+    setTlsError(null);
+  }
+
+  // Switching back to HTTP silently drops mTLS intent client-side too — the
+  // backend clears all TLS fields server-side when protocol -> HTTP.
+  function setTlsProtocolValue(value: Protocol) {
+    setTlsProtocol(value);
+    if (value === "HTTP") setTlsMtlsEnabled(false);
+    setTlsError(null);
+  }
+
+  async function handleTlsSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!tlsStubTarget || !projectId) return;
+    setTlsError(null);
+
+    const hasCertFiles = !!tlsCertFiles.server_cert || !!tlsCertFiles.server_key;
+    if (hasCertFiles && (!tlsCertFiles.server_cert || !tlsCertFiles.server_key)) {
+      setTlsError("Both a server certificate and a private key file are required to upload a certificate.");
+      return;
+    }
+
+    setTlsSaving(true);
+    try {
+      let caBundleAvailableAfterSave = tlsStubTarget.has_ca_bundle;
+      if (hasCertFiles && tlsCertFiles.server_cert && tlsCertFiles.server_key) {
+        // Persists the cert + sets tls_cert_source=UPLOADED server-side — no
+        // separate tls-config call needed just to record the upload.
+        const result = await ingestionApi.uploadTlsCert(projectId, tlsStubTarget.id, {
+          server_cert: tlsCertFiles.server_cert,
+          server_key: tlsCertFiles.server_key,
+          ca_bundle: tlsCertFiles.ca_bundle ?? undefined,
+        });
+        caBundleAvailableAfterSave = caBundleAvailableAfterSave || !!result.tls_ca_bundle_s3_key;
+      }
+
+      // Never send mtls_enabled: true unless a CA bundle actually exists —
+      // the backend 422s otherwise.
+      const safeMtlsEnabled = tlsMtlsEnabled && caBundleAvailableAfterSave;
+      const protocolChanged = tlsProtocol !== tlsStubTarget.protocol;
+      const mtlsChanged = safeMtlsEnabled !== tlsStubTarget.mtls_enabled;
+
+      if (protocolChanged || mtlsChanged) {
+        await projectsApi.updateStubTlsConfig(projectId, tlsStubTarget.id, {
+          protocol: tlsProtocol,
+          mtls_enabled: safeMtlsEnabled,
+        });
+      }
+
+      void qc.invalidateQueries({ queryKey: ["stubs", projectId] });
+      setTlsStubTarget(null);
+    } catch (err) {
+      setTlsError(err instanceof ApiError ? err.detail : "Failed to save TLS settings. Please try again.");
+    } finally {
+      setTlsSaving(false);
+    }
   }
 
   if (isPending) {
     return <div className="py-12 text-center text-gray-500">Loading…</div>;
   }
+
+  const tlsShowPanel = tlsProtocol === "HTTPS" || tlsProtocol === "BOTH";
+  const tlsCaBundleAvailable = !!tlsStubTarget?.has_ca_bundle || !!tlsCertFiles.ca_bundle;
 
   return (
     <div>
@@ -196,11 +346,38 @@ export function ProjectPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Stubs</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Stubs</CardTitle>
+            {canEdit && selectedStubIds.size > 0 && (
+              <Button
+                size="sm"
+                variant="danger"
+                data-testid="bulk-delete-stubs-button"
+                onClick={() => { setStubDeleteError(null); setShowBulkStubDeleteConfirm(true); }}
+              >
+                Delete Selected ({selectedStubIds.size})
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 text-left text-xs font-medium uppercase text-gray-500">
+              {canEdit && (
+                <th className="pb-2 pr-2 w-8">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all deletable stubs"
+                    checked={
+                      selectedStubIds.size > 0 &&
+                      selectedStubIds.size === (stubs as Stub[]).filter((s) => !UNDEPLOYABLE_STATUSES.has(s.status)).length
+                    }
+                    onChange={() =>
+                      toggleSelectAllStubs((stubs as Stub[]).filter((s) => !UNDEPLOYABLE_STATUSES.has(s.status)))
+                    }
+                  />
+                </th>
+              )}
               <th className="pb-2 pr-4">Name</th>
               <th className="pb-2 pr-4">Type</th>
               <th className="pb-2 pr-4">Status</th>
@@ -209,8 +386,21 @@ export function ProjectPage() {
             </tr>
           </thead>
           <tbody>
-            {(stubs as Stub[]).map((stub) => (
+            {(stubs as Stub[]).map((stub) => {
+              const isUndeletable = UNDEPLOYABLE_STATUSES.has(stub.status);
+              return (
               <tr key={stub.id} className="border-b border-gray-100 last:border-0">
+                {canEdit && (
+                  <td className="py-3 pr-2">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${stub.name}`}
+                      checked={selectedStubIds.has(stub.id)}
+                      disabled={isUndeletable}
+                      onChange={() => toggleStubSelected(stub.id)}
+                    />
+                  </td>
+                )}
                 <td className="py-3 pr-4 font-medium text-gray-900">{stub.name}</td>
                 <td className="py-3 pr-4 text-gray-500">{stub.stub_type}</td>
                 <td className="py-3 pr-4">
@@ -218,7 +408,7 @@ export function ProjectPage() {
                 </td>
                 <td className="py-3 pr-4 text-gray-400">{formatDate(stub.updated_at)}</td>
                 <td className="py-3">
-                  <div className="flex gap-2 flex-wrap">
+                  <div className="flex gap-2 flex-wrap items-center">
                     {stub.status === "READY" && !stub.generated_at && (
                       <Button
                         size="sm"
@@ -264,13 +454,37 @@ export function ProjectPage() {
                         <Button size="sm" variant="secondary">View</Button>
                       </Link>
                     )}
+                    {canEdit && (
+                      <button
+                        type="button"
+                        title="TLS settings"
+                        data-testid="stub-tls-settings-button"
+                        onClick={() => openTlsSettings(stub)}
+                        className="rounded p-1.5 text-gray-400 hover:bg-blue-50 hover:text-blue-600"
+                      >
+                        <ShieldCheck size={14} />
+                      </button>
+                    )}
+                    {canEdit && (
+                      <button
+                        type="button"
+                        title={isUndeletable ? "Suspend this stub's deployment before deleting" : "Delete stub"}
+                        data-testid="delete-stub-button"
+                        disabled={isUndeletable}
+                        onClick={() => { setStubDeleteError(null); setStubDeleteTarget(stub); }}
+                        className="rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-400"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {stubs.length === 0 && (
               <tr>
-                <td colSpan={5} className="py-8 text-center text-gray-400">No stubs yet.</td>
+                <td colSpan={canEdit ? 6 : 5} className="py-8 text-center text-gray-400">No stubs yet.</td>
               </tr>
             )}
           </tbody>
@@ -287,16 +501,18 @@ export function ProjectPage() {
           <strong>Download failed:</strong> {downloadError}
         </div>
       )}
+      {stubDeleteError && (
+        <div className="mt-3 rounded bg-red-50 px-3 py-2 text-sm text-red-700">
+          <strong>Delete failed:</strong> {stubDeleteError}
+        </div>
+      )}
 
       {/* Edit project modal */}
       {project && (
         <Modal open={showEdit} title="Edit Project" onClose={() => setShowEdit(false)}>
           <form
             data-testid="edit-project-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              updateMutation.mutate(editForm);
-            }}
+            onSubmit={(e) => void handleEditSave(e)}
             className="space-y-4"
           >
             {editError && (
@@ -388,6 +604,136 @@ export function ProjectPage() {
         </Modal>
       )}
 
+      {/* Per-stub TLS settings modal */}
+      {tlsStubTarget && (
+        <Modal
+          open={!!tlsStubTarget}
+          title={`TLS Settings — ${tlsStubTarget.name}`}
+          onClose={() => { setTlsStubTarget(null); setTlsError(null); }}
+        >
+          <form
+            data-testid="stub-tls-form"
+            onSubmit={(e) => void handleTlsSave(e)}
+            className="space-y-4"
+          >
+            {tlsError && (
+              <div
+                data-testid="stub-tls-error"
+                className="rounded bg-red-50 px-3 py-2 text-sm text-red-700"
+              >
+                {tlsError}
+              </div>
+            )}
+
+            <p className="text-xs text-gray-500">
+              {tlsStubTarget.has_uploaded_cert ? "Custom certificate on file." : "Auto-generated certificate in use."}
+              {tlsStubTarget.has_ca_bundle ? " CA bundle on file." : ""}
+            </p>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Stub Protocol</label>
+              <select
+                data-testid="stub-tls-protocol-select"
+                value={tlsProtocol}
+                onChange={(e) => setTlsProtocolValue(e.target.value as Protocol)}
+                className="mt-1 block w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-[#00A9E0] focus:outline-none"
+              >
+                <option value="HTTP">HTTP</option>
+                <option value="HTTPS">HTTPS</option>
+                <option value="BOTH">HTTP + HTTPS</option>
+              </select>
+            </div>
+
+            {tlsShowPanel && (
+              <div className="space-y-3 rounded border border-gray-200 p-4" data-testid="stub-tls-cert-panel">
+                <p className="text-sm font-medium text-gray-700">TLS Certificate</p>
+
+                <div className="space-y-2 rounded bg-gray-50 p-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700">
+                      Server certificate (.crt/.pem)
+                    </label>
+                    <input
+                      data-testid="stub-tls-cert-file-input"
+                      type="file"
+                      accept=".crt,.pem"
+                      onChange={(e) =>
+                        setTlsCertFiles((prev) => ({ ...prev, server_cert: e.target.files?.[0] ?? null }))
+                      }
+                      className="mt-1 block w-full text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700">
+                      Private key (.key/.pem)
+                    </label>
+                    <input
+                      data-testid="stub-tls-key-file-input"
+                      type="file"
+                      accept=".key,.pem"
+                      onChange={(e) =>
+                        setTlsCertFiles((prev) => ({ ...prev, server_key: e.target.files?.[0] ?? null }))
+                      }
+                      className="mt-1 block w-full text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700">
+                      CA bundle (.pem/.crt) — required to enable mutual TLS below
+                    </label>
+                    <input
+                      data-testid="stub-tls-ca-bundle-file-input"
+                      type="file"
+                      accept=".pem,.crt"
+                      onChange={(e) =>
+                        setTlsCertFiles((prev) => ({ ...prev, ca_bundle: e.target.files?.[0] ?? null }))
+                      }
+                      className="mt-1 block w-full text-sm"
+                    />
+                  </div>
+                </div>
+
+                <label
+                  className="flex items-center gap-2 text-sm text-gray-700"
+                  title={!tlsCaBundleAvailable ? "Upload a CA bundle above to enable mutual TLS" : undefined}
+                >
+                  <input
+                    data-testid="stub-tls-mtls-checkbox"
+                    type="checkbox"
+                    checked={tlsMtlsEnabled}
+                    disabled={!tlsCaBundleAvailable}
+                    onChange={(e) => setTlsMtlsEnabled(e.target.checked)}
+                  />
+                  Require client certificate (mutual TLS)
+                </label>
+                {!tlsCaBundleAvailable && (
+                  <p className="text-xs text-gray-500">
+                    Upload a CA bundle above to enable mutual TLS.
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => { setTlsStubTarget(null); setTlsError(null); }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                loading={tlsSaving}
+                data-testid="stub-tls-save-button"
+              >
+                Save
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
       {/* Archive confirm modal */}
       <Modal
         open={showArchiveConfirm}
@@ -413,6 +759,55 @@ export function ProjectPage() {
             onClick={() => archiveMutation.mutate()}
           >
             Archive
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Single stub delete confirm modal */}
+      <Modal
+        open={!!stubDeleteTarget}
+        title="Delete Stub"
+        onClose={() => { setStubDeleteTarget(null); setStubDeleteError(null); }}
+      >
+        <p className="mb-6 text-sm text-gray-600">
+          Permanently delete <strong>{stubDeleteTarget?.name}</strong>? This cannot be undone.
+        </p>
+        <div className="flex justify-end gap-3">
+          <Button variant="secondary" onClick={() => { setStubDeleteTarget(null); setStubDeleteError(null); }}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            loading={deleteStubMutation.isPending}
+            data-testid="confirm-delete-stub-button"
+            onClick={() => stubDeleteTarget && deleteStubMutation.mutate(stubDeleteTarget.id)}
+          >
+            Delete
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Bulk stub delete confirm modal */}
+      <Modal
+        open={showBulkStubDeleteConfirm}
+        title="Delete Selected Stubs"
+        onClose={() => setShowBulkStubDeleteConfirm(false)}
+      >
+        <p className="mb-6 text-sm text-gray-600">
+          Permanently delete <strong>{selectedStubIds.size}</strong> selected stub
+          {selectedStubIds.size === 1 ? "" : "s"}? This cannot be undone.
+        </p>
+        <div className="flex justify-end gap-3">
+          <Button variant="secondary" onClick={() => setShowBulkStubDeleteConfirm(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            loading={bulkDeleteStubsMutation.isPending}
+            data-testid="confirm-bulk-delete-stubs-button"
+            onClick={() => bulkDeleteStubsMutation.mutate(Array.from(selectedStubIds))}
+          >
+            Delete
           </Button>
         </div>
       </Modal>

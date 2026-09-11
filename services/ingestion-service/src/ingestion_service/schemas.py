@@ -23,3 +23,12 @@ class DownloadUrlResponse(BaseModel):
     filename: str
     presigned_url: str
     expires_in_seconds: int = 3600
+
+
+class TlsCertUploadResult(BaseModel):
+    """Returned by the TLS cert upload endpoint on success (422 is raised, not returned, on failure)."""
+
+    tls_cert_s3_key: str
+    tls_key_s3_key: str
+    tls_ca_bundle_s3_key: str | None = None
+    warnings: list[str] = []

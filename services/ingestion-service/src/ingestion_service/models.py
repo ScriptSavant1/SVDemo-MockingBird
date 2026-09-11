@@ -61,6 +61,16 @@ class Stub(Base):
     source_file_key: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     wiremock_mapping_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="READY")
+    # Stub traffic protocol: HTTP  HTTPS  BOTH — per-stub, not per-project
+    # (see project-service migration 006). Set at upload time (this
+    # service's own /stubs/upload endpoint), editable afterward via
+    # project-service's PUT .../stubs/{id}/tls-config.
+    protocol: Mapped[str] = mapped_column(String(20), nullable=False, default="HTTP")
+    mtls_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    tls_cert_source: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    tls_cert_s3_key: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    tls_key_s3_key: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    tls_ca_bundle_s3_key: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)

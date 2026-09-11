@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { uploadSpec } from "@/api/ingestion";
+import { uploadSpec, type UploadSpecTlsOptions } from "@/api/ingestion";
 import { projectsApi } from "@/api/projects";
 import { ApiError } from "@/api/client";
 import { UploadZone } from "@/components/UploadZone";
@@ -9,6 +9,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { pairHttpCaptureFiles, mergeHttpCaptureFiles } from "@/lib/httpCapturePairing";
 import { zipHttpCaptureFiles } from "@/lib/zipHttpCaptureFiles";
+import type { Protocol } from "@/api/types";
 
 type BatchStatus = "pending" | "uploading" | "generating" | "done" | "error";
 type BatchGroupMode = "combined" | "separate";
@@ -27,6 +28,41 @@ function stripExtension(filename: string): string {
 export function UploadPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
+
+  // Protocol/TLS is chosen once here and applies to every stub this upload
+  // action creates (single file, or every item in a batch) — each stub is
+  // its own deployable unit, so this is no longer a project-level setting.
+  const [protocol, setProtocol] = useState<Protocol>("HTTP");
+  const [certSource, setCertSource] = useState<"AUTO_GENERATED" | "UPLOADED">("AUTO_GENERATED");
+  const [mtlsEnabled, setMtlsEnabled] = useState(false);
+  const [tlsCertFiles, setTlsCertFiles] = useState<{
+    server_cert: File | null;
+    server_key: File | null;
+    ca_bundle: File | null;
+  }>({ server_cert: null, server_key: null, ca_bundle: null });
+
+  function setProtocolValue(value: Protocol) {
+    setProtocol(value);
+    if (value === "HTTP") {
+      setMtlsEnabled(false);
+      setCertSource("AUTO_GENERATED");
+      setTlsCertFiles({ server_cert: null, server_key: null, ca_bundle: null });
+    }
+  }
+
+  // Never let the UI submit mtls_enabled: true without a CA bundle actually
+  // attached in this same upload — the ingestion endpoint returns
+  // valid: false otherwise, and the checkbox above is disabled to match.
+  function buildTlsOptions(): UploadSpecTlsOptions {
+    if (protocol === "HTTP") return { protocol: "HTTP" };
+    return {
+      protocol,
+      mtls_enabled: mtlsEnabled && !!tlsCertFiles.ca_bundle,
+      server_cert: certSource === "UPLOADED" ? tlsCertFiles.server_cert ?? undefined : undefined,
+      server_key: certSource === "UPLOADED" ? tlsCertFiles.server_key ?? undefined : undefined,
+      ca_bundle: tlsCertFiles.ca_bundle ?? undefined,
+    };
+  }
 
   const [batchMode, setBatchMode] = useState(false);
 
@@ -98,7 +134,7 @@ export function UploadPage() {
     setUploading(true);
 
     try {
-      const result = await uploadSpec(projectId, stubName || file.name, file);
+      const result = await uploadSpec(projectId, stubName || file.name, file, buildTlsOptions());
 
       if (!result.valid || !result.stub_id) {
         setErrors(result.errors.length > 0 ? result.errors : ["File failed validation."]);
@@ -168,7 +204,7 @@ export function UploadPage() {
       );
 
       try {
-        const result = await uploadSpec(projectId, stubNameForFile, f);
+        const result = await uploadSpec(projectId, stubNameForFile, f, buildTlsOptions());
         if (!result.valid || !result.stub_id) {
           const msg = result.errors[0] ?? "File failed validation.";
           setBatchRows((rows) =>
@@ -213,6 +249,136 @@ export function UploadPage() {
             ? "Upload several .txt / .json files at once — combine them into one stub, or keep each as its own."
             : "Upload a .txt (raw HTTP pairs) or .json (Postman v2.1) spec to generate stubs."}
         </p>
+      </div>
+
+      <div className="mb-5 rounded border border-gray-200 p-4" data-testid="upload-protocol-panel">
+        <label htmlFor="upload-protocol-select" className="block text-sm font-medium text-gray-700">
+          Stub Protocol
+        </label>
+        <p className="mt-0.5 text-xs text-gray-500">
+          Applies to every stub created by this upload.
+        </p>
+        <select
+          id="upload-protocol-select"
+          data-testid="upload-protocol-select"
+          value={protocol}
+          onChange={(e) => setProtocolValue(e.target.value as Protocol)}
+          disabled={uploading || batchRunning}
+          className="mt-2 block w-full max-w-xs rounded border border-gray-300 px-3 py-2 text-sm
+                     focus:border-[#003875] focus:outline-none focus:ring-1 focus:ring-[#003875]
+                     disabled:bg-gray-50"
+        >
+          <option value="HTTP">HTTP</option>
+          <option value="HTTPS">HTTPS</option>
+          <option value="BOTH">HTTP + HTTPS</option>
+        </select>
+
+        {protocol !== "HTTP" && (
+          <div className="mt-4 space-y-3 rounded border border-gray-200 p-4" data-testid="upload-tls-panel">
+            <p className="text-sm font-medium text-gray-700">TLS Certificate</p>
+
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="radio"
+                  name="upload-cert-source"
+                  data-testid="upload-cert-source-auto-radio"
+                  checked={certSource === "AUTO_GENERATED"}
+                  onChange={() => setCertSource("AUTO_GENERATED")}
+                  disabled={uploading || batchRunning}
+                />
+                Auto-generate (recommended)
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="radio"
+                  name="upload-cert-source"
+                  data-testid="upload-cert-source-upload-radio"
+                  checked={certSource === "UPLOADED"}
+                  onChange={() => setCertSource("UPLOADED")}
+                  disabled={uploading || batchRunning}
+                />
+                Upload your own
+              </label>
+            </div>
+
+            {certSource === "AUTO_GENERATED" && (
+              <p className="text-xs text-gray-500">
+                A self-signed certificate will be auto-generated for each stub created by this upload.
+              </p>
+            )}
+
+            {certSource === "UPLOADED" && (
+              <div className="space-y-2 rounded bg-gray-50 p-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700">
+                    Server certificate (.crt/.pem)
+                  </label>
+                  <input
+                    data-testid="upload-tls-cert-file-input"
+                    type="file"
+                    accept=".crt,.pem"
+                    disabled={uploading || batchRunning}
+                    onChange={(e) =>
+                      setTlsCertFiles((prev) => ({ ...prev, server_cert: e.target.files?.[0] ?? null }))
+                    }
+                    className="mt-1 block w-full text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700">
+                    Private key (.key/.pem)
+                  </label>
+                  <input
+                    data-testid="upload-tls-key-file-input"
+                    type="file"
+                    accept=".key,.pem"
+                    disabled={uploading || batchRunning}
+                    onChange={(e) =>
+                      setTlsCertFiles((prev) => ({ ...prev, server_key: e.target.files?.[0] ?? null }))
+                    }
+                    className="mt-1 block w-full text-sm"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-medium text-gray-700">
+                CA bundle (.pem/.crt) — required to enable mutual TLS below
+              </label>
+              <input
+                data-testid="upload-tls-ca-bundle-file-input"
+                type="file"
+                accept=".pem,.crt"
+                disabled={uploading || batchRunning}
+                onChange={(e) =>
+                  setTlsCertFiles((prev) => ({ ...prev, ca_bundle: e.target.files?.[0] ?? null }))
+                }
+                className="mt-1 block w-full text-sm"
+              />
+            </div>
+
+            <label
+              className="flex items-center gap-2 text-sm text-gray-700"
+              title={!tlsCertFiles.ca_bundle ? "Upload a CA bundle above to enable mutual TLS" : undefined}
+            >
+              <input
+                data-testid="upload-mtls-checkbox"
+                type="checkbox"
+                checked={mtlsEnabled}
+                disabled={!tlsCertFiles.ca_bundle || uploading || batchRunning}
+                onChange={(e) => setMtlsEnabled(e.target.checked)}
+              />
+              Require client certificate (mutual TLS)
+            </label>
+            {!tlsCertFiles.ca_bundle && (
+              <p className="text-xs text-gray-500">
+                Upload a CA bundle above to enable mutual TLS.
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="mb-4 flex gap-2">

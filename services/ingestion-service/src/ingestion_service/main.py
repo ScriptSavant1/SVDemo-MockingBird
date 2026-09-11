@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from .config import settings
 from .database import create_tables
 from .routers.nft import router as nft_router
+from .routers.tls import router as tls_router
 from .routers.upload import router as upload_router
 
 
@@ -25,6 +26,7 @@ app = FastAPI(
 
 app.include_router(upload_router)
 app.include_router(nft_router)
+app.include_router(tls_router)
 
 
 @app.get("/health", tags=["ops"])

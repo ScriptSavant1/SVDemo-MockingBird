@@ -120,6 +120,37 @@ def _get_deployment_api_key(db: Session, deployment_id: str) -> str:
     return row[0] if row and row[0] else ""
 
 
+def _get_stub_tls_config(db: Session, stub_id: str) -> dict:
+    """Read the stub's protocol/mTLS settings (see project-service
+    migration 006) straight off the shared `stubs` table — per-stub, not
+    per-project, since each stub deploys as its own container/EC2 instance
+    and can independently be HTTP/HTTPS/HTTPS+mTLS. Defaults to plain HTTP,
+    matching every stub's behavior before this feature existed, if the
+    stub row or columns can't be found."""
+    from sqlalchemy import text
+    row = db.execute(
+        text(
+            "SELECT protocol, mtls_enabled, tls_cert_source, "
+            "tls_cert_s3_key, tls_key_s3_key, tls_ca_bundle_s3_key "
+            "FROM stubs WHERE id = :id"
+        ),
+        {"id": stub_id},
+    ).first()
+    if row is None:
+        return {
+            "protocol": "HTTP", "mtls_enabled": False, "tls_cert_source": "AUTO_GENERATED",
+            "tls_cert_s3_key": "", "tls_key_s3_key": "", "tls_ca_bundle_s3_key": "",
+        }
+    return {
+        "protocol": row[0] or "HTTP",
+        "mtls_enabled": bool(row[1]),
+        "tls_cert_source": row[2] or "AUTO_GENERATED",
+        "tls_cert_s3_key": row[3] or "",
+        "tls_key_s3_key": row[4] or "",
+        "tls_ca_bundle_s3_key": row[5] or "",
+    }
+
+
 def process_message(
     message: dict,
     db: Session,
@@ -135,6 +166,7 @@ def process_message(
     ec2_key_pair_name: str,
     ec2_iam_instance_profile: str,
     java_base_image: str,
+    s3_bucket: str = "",
 ) -> None:
     body = json.loads(message["Body"])
     job_id: str = body["job_id"]
@@ -220,6 +252,10 @@ def process_message(
     # ── Step 2: Terraform apply ───────────────────────────────────────────────
     api_key = _get_deployment_api_key(db, deployment_id)
     state_key = f"stubs/{project_id}/{stub_id}/terraform.tfstate"
+    tls = _get_stub_tls_config(db, stub_id)
+
+    def _s3_uri(key: str) -> str:
+        return f"s3://{s3_bucket}/{key}" if key and s3_bucket else ""
 
     tf_vars = {
         "project_id": project_id,
@@ -232,6 +268,12 @@ def process_message(
         "iam_instance_profile": ec2_iam_instance_profile,
         "aws_region": aws_region,
         "java_base_image": java_base_image,
+        "stub_protocol": tls["protocol"],
+        "mtls_enabled": tls["mtls_enabled"],
+        "tls_cert_source": tls["tls_cert_source"],
+        "tls_cert_s3_uri": _s3_uri(tls["tls_cert_s3_key"]),
+        "tls_key_s3_uri": _s3_uri(tls["tls_key_s3_key"]),
+        "tls_ca_bundle_s3_uri": _s3_uri(tls["tls_ca_bundle_s3_key"]),
     }
 
     try:
@@ -252,11 +294,18 @@ def process_message(
 
     ec2_instance_id = tf_outputs.get("instance_id", {}).get("value", "")
     ec2_ip = tf_outputs.get("elastic_ip", {}).get("value", "")
-    stub_url = f"http://{ec2_ip}:8080"
+    # HTTPS-only projects don't publish 8080 on the host at all (see
+    # terraform/stub-ec2 user_data) — nginx on 443 is the only way in, so
+    # that's the URL handed back to the user. BOTH also prefers https://
+    # as the safer default to show, even though 8080 still works too.
+    stub_url = f"https://{ec2_ip}" if tls["protocol"] in ("HTTPS", "BOTH") else f"http://{ec2_ip}:8080"
 
     # ── Step 3: health check ──────────────────────────────────────────────────
+    # Actuator (health/metrics) is always published on 8081 regardless of
+    # protocol (see terraform/stub-ec2 user_data) — it's never behind nginx,
+    # so this doesn't need to change based on stub_protocol.
     logger.info("Waiting for EC2 %s to become healthy", ec2_ip)
-    healthy = wait_for_ec2_healthy(ec2_ip)
+    healthy = wait_for_ec2_healthy(ec2_ip, port=8081)
     if not healthy:
         err = f"EC2 {ec2_ip} did not become healthy within timeout"
         logger.error(err)
@@ -423,6 +472,7 @@ def run_loop(
     ec2_iam_instance_profile: str,
     java_base_image: str,
     poll_wait: int = 20,
+    s3_bucket: str = "",
 ) -> None:
     logger.info("deployer-worker started, polling %s", queue_url)
     while True:
@@ -439,6 +489,7 @@ def run_loop(
                     terraform_dir, state_bucket, aws_region, locks_table,
                     ec2_subnet_id, ec2_security_group_id, ec2_key_pair_name,
                     ec2_iam_instance_profile, java_base_image,
+                    s3_bucket=s3_bucket,
                 )
                 # Only delete on success — an unhandled exception leaves the
                 # message in the queue so it's redelivered (and eventually

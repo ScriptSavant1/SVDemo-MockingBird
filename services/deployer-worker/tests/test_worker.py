@@ -69,6 +69,17 @@ def _build_db():
             "created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP"
             ")"
         ))
+        # Minimal mirror of project-service's stubs table — process_message
+        # reads protocol/mtls_enabled/tls_* off it via _get_stub_tls_config
+        # (per-stub, not per-project — see migration 006) to decide the
+        # docker run port mapping and cert env vars.
+        conn.execute(text(
+            "CREATE TABLE stubs ("
+            "id TEXT PRIMARY KEY, protocol TEXT DEFAULT 'HTTP', mtls_enabled INTEGER DEFAULT 0, "
+            "tls_cert_source TEXT, tls_cert_s3_key TEXT, tls_key_s3_key TEXT, tls_ca_bundle_s3_key TEXT"
+            ")"
+        ))
+        conn.execute(text("INSERT INTO stubs (id, protocol, mtls_enabled) VALUES (:id, 'HTTP', 0)"), {"id": STUB_ID})
         conn.commit()
     Session = sessionmaker(bind=engine)
     return Session
@@ -290,6 +301,52 @@ def test_process_message_full_success(tmp_path):
     assert deployment["stub_url"] == "http://10.0.1.100:8080"
     assert deployment["ec2_instance_id"] == "i-0123456789abcdef0"
     assert deployment["gitlab_pipeline_id"] == "pipeline-99"
+
+    db.close()
+
+
+def test_process_message_https_stub_uses_https_stub_url_and_no_8080(tmp_path):
+    """An HTTPS-only STUB (protocol is per-stub, not per-project — see
+    migration 006) should get an https:// stub_url, and the terraform
+    variables passed to tf_apply should carry stub_protocol=HTTPS plus the
+    S3 URIs for an uploaded cert (see terraform/stub-ec2 main.tf's
+    protocol-aware docker run port mapping — 8080 is never published for an
+    HTTPS-only stub, so it's important this reaches terraform correctly)."""
+    from deployer_worker.worker import process_message
+
+    Session = _build_db()
+    db = Session()
+    _seed(db)
+    db.execute(
+        text(
+            "UPDATE stubs SET protocol='HTTPS', mtls_enabled=1, tls_cert_source='UPLOADED', "
+            "tls_cert_s3_key='stubs/p1/s1/tls/server.crt.pem', "
+            "tls_key_s3_key='stubs/p1/s1/tls/server.key.pem', "
+            "tls_ca_bundle_s3_key='stubs/p1/s1/tls/ca-bundle.pem' WHERE id=:id"
+        ),
+        {"id": STUB_ID},
+    )
+    db.commit()
+
+    gitlab = _mock_gitlab_success()
+
+    with patch("deployer_worker.worker.tf_apply", return_value=_mock_terraform_success()) as mock_apply, \
+         patch("deployer_worker.worker.wait_for_ec2_healthy", return_value=True) as mock_health:
+        process_message(_make_message(), db, gitlab, GITLAB_PROJECT_ID, GITLAB_REGISTRY,
+                        tmp_path, **_common_kwargs(), s3_bucket="mockingbird-stubs")
+
+    deployment = _get_deployment(db)
+    assert deployment["stub_url"] == "https://10.0.1.100"
+
+    tf_vars_passed = mock_apply.call_args[0][1]
+    assert tf_vars_passed["stub_protocol"] == "HTTPS"
+    assert tf_vars_passed["mtls_enabled"] is True
+    assert tf_vars_passed["tls_cert_s3_uri"] == "s3://mockingbird-stubs/stubs/p1/s1/tls/server.crt.pem"
+    assert tf_vars_passed["tls_ca_bundle_s3_uri"] == "s3://mockingbird-stubs/stubs/p1/s1/tls/ca-bundle.pem"
+
+    # Health check must still hit the always-published actuator port 8081,
+    # not whatever port stub traffic happens to use.
+    assert mock_health.call_args.kwargs.get("port") == 8081
 
     db.close()
 

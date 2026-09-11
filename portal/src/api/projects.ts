@@ -1,5 +1,14 @@
 import { api } from "./client";
-import type { DownloadUrlOut, Project, ProjectPage, ReportJob, Stub, Deployment } from "./types";
+import type {
+  DownloadUrlOut,
+  Project,
+  ProjectPage,
+  ReportJob,
+  Stub,
+  Deployment,
+  Protocol,
+  TlsCertSource,
+} from "./types";
 
 export interface CreateProjectBody {
   name: string;
@@ -18,6 +27,19 @@ export interface UpdateProjectBody {
   status?: string;
 }
 
+// Stub-scoped TLS/protocol config — set at upload time and editable afterward
+// per stub (each stub is deployed as its own Docker image + EC2 instance, so
+// different stubs in the same project can legitimately want different
+// protocols). All fields optional: send only what changed.
+export interface UpdateStubTlsConfigBody {
+  protocol?: Protocol;
+  mtls_enabled?: boolean;
+  tls_cert_source?: TlsCertSource;
+  tls_cert_s3_key?: string;
+  tls_key_s3_key?: string;
+  tls_ca_bundle_s3_key?: string;
+}
+
 export const projectsApi = {
   list: () => api.get<ProjectPage>("/api/v1/projects").then((page) => page.items),
   get: (id: string) => api.get<Project>(`/api/v1/projects/${id}`),
@@ -32,6 +54,15 @@ export const projectsApi = {
 
   listStubs: (projectId: string) =>
     api.get<Stub[]>(`/api/v1/projects/${projectId}/stubs`),
+
+  // Permanent, SV_TEAM/ADMIN-only. Callers must ensure the stub isn't
+  // LIVE/DEPLOYING first — the backend doesn't auto-suspend an active
+  // deployment before deleting.
+  deleteStub: (projectId: string, stubId: string) =>
+    api.delete<void>(`/api/v1/projects/${projectId}/stubs/${stubId}`),
+
+  updateStubTlsConfig: (projectId: string, stubId: string, body: UpdateStubTlsConfigBody) =>
+    api.put<Stub>(`/api/v1/projects/${projectId}/stubs/${stubId}/tls-config`, body),
 
   listDeployments: (projectId: string) =>
     api.get<Deployment[]>(`/api/v1/projects/${projectId}/deployments`),

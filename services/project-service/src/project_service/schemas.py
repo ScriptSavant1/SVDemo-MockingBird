@@ -98,6 +98,10 @@ class AuditLogPage(BaseModel):
 
 VALID_ENVIRONMENTS = {"TEST", "STAGING", "PROD"}
 VALID_STATUSES = {"DRAFT", "READY", "DEPLOYING", "LIVE", "SUSPENDED", "ARCHIVED"}
+# Stub protocol/cert-source validation lives with the Stub schemas below —
+# protocol is a per-stub setting (see migration 006), not per-project.
+VALID_PROTOCOLS = {"HTTP", "HTTPS", "BOTH"}
+VALID_CERT_SOURCES = {"AUTO_GENERATED", "UPLOADED"}
 
 
 class ProjectCreate(BaseModel):
@@ -154,6 +158,24 @@ class StubCreate(BaseModel):
     format: str
     source_file_key: Optional[str] = Field(default=None, max_length=500)
     wiremock_mapping_count: int = Field(default=0, ge=0)
+    protocol: str = Field(default="HTTP")
+    mtls_enabled: bool = Field(default=False)
+    tls_cert_source: Optional[str] = None
+    tls_cert_s3_key: Optional[str] = Field(default=None, max_length=500)
+    tls_key_s3_key: Optional[str] = Field(default=None, max_length=500)
+    tls_ca_bundle_s3_key: Optional[str] = Field(default=None, max_length=500)
+
+
+class StubTlsUpdate(BaseModel):
+    """For updating a stub's TLS config after creation (e.g. swapping an
+    expiring cert, or changing protocol) — see routers/stubs.py's
+    PUT .../tls-config."""
+    protocol: Optional[str] = None
+    mtls_enabled: Optional[bool] = None
+    tls_cert_source: Optional[str] = None
+    tls_cert_s3_key: Optional[str] = Field(default=None, max_length=500)
+    tls_key_s3_key: Optional[str] = Field(default=None, max_length=500)
+    tls_ca_bundle_s3_key: Optional[str] = Field(default=None, max_length=500)
 
 
 class StubOut(BaseModel):
@@ -164,6 +186,15 @@ class StubOut(BaseModel):
     status: str
     source_file_key: Optional[str]
     wiremock_mapping_count: int
+    protocol: str
+    mtls_enabled: bool
+    tls_cert_source: Optional[str]
+    # Populated via from_attributes off the ORM object for the computed
+    # fields below, excluded from the serialized response — never expose
+    # raw storage paths to the frontend.
+    tls_cert_s3_key: Optional[str] = Field(default=None, exclude=True)
+    tls_key_s3_key: Optional[str] = Field(default=None, exclude=True)
+    tls_ca_bundle_s3_key: Optional[str] = Field(default=None, exclude=True)
     generated_at: Optional[datetime]
     created_at: datetime
     updated_at: datetime
@@ -174,6 +205,16 @@ class StubOut(BaseModel):
     @property
     def stub_type(self) -> str:
         return self.format
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def has_uploaded_cert(self) -> bool:
+        return bool(self.tls_cert_s3_key and self.tls_key_s3_key)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def has_ca_bundle(self) -> bool:
+        return bool(self.tls_ca_bundle_s3_key)
 
 
 # ── Jobs ───────────────────────────────────────────────────────────────────────

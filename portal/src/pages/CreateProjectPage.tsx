@@ -27,7 +27,7 @@ const EMPTY: FormState = {
 export function CreateProjectPage() {
   const navigate = useNavigate();
   const [form, setForm] = useState<FormState>(EMPTY);
-  const [errors, setErrors] = useState<Partial<FormState>>({});
+  const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -41,13 +41,13 @@ export function CreateProjectPage() {
     onSuccess: (project) => void navigate(`/projects/${project.id}`),
   });
 
-  function set(field: keyof FormState, value: string) {
+  function set(field: "name" | "team" | "environment" | "expected_tps" | "description", value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
     setErrors((prev) => ({ ...prev, [field]: undefined }));
   }
 
   function validate(): boolean {
-    const errs: Partial<FormState> = {};
+    const errs: Partial<Record<keyof FormState, string>> = {};
     if (!form.name.trim()) errs.name = "Name is required";
     if (!form.team.trim()) errs.team = "Team is required";
     const tps = parseInt(form.expected_tps, 10);

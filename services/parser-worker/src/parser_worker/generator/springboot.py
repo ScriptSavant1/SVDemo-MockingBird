@@ -6,6 +6,11 @@ Output directory structure:
     ├── settings.xml            Artifactory mirror config
     ├── Dockerfile              Java 21 base image
     ├── docker-compose.yml      For local testing
+    ├── nginx.conf              TLS termination in front of WireMock — only
+    │                            actually started (by entrypoint.sh) when the
+    │                            project's protocol is HTTPS/BOTH. See
+    │                            generator/springboot.py's mtls_enabled param.
+    ├── entrypoint.sh           Starts nginx (when applicable) + the jar
     ├── STUB_ENGINE_SETUP_GUIDE.html   Build/run instructions + per-endpoint
     │                                   service reference — self-contained,
     │                                   readable straight from the extracted zip
@@ -65,6 +70,7 @@ _STATIC_FILES = (
     "Dockerfile",
     "docker-compose.yml",
     "settings.xml",
+    "entrypoint.sh",
     f"{_JAVA_PKG}/StubApplication.java",
     f"{_JAVA_PKG}/WireMockConfig.java",
     f"{_JAVA_PKG}/WsSecurityRequestFilter.java",   # SOAP WS-Security
@@ -73,6 +79,18 @@ _STATIC_FILES = (
     "src/main/resources/application.yml",
     "src/main/resources/wsdl/service.wsdl",
 )
+
+# nginx.conf ships two placeholders ({{MTLS_SERVER_DIRECTIVES}},
+# {{MTLS_PROXY_HEADERS}}) that only resolve to real directives when the
+# project has mTLS enabled — see build_springboot_project_files.
+_MTLS_SERVER_DIRECTIVES = """\
+        ssl_client_certificate /etc/nginx/certs/ca-bundle.pem;
+        ssl_verify_client on;
+        ssl_verify_depth 2;"""
+
+_MTLS_PROXY_HEADERS = """\
+            proxy_set_header X-SSL-Client-CN $ssl_client_s_dn_cn;
+            proxy_set_header X-SSL-Client-Verify $ssl_client_verify;"""
 
 
 def _stub_engine_dir() -> Path:
@@ -88,12 +106,24 @@ def build_springboot_project_files(
     parsed: ParsedFile,
     project_id: str = "",
     project_name: str = "",
+    mtls_enabled: bool = False,
 ) -> dict[str, bytes]:
     """Build the full Spring Boot project as {relative_path: content_bytes},
     entirely in memory — no filesystem writes, and only the read-only
     template package resources are touched on disk. Both
     generate_springboot_project (disk) and generate_springboot_project_zip
     (ZIP bytes) are thin wrappers around this single build.
+
+    mtls_enabled comes from the project's TLS settings (see project-service
+    migration 005) and only affects nginx.conf's mTLS directives —
+    WireMockConfig.java and everything else about the stub itself are
+    identical regardless. Which PROTOCOL actually runs (HTTP/HTTPS/BOTH) is
+    a deploy-time decision, not a generate-time one — it's read from the
+    STUB_PROTOCOL env var by entrypoint.sh at container startup (see
+    deployer-worker), so the same generated image works unchanged if a
+    project's protocol changes later. nginx.conf and entrypoint.sh are
+    therefore included unconditionally (harmless on an HTTP-only project:
+    entrypoint.sh never starts nginx unless STUB_PROTOCOL != HTTP).
     """
     if not project_id:
         project_id = _to_id(parsed.stubs[0].name if parsed.stubs else "stub")
@@ -107,6 +137,19 @@ def build_springboot_project_files(
         content = _read_template_bytes(relative_path)
         if content is not None:
             files[relative_path] = content
+
+    # 1b. nginx.conf — static except for its mTLS placeholders, filled in
+    # here the same way pom.xml's {{project_id}} placeholder is below.
+    nginx_conf_bytes = _read_template_bytes("nginx.conf")
+    if nginx_conf_bytes is not None:
+        nginx_conf_text = nginx_conf_bytes.decode("utf-8")
+        if mtls_enabled:
+            nginx_conf_text = nginx_conf_text.replace("{{MTLS_SERVER_DIRECTIVES}}", _MTLS_SERVER_DIRECTIVES)
+            nginx_conf_text = nginx_conf_text.replace("{{MTLS_PROXY_HEADERS}}", _MTLS_PROXY_HEADERS)
+        else:
+            nginx_conf_text = nginx_conf_text.replace("{{MTLS_SERVER_DIRECTIVES}}", "")
+            nginx_conf_text = nginx_conf_text.replace("{{MTLS_PROXY_HEADERS}}", "")
+        files["nginx.conf"] = nginx_conf_text.encode("utf-8")
 
     # 2. Setup guide — generated fresh for THIS stub, not a copied static
     # file. The service-reference section reflects this stub's actual mappings.
@@ -138,6 +181,7 @@ def generate_springboot_project(
     output_dir: Path,
     project_id: str = "",
     project_name: str = "",
+    mtls_enabled: bool = False,
 ) -> Path:
     """Write a complete Spring Boot project ready for 'docker build'.
 
@@ -146,12 +190,15 @@ def generate_springboot_project(
         output_dir:   Root directory for the generated project.
         project_id:   Short identifier used in artifact ID (e.g., 'payment-api').
         project_name: Human-readable name (e.g., 'Payment Processing API').
+        mtls_enabled: Whether nginx.conf should require+verify client certs
+                      (see build_springboot_project_files docstring).
 
     Returns:
         output_dir (the generated project root).
     """
     output_dir.mkdir(parents=True, exist_ok=True)
-    for relative_path, content in build_springboot_project_files(parsed, project_id, project_name).items():
+    files = build_springboot_project_files(parsed, project_id, project_name, mtls_enabled=mtls_enabled)
+    for relative_path, content in files.items():
         path = output_dir / relative_path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
@@ -162,6 +209,7 @@ def generate_springboot_project_zip(
     parsed: ParsedFile,
     project_id: str = "",
     project_name: str = "",
+    mtls_enabled: bool = False,
 ) -> bytes:
     """Return the full Spring Boot project as ZIP bytes — no filesystem
     access at all beyond reading the (read-only) bundled templates. Use this
@@ -171,8 +219,9 @@ def generate_springboot_project_zip(
     scenarios) purely to immediately discard the directory afterwards.
     """
     buf = io.BytesIO()
+    files = build_springboot_project_files(parsed, project_id, project_name, mtls_enabled=mtls_enabled)
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for relative_path, content in build_springboot_project_files(parsed, project_id, project_name).items():
+        for relative_path, content in files.items():
             zf.writestr(relative_path, content)
     return buf.getvalue()
 

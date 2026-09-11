@@ -38,6 +38,22 @@ def _make_db_session() -> Any:
     return sessionmaker(bind=engine)()
 
 
+def _get_stub_mtls_enabled(db: Any, stub_id: str) -> bool:
+    """Best-effort read of stubs.mtls_enabled — defaults to False (no
+    mTLS) if stub_id is blank/unknown rather than failing generation.
+    Per-stub, not per-project (see project-service migration 006): each
+    stub deploys as its own container, and can independently be HTTP,
+    HTTPS, or HTTPS+mTLS."""
+    if not stub_id:
+        return False
+    from sqlalchemy import text
+    row = db.execute(
+        text("SELECT mtls_enabled FROM stubs WHERE id = :id"),
+        {"id": stub_id},
+    ).first()
+    return bool(row[0]) if row is not None else False
+
+
 def _update_job(db: Any, job_id: str, *, status: str, error: str | None = None, result: dict | None = None) -> None:
     from sqlalchemy import text
     updates = {
@@ -76,12 +92,22 @@ def process_message(
     from parser_worker.models import ParsedFile
     parsed = ParsedFile.model_validate_json(parsed_json)
 
+    # mtls_enabled only affects nginx.conf (see springboot.py) — read
+    # straight off the shared `stubs` table via raw SQL, the same pattern
+    # deployer-worker already uses for its own stub-metadata reads, rather
+    # than adding a full ORM model here for one field.
+    mtls_enabled = _get_stub_mtls_enabled(db, stub_id)
+
     # Generate the Spring Boot project into a temp directory
     out_dir = tempfile.mkdtemp(prefix="mockingbird-gen-")
     zip_bytes: bytes
     try:
         from parser_worker.generator.springboot import generate_springboot_project
-        generate_springboot_project(parsed, output_dir=__import__("pathlib").Path(out_dir))
+        generate_springboot_project(
+            parsed,
+            output_dir=__import__("pathlib").Path(out_dir),
+            mtls_enabled=mtls_enabled,
+        )
 
         # Zip the generated project
         buf = io.BytesIO()
