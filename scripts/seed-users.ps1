@@ -8,7 +8,8 @@
 
     Run this ONCE after a fresh database wipe.
 #>
-$authBase = "http://localhost:3001"
+# auth-service port — must match start-dev.ps1 and portal/vite.config.ts.
+$authBase = "http://localhost:3002"
 
 Write-Host "Creating admin user (sv.admin)..." -ForegroundColor Cyan
 $body = @{ username = "sv.admin"; email = "sv.admin@mockingbird.internal"; password = "Admin@2026!" } | ConvertTo-Json

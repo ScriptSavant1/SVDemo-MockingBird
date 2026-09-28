@@ -48,6 +48,16 @@ test.describe("Upload error messages (real)", () => {
     await expect(page.getByTestId("upload-error-line")).toHaveText("MB-UPL-001 · 'empty-spec.txt' is empty");
   });
 
+  test("wrong password → coded auth-service message on the login page", async ({ page }) => {
+    await page.context().clearCookies();
+    await page.evaluate(() => localStorage.clear());
+    await page.goto("/login");
+    await page.fill("#username", ADMIN.username);
+    await page.fill("#password", "definitely-not-the-password");
+    await page.click('button[type="submit"]');
+    await expect(page.getByRole("alert")).toHaveText("MB-REQ-401 · Username or password is incorrect");
+  });
+
   test("unrecognised content → MB-UPL-003", async ({ page }) => {
     await uploadSingle(page, "notes.txt", "just some notes, not a spec");
     await expect(page.getByTestId("upload-error-line")).toContainText("MB-UPL-003 · File format not recognised.");

@@ -359,13 +359,17 @@ def test_process_message_gitlab_failure_sets_failed(tmp_path):
     _seed(db)
 
     gitlab = MagicMock()
-    gitlab.trigger_pipeline.side_effect = Exception("GitLab 500")
+    gitlab.trigger_pipeline.side_effect = Exception("GitLab 500 token=glpat-secret")
 
     process_message(_make_message(), db, gitlab, GITLAB_PROJECT_ID, GITLAB_REGISTRY,
                     tmp_path, **_common_kwargs())
 
     assert _get_job(db)["status"] == "FAILED"
     assert _get_deployment(db)["status"] == "FAILED"
+    msg = _get_job(db)["error_message"]
+    assert msg.startswith("MB-DEP-001 · Could not start the GitLab image build (ref ")
+    assert _get_deployment(db)["error_message"] == msg
+    assert "glpat-secret" not in msg
     db.close()
 
 
@@ -385,6 +389,9 @@ def test_process_message_pipeline_failed_status(tmp_path):
 
     assert _get_job(db)["status"] == "FAILED"
     assert _get_deployment(db)["status"] == "FAILED"
+    assert _get_job(db)["error_message"].startswith(
+        "MB-DEP-002 · GitLab image build failed (pipeline pipeline-99 ended 'failed')"
+    )
     db.close()
 
 
@@ -398,12 +405,17 @@ def test_process_message_terraform_failure(tmp_path):
 
     gitlab = _mock_gitlab_success()
 
-    with patch("deployer_worker.worker.tf_apply", side_effect=TerraformError("No such subnet")):
+    raw = 'No such subnet; var.stub_api_key = "sk-live-123"'
+    with patch("deployer_worker.worker.tf_apply", side_effect=TerraformError(raw)):
         process_message(_make_message(), db, gitlab, GITLAB_PROJECT_ID, GITLAB_REGISTRY,
                         tmp_path, **_common_kwargs())
 
     assert _get_job(db)["status"] == "FAILED"
     assert _get_deployment(db)["status"] == "FAILED"
+    msg = _get_job(db)["error_message"]
+    assert msg.startswith("MB-DEP-003 · Terraform could not provision the stub's EC2 instance (ref ")
+    # Raw Terraform output (which can echo variables like the API key) stays in the log.
+    assert "sk-live-123" not in msg and "subnet" not in msg
     db.close()
 
 
@@ -422,7 +434,8 @@ def test_process_message_ec2_health_timeout(tmp_path):
                         tmp_path, **_common_kwargs())
 
     assert _get_job(db)["status"] == "FAILED"
-    assert "healthy" in (_get_job(db)["error_message"] or "")
+    assert _get_job(db)["error_message"].startswith("MB-DEP-004 · The stub on EC2 ")
+    assert "did not become healthy in time (ref " in _get_job(db)["error_message"]
     db.close()
 
 
@@ -492,3 +505,53 @@ def test_run_loop_deletes_message_on_success():
 def test_run_loop_does_not_delete_message_on_unhandled_exception():
     sqs_client = _run_loop_once(process_message_side_effect=RuntimeError("boom"))
     sqs_client.delete_message.assert_not_called()
+
+
+def test_suspend_terraform_failure_is_coded(tmp_path):
+    from deployer_worker.worker import process_message
+    from deployer_worker.terraform import TerraformError
+
+    Session = _build_db()
+    db = Session()
+    _seed(db, deployment_status="LIVE")
+    payload = {"action": "SUSPEND", "deployment_id": DEPLOYMENT_ID}
+
+    with patch("deployer_worker.worker.tf_destroy", side_effect=TerraformError("state locked by x")):
+        process_message(_make_message(payload), db, MagicMock(), GITLAB_PROJECT_ID,
+                        GITLAB_REGISTRY, tmp_path, **_common_kwargs())
+
+    msg = _get_job(db)["error_message"]
+    assert _get_job(db)["status"] == "FAILED"
+    assert msg.startswith("MB-DEP-005 · Terraform could not remove the stub's EC2 instance (ref ")
+    assert "state locked" not in msg
+    db.close()
+
+
+def test_run_loop_crash_marks_job_and_deployment_failed():
+    """A crash inside process_message must not leave the job/deployment
+    RUNNING/BUILDING forever — it's marked FAILED with MB-DEP-008."""
+    from deployer_worker.worker import run_loop
+
+    Session = _build_db()
+    db = Session()
+    _seed(db, job_status="RUNNING", deployment_status="BUILDING")
+    message = _make_message()
+    sqs_client = MagicMock()
+    sqs_client.receive_message.side_effect = [{"Messages": [message]}, _StopLoop()]
+
+    with patch("deployer_worker.worker.process_message", side_effect=RuntimeError("secret boom")):
+        with pytest.raises(_StopLoop):
+            run_loop(
+                sqs_client, lambda: db, MagicMock(), GITLAB_PROJECT_ID, GITLAB_REGISTRY,
+                Path("."), "https://sqs.example/queue", "state-bucket", "eu-west-2",
+                "locks-table", "subnet-1", "sg-1", "keypair", "instance-profile", "java:21",
+                poll_wait=0,
+            )
+
+    check = Session()
+    job, dep = _get_job(check), _get_deployment(check)
+    assert job["status"] == "FAILED" and dep["status"] == "FAILED"
+    assert job["error_message"].startswith("MB-DEP-008 · Deployment failed unexpectedly")
+    assert "secret" not in job["error_message"]
+    sqs_client.delete_message.assert_not_called()
+    check.close()

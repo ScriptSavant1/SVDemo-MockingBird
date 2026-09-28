@@ -21,6 +21,7 @@ from fastapi import FastAPI
 from sqlalchemy import create_engine, text
 
 from .config import settings
+from .errors import install_error_handlers
 from .redis_pub import publish_snapshot
 from .routers import metrics as metrics_router
 from .routers import ws as ws_router
@@ -110,6 +111,8 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+install_error_handlers(app, "metrics-service")
 
 app.include_router(metrics_router.router)
 app.include_router(ws_router.router)

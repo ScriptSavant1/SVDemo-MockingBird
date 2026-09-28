@@ -12,7 +12,8 @@ file paths and exception text never go in the response itself.
 
 Catalogue of codes: docs/ERROR_CODES.md.
 
-Kept as a small per-service module (ingestion-service has an identical copy)
+Kept as a small per-service module (identical copies in ingestion-,
+project-, metrics- and ai-service)
 rather than a shared package: services deploy independently, and this is
 too small to be worth a cross-service dependency.
 """

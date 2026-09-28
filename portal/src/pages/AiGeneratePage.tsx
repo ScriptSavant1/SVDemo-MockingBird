@@ -29,10 +29,8 @@ export function AiGeneratePage() {
       setApiError(null);
     },
     onError: (err) => {
-      if (err instanceof ApiError && err.status === 429) {
-        setApiError("Rate limit reached — you can generate up to 10 specs per hour.");
-      } else if (err instanceof ApiError) {
-        setApiError(err.detail);
+      if (err instanceof ApiError) {
+        setApiError(err.userMessage);
       } else {
         setApiError("Generation failed. Please try again.");
       }
@@ -53,7 +51,7 @@ export function AiGeneratePage() {
     },
     onError: (err) => {
       if (err instanceof ApiError) {
-        setApiError(err.detail);
+        setApiError(err.userMessage);
       } else {
         setApiError("Failed to create stubs. Please try again.");
       }

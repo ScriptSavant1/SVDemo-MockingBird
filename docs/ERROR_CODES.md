@@ -49,6 +49,40 @@ succeeded. `MB-GEN-003` appears on the job page as the job's failure reason.
 | MB-GEN-002 | The WireMock mappings couldn't be pre-generated. | Re-upload. If it repeats, give the `ref` to an admin. |
 | MB-GEN-003 | A background worker crashed while parsing or generating. | Retry. If it repeats, give the `ref` to an admin. |
 
+## Deployment: `MB-DEP`
+
+Shown on the stub's deployment page ("The last deployment failed") and on
+the job. The EC2 instance may or may not exist, depending on the step that
+failed.
+
+| Code | Meaning | What to do |
+|---|---|---|
+| MB-DEP-001 | The GitLab image build couldn't be started (GitLab unreachable, bad token or project). | Check GitLab is up and the deployer's GitLab settings; retry. |
+| MB-DEP-002 | The GitLab image build ran but failed. The message gives the pipeline number and its final status. | Open that pipeline in GitLab to see the build log. |
+| MB-DEP-003 | Terraform couldn't provision the EC2 instance (subnet, security group, quota, IAM…). | Admin: search the deployer log for the `ref`, which holds the full Terraform output. |
+| MB-DEP-004 | The EC2 instance started, but the stub didn't report healthy in time. | Check the instance (`/actuator/health` on port 8081) and its container logs; redeploy. |
+| MB-DEP-005 | Suspend: Terraform couldn't remove the EC2 instance. | Admin: check the `ref` in the deployer log; the instance may still be running and costing money. |
+| MB-DEP-006 | Microcks (async) deploy: copying or starting it over SSH failed. | Check SSH access to the instance; see the `ref` in the log. |
+| MB-DEP-007 | Microcks deploy failed unexpectedly. | Give the `ref` to an admin. |
+| MB-DEP-008 | The deployer worker crashed. | Retry; if it repeats, give the `ref` to an admin. |
+
+## Reports: `MB-RPT`
+
+| Code | Meaning | What to do |
+|---|---|---|
+| MB-RPT-001 | The metrics for the report couldn't be loaded. | Check the stub has been LIVE and producing metrics for the chosen period; retry. |
+| MB-RPT-002 | No report could be produced in any format. The job is FAILED. | Give the `ref`s in the job's warnings to an admin. |
+| MB-RPT-003 | One format (PDF, Excel or PowerPoint) couldn't be produced. The others are still downloadable. Shown under the report's download buttons. | Use the formats that worked; give the `ref` to an admin if you need the missing one. |
+| MB-RPT-004 | The report worker crashed. | Retry; if it repeats, give the `ref` to an admin. |
+
+## AI generation: `MB-AI`
+
+| Code | Meaning | What to do |
+|---|---|---|
+| MB-AI-001 | Hourly AI-generation limit reached. The message gives the limit. | Try again later. |
+| MB-AI-002 | The AI's reply couldn't be turned into a stub spec. | Rephrase the description, with more detail on the endpoints. |
+| MB-AI-003 | AI generation isn't available on this server (no API key or package). | Admin: configure the Anthropic API key (Vault). |
+
 ## Server & connection: `MB-SYS`, `MB-NET`
 
 | Code | Meaning | What to do |
@@ -65,7 +99,7 @@ message is still specific, for example `MB-REQ-404 · Project … not found`.
 
 | Code | Meaning |
 |---|---|
-| MB-REQ-400 | The request isn't valid in the current state (e.g. generate before upload). |
+| MB-REQ-400 | The request isn't valid: a required field is missing (the message names it) or the action isn't allowed in the current state (e.g. generate before upload). |
 | MB-REQ-401 | Not signed in, or the session expired. Sign in again. |
 | MB-REQ-403 | Your role isn't allowed to do this. |
 | MB-REQ-404 | The project, stub or job doesn't exist (or was deleted). |
@@ -76,12 +110,12 @@ message is still specific, for example `MB-REQ-404 · Project … not found`.
 
 ## For developers
 
-- **Response shape** (every non-2xx response from a service that uses
-  `errors.py`, which today is ingestion-service and project-service): RFC 7807
-  Problem JSON plus `code`, and `ref` on unexpected errors. `detail` is always
-  one plain-string line:
-  `{"type", "title", "status", "code", "detail", "ref"?}`, served as
-  `application/problem+json`.
+- **Response shape:** every non-2xx response from every Mockingbird service is
+  RFC 7807 Problem JSON plus `code`, and `ref` on unexpected errors. `detail` is
+  always one plain-string line:
+  `{"type", "title", "status", "code", "detail", "ref"?}`. Python services
+  do this in `errors.py` (served as `application/problem+json`); the Node
+  services (auth, notification) do it in `src/plugins/errors.ts`.
 - **Raise a coded error:** `raise MockingbirdError(413, "MB-UPL-002", "…one line…")`.
   A plain `HTTPException` automatically gets `MB-REQ-<status>`.
 - **Upload validation failures** (HTTP 200, `valid: false`) carry
@@ -89,16 +123,19 @@ message is still specific, for example `MB-REQ-404 · Project … not found`.
   `errors` list underneath.
 - **Job failures:** `jobs.error_message` holds `"<code> · <message> (ref …)"`,
   built with `parser_worker.error_codes.job_error()`.
-- **Where codes are defined:** `services/parser-worker/src/parser_worker/error_codes.py`
-  (UPL/GEN) and `errors.py` in each service (SYS/REQ). The portal's
-  MB-NET codes are in `portal/src/api/client.ts`. Add every new code here too.
+- **Where codes are defined:** `parser_worker/error_codes.py` (UPL/GEN),
+  `deployer_worker/error_codes.py` (DEP), `reporter_service/error_codes.py` (RPT),
+  `ai_service/routers/generate.py` (AI), each service's `errors.py` /
+  `errors.ts` (SYS/REQ), and `portal/src/api/client.ts` (NET). Add every new
+  code to this page too.
 - **Portal:** always show `ApiError.userMessage`. It's built by
   `apiErrorFromResponse()` in `portal/src/api/client.ts`.
 - **Never** put exception text, stack traces, file paths or secrets in
   `detail`. Log them under a `ref` instead.
 
-**Coverage today (phase 1, 2026-09-28):** upload and generate: ingestion-service,
-project-service, parser-worker, generator-worker, and the portal's Upload page.
-**Phase 2 (not done yet):** deployer-worker, metrics, reporter, ai-service,
-auth-service and notification-service (Node), and switching the remaining
-portal pages from `err.detail` to `err.userMessage`.
+**Coverage (2026-09-28):** every service. The Python APIs (ingestion,
+project, metrics, ai) and Node services (auth, notification) share one
+response shape. The workers (parser, generator, deployer, reporter) store
+coded lines in `jobs.error_message`, and a crashed worker marks its job
+FAILED instead of leaving it running. The portal shows `userMessage`
+everywhere, plus deployment failure reasons and partial-report warnings.

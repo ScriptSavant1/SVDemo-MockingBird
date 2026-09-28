@@ -47,6 +47,12 @@ export function DeploymentPage() {
   const activeDeployment = deployments.find(
     (d) => d.stub_id === stubId && (d.status === "LIVE" || d.status === "SUSPENDED"),
   );
+  // The newest deployment of this stub, if it FAILED — so the page can say
+  // why, instead of only "not yet deployed".
+  const lastFailed = [...deployments]
+    .filter((d) => d.stub_id === stubId)
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .find((d, i) => i === 0 && d.status === "FAILED");
 
   const { latest, connected, history } = useMetricsWS(
     activeDeployment?.status === "LIVE" ? (activeDeployment.id ?? null) : null,
@@ -88,7 +94,7 @@ export function DeploymentPage() {
       const { url } = await projectsApi.downloadReport(jobId, format);
       window.open(url, "_blank", "noopener,noreferrer");
     } catch (err) {
-      setDownloadError(err instanceof ApiError ? err.detail : "Download failed");
+      setDownloadError(err instanceof ApiError ? err.userMessage : "Download failed");
     } finally {
       setDownloadingJob(null);
     }
@@ -100,6 +106,12 @@ export function DeploymentPage() {
         <Link to={`/projects/${projectId}`} className="text-sm text-[#00A9E0] hover:underline">
           ← Back to project
         </Link>
+        {lastFailed && (
+          <div className="mt-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700" role="alert" data-testid="deployment-error">
+            <p className="font-semibold">The last deployment failed</p>
+            <p className="mt-1">{lastFailed.error_message ?? "No reason was recorded."}</p>
+          </div>
+        )}
         <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-6 text-center">
           <p className="text-lg font-semibold text-amber-800">Stub not yet deployed</p>
           <p className="mt-2 text-sm text-amber-700">
@@ -320,7 +332,7 @@ export function DeploymentPage() {
                       </td>
                       <td className="py-3">
                         {job.status === "DONE" ? (
-                          <div className="flex gap-2">
+                          <div className="flex flex-wrap gap-2">
                             {(["pdf", "excel", "ppt"] as DownloadFormat[]).map((fmt) => {
                               const key = `${fmt}_key` as keyof typeof job.result;
                               if (!job.result?.[key]) return null;
@@ -338,6 +350,9 @@ export function DeploymentPage() {
                                 </Button>
                               );
                             })}
+                            {job.result?.warnings?.map((w, i) => (
+                              <p key={i} className="basis-full text-xs text-amber-700" data-testid={`report-warning-${job.id}`}>{w}</p>
+                            ))}
                           </div>
                         ) : job.status === "FAILED" ? (
                           <span className="text-xs text-red-500">{job.error_message ?? "Failed"}</span>

@@ -134,6 +134,49 @@ describe("DeploymentPage", () => {
     expect(screen.getByTestId(`download-ppt-${DONE_REPORT_JOB.id}`)).toBeDefined();
   });
 
+  it("shows a partial report's coded warning next to the formats that worked", async () => {
+    const partial = {
+      ...DONE_REPORT_JOB,
+      result: {
+        pdf_key: "stubs/proj/dep/report.pdf",
+        excel_key: null,
+        ppt_key: "stubs/proj/dep/report.pptx",
+        warnings: ["MB-RPT-003 · The Excel report could not be produced (ref ab12cd34)"],
+      },
+    };
+    vi.spyOn(global, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify([LIVE_DEPLOYMENT]), { status: 200 }))
+      .mockResolvedValue(new Response(JSON.stringify([partial]), { status: 200 }));
+
+    renderPage();
+    await waitFor(() => screen.getByRole("tab", { name: "Reports" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Reports" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId(`report-warning-${partial.id}`)).toHaveTextContent(
+        "MB-RPT-003 · The Excel report could not be produced (ref ab12cd34)",
+      );
+    });
+    expect(screen.queryByTestId(`download-excel-${partial.id}`)).toBeNull();
+  }, 15_000);
+
+  it("says why the last deployment failed instead of only 'not yet deployed'", async () => {
+    const failed = {
+      ...LIVE_DEPLOYMENT,
+      status: "FAILED",
+      error_message: "MB-DEP-003 · Terraform could not provision the stub's EC2 instance (ref 9f8e7d6c)",
+    };
+    vi.spyOn(global, "fetch").mockResolvedValue(new Response(JSON.stringify([failed]), { status: 200 }));
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("deployment-error")).toHaveTextContent(
+        "MB-DEP-003 · Terraform could not provision the stub's EC2 instance (ref 9f8e7d6c)",
+      );
+    });
+  });
+
   it("shows empty state when no reports exist", async () => {
     vi.spyOn(global, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify([LIVE_DEPLOYMENT]), { status: 200 }))

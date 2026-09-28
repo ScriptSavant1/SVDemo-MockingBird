@@ -5,6 +5,91 @@ Format: one entry per bug, newest at the top.
 
 ---
 
+## BUG-049 — setup.ps1 could not upgrade an existing install (stamped DB, skipped new deps, broke on PS 5.1 quoting)
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-049 |
+| **Found** | 2026-09-28 |
+| **Status** | FIXED |
+| **Severity** | High (an upgraded company machine would fail with 'no such column' and MB-SYS-002) |
+| **Files** | `setup.ps1`, `services/parser-worker/requirements.txt`, `scripts/seed-users.ps1` |
+| **Commit** | (session fix — error codes phase 2 / setup) |
+
+**Root cause:** (1) An existing `mockingbird.db` was `alembic stamp head`-ed — marked migrated without running 004–006. (2) Services were installed `pip install -e . --no-deps` and `openpyxl` was missing from parser-worker's requirements.txt, so an existing venv never got it. (3) No .env files are in git and nothing created them. (4) seed-users.ps1 still targeted auth on :3001 (now :3002).
+
+**Fix:** setup.ps1 now: checks Node ≥ 24 / Python ≥ 3.11; creates missing .env files with one shared JWT secret, detects mismatched secrets, corrects an ingestion DB path copied from another folder; installs services with dependencies; backs up then `alembic upgrade head`s an Alembic-managed DB (stamps only pre-Alembic DBs); `npm rebuild`s and load-tests native modules. Verified on a clean copy with a real revision-003 DB (65 projects / 81 stubs kept, upgraded to 006) followed by the full real-browser suite (31/31). Found and fixed on the way: PS 5.1 strips embedded double quotes from native-command args.
+
+---
+
+## BUG-048 — Wrong password on /login showed 'Session expired' when a stale token was in the store
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-048 |
+| **Found** | 2026-09-28 |
+| **Status** | FIXED |
+| **Severity** | Low (misleading message) |
+| **Files** | `portal/src/api/client.ts` |
+| **Commit** | (session fix — error codes phase 2 / setup) |
+
+**Root cause:** the client treated every 401 as an expired session whenever a token existed — including the login call.
+
+**Fix:** a 401 from `/auth/login` is always 'wrong credentials'. Test: `client.test.ts` + real Playwright `08-error-messages`.
+
+---
+
+## BUG-047 — A failed deployment's reason was never shown in the portal
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-047 |
+| **Found** | 2026-09-28 |
+| **Status** | FIXED |
+| **Severity** | Medium (user saw 'Stub not yet deployed' after a failure, with no reason) |
+| **Files** | `portal/src/api/types.ts`, `portal/src/pages/DeploymentPage.tsx` |
+| **Commit** | (session fix — error codes phase 2 / setup) |
+
+**Root cause:** the API returns `deployments.error_message` but the portal's `Deployment` type omitted it, and the deployment page only looked at LIVE/SUSPENDED deployments.
+
+**Fix:** the page shows 'The last deployment failed' with the coded line (e.g. `MB-DEP-003 · …`). Test: `DeploymentPage.test.tsx`.
+
+---
+
+## BUG-046 — Report job reported DONE with nothing to download when every format failed
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-046 |
+| **Found** | 2026-09-28 |
+| **Status** | FIXED |
+| **Severity** | Medium |
+| **Files** | `services/reporter-service/src/reporter_service/worker.py` |
+| **Commit** | (session fix — error codes phase 2 / setup) |
+
+**Root cause:** PDF/Excel/PPT failures were only logged; the job was always marked DONE.
+
+**Fix:** all formats failing → FAILED (`MB-RPT-002`); a partial result stays DONE with coded `warnings` (`MB-RPT-003`) shown under the download buttons; a crashed worker marks the job FAILED (`MB-RPT-004`).
+
+---
+
+## BUG-045 — Deployer stored raw Terraform/GitLab/SSH output as the user-visible error (possible secret exposure)
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-045 |
+| **Found** | 2026-09-28 |
+| **Status** | FIXED |
+| **Severity** | High (Terraform errors can echo variable values, incl. the stub API key; also unreadable) |
+| **Files** | `services/deployer-worker/src/deployer_worker/worker.py`, `error_codes.py` |
+| **Commit** | (session fix — error codes phase 2 / setup) |
+
+**Root cause:** every failure path wrote `str(exc)` into `jobs.error_message` / `deployments.error_message`; a crash left the deployment BUILDING/PROVISIONING forever.
+
+**Fix:** one `_fail()` helper writes `MB-DEP-00x · <one line> (ref …)`; raw output is logged under the ref only; crashes → `MB-DEP-008`. Tests assert a fake API key in Terraform output never reaches the message.
+
+---
+
 ## BUG-044 — Stub-project generation failure during upload was only logged — upload reported success
 
 | Field | Value |

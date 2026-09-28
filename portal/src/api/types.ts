@@ -53,6 +53,8 @@ export interface Deployment {
   stub_url: string | null;
   api_key: string | null;
   ec2_instance_id: string | null;
+  /** Set when status is FAILED — one coded line, e.g. "MB-DEP-003 · … (ref …)". */
+  error_message?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -123,7 +125,13 @@ export interface MetricHistoryResponse {
 export interface ReportJob {
   id: string;
   status: JobStatus;
-  result: Record<string, string | null> | null;
+  result: {
+    pdf_key?: string | null;
+    excel_key?: string | null;
+    ppt_key?: string | null;
+    /** Coded lines for formats that couldn't be produced (MB-RPT-003). */
+    warnings?: string[];
+  } | null;
   error_message: string | null;
   created_at: string;
 }

@@ -36,6 +36,7 @@ from typing import Any
 import boto3
 from sqlalchemy.orm import Session
 
+from . import error_codes as ec
 from .gitlab_client import GitLabClient
 from .health import wait_for_ec2_healthy
 from .microcks import MicrocksDeployError, deploy_microcks
@@ -202,9 +203,8 @@ def process_message(
             _update_deployment(db, deployment_id, status="SUSPENDED")
             _update_job(db, job_id, status="DONE", result={"action": "SUSPENDED", "deployment_id": deployment_id})
         except TerraformError as exc:
-            err = str(exc)
-            logger.error("terraform destroy failed for deployment %s: %s", deployment_id, err)
-            _update_job(db, job_id, status="FAILED", error=err)
+            _fail(db, job_id, None, ec.DEP_SUSPEND_FAILED,
+                  "Terraform could not remove the stub's EC2 instance", detail=str(exc))
         return
 
     # DEPLOY action
@@ -230,20 +230,16 @@ def process_message(
             },
         )
     except Exception as exc:
-        err = f"Failed to trigger GitLab pipeline: {exc}"
-        logger.error(err)
-        _update_deployment(db, deployment_id, status="FAILED", error_message=err)
-        _update_job(db, job_id, status="FAILED", error=err)
+        _fail(db, job_id, deployment_id, ec.DEP_BUILD_TRIGGER_FAILED,
+              "Could not start the GitLab image build", detail=repr(exc))
         return
 
     _update_deployment(db, deployment_id, status="BUILDING", gitlab_pipeline_id=pipeline_id)
 
     final_status = gitlab.wait_for_pipeline(gitlab_project_id, pipeline_id)
     if final_status != "success":
-        err = f"GitLab pipeline {pipeline_id} ended with status: {final_status}"
-        logger.error(err)
-        _update_deployment(db, deployment_id, status="FAILED", error_message=err)
-        _update_job(db, job_id, status="FAILED", error=err)
+        _fail(db, job_id, deployment_id, ec.DEP_BUILD_FAILED,
+              f"GitLab image build failed (pipeline {pipeline_id} ended '{final_status}')")
         return
 
     logger.info("GitLab pipeline %s succeeded for deployment %s", pipeline_id, deployment_id)
@@ -286,10 +282,10 @@ def process_message(
             locks_table=locks_table,
         )
     except TerraformError as exc:
-        err = str(exc)
-        logger.error("Terraform apply failed for deployment %s: %s", deployment_id, err)
-        _update_deployment(db, deployment_id, status="FAILED", error_message=err)
-        _update_job(db, job_id, status="FAILED", error=err)
+        # Terraform output can echo variable values (incl. the stub API key)
+        # — it goes to the log under the ref, never into error_message.
+        _fail(db, job_id, deployment_id, ec.DEP_PROVISION_FAILED,
+              "Terraform could not provision the stub's EC2 instance", detail=str(exc))
         return
 
     ec2_instance_id = tf_outputs.get("instance_id", {}).get("value", "")
@@ -307,14 +303,9 @@ def process_message(
     logger.info("Waiting for EC2 %s to become healthy", ec2_ip)
     healthy = wait_for_ec2_healthy(ec2_ip, port=8081)
     if not healthy:
-        err = f"EC2 {ec2_ip} did not become healthy within timeout"
-        logger.error(err)
-        _update_deployment(
-            db, deployment_id, status="FAILED",
-            ec2_instance_id=ec2_instance_id, ec2_ip_address=ec2_ip,
-            error_message=err,
-        )
-        _update_job(db, job_id, status="FAILED", error=err)
+        _fail(db, job_id, deployment_id, ec.DEP_UNHEALTHY,
+              f"The stub on EC2 {ec2_ip} did not become healthy in time",
+              ec2_instance_id=ec2_instance_id, ec2_ip_address=ec2_ip)
         return
 
     logger.info("Deployment %s is LIVE at %s", deployment_id, stub_url)
@@ -335,6 +326,44 @@ def process_message(
             "ec2_ip_address": ec2_ip,
         },
     )
+
+
+def _fail(
+    db: Session,
+    job_id: str,
+    deployment_id: str | None,
+    code: str,
+    message: str,
+    detail: str | None = None,
+    **deployment_fields: str,
+) -> None:
+    """Mark the job (and deployment, if any) FAILED with one coded line.
+    `detail` (raw Terraform/GitLab/SSH output) is logged under the ref only."""
+    ref = uuid.uuid4().hex[:8]
+    logger.error("[ref %s] %s %s%s", ref, code, message, f" — {detail}" if detail else "")
+    err = ec.job_error(code, message, ref)
+    if deployment_id:
+        _update_deployment(db, deployment_id, status="FAILED", error_message=err, **deployment_fields)
+    _update_job(db, job_id, status="FAILED", error=err)
+
+
+def _mark_failed_after_crash(db: Session, message: dict) -> None:
+    """An exception escaped process_message: log it under a ref and mark the
+    job/deployment FAILED so the portal doesn't show it in progress forever.
+    The message stays on the queue, so a redelivered retry that succeeds
+    moves the job on as normal."""
+    ref = uuid.uuid4().hex[:8]
+    logger.exception("[ref %s] Unhandled error processing message %s", ref, message.get("MessageId"))
+    try:
+        body = json.loads(message["Body"])
+        err = ec.job_error(ec.DEP_WORKER_FAILED, "Deployment failed unexpectedly — the details are in the server log", ref)
+        db.rollback()
+        deployment_id = (body.get("payload") or {}).get("deployment_id")
+        if deployment_id:
+            _update_deployment(db, deployment_id, status="FAILED", error_message=err)
+        _update_job(db, body["job_id"], status="FAILED", error=err)
+    except Exception:
+        logger.exception("[ref %s] Could not mark the job FAILED", ref)
 
 
 def _handle_microcks_deploy(
@@ -383,10 +412,8 @@ def _handle_microcks_deploy(
             aws_region=aws_region, locks_table=locks_table,
         )
     except TerraformError as exc:
-        err = str(exc)
-        logger.error("Terraform apply failed for Microcks deployment %s: %s", deployment_id, err)
-        _update_deployment(db, deployment_id, status="FAILED", error_message=err)
-        _update_job(db, job_id, status="FAILED", error=err)
+        _fail(db, job_id, deployment_id, ec.DEP_PROVISION_FAILED,
+              "Terraform could not provision the Microcks EC2 instance", detail=str(exc))
         return
 
     ec2_instance_id = tf_outputs.get("instance_id", {}).get("value", "")
@@ -408,33 +435,21 @@ def _handle_microcks_deploy(
             deploy_microcks(ec2_ip, ssh_key_path, config_dir)
 
     except MicrocksDeployError as exc:
-        err = str(exc)
-        logger.error("Microcks SSH deploy failed for %s: %s", deployment_id, err)
-        _update_deployment(
-            db, deployment_id, status="FAILED",
-            ec2_instance_id=ec2_instance_id, ec2_ip_address=ec2_ip,
-            error_message=err,
-        )
-        _update_job(db, job_id, status="FAILED", error=err)
+        _fail(db, job_id, deployment_id, ec.DEP_MICROCKS_SSH_FAILED,
+              f"Could not deploy Microcks to EC2 {ec2_ip} over SSH", detail=str(exc),
+              ec2_instance_id=ec2_instance_id, ec2_ip_address=ec2_ip)
         return
     except Exception as exc:
-        err = f"Microcks deploy error: {exc}"
-        logger.error(err)
-        _update_deployment(db, deployment_id, status="FAILED", error_message=err)
-        _update_job(db, job_id, status="FAILED", error=err)
+        _fail(db, job_id, deployment_id, ec.DEP_MICROCKS_FAILED,
+              "Microcks deployment failed unexpectedly", detail=repr(exc))
         return
 
     # ── Step 4: health check ──────────────────────────────────────────────────
     healthy = wait_for_ec2_healthy(ec2_ip)
     if not healthy:
-        err = f"EC2 {ec2_ip} (Microcks) did not become healthy within timeout"
-        logger.error(err)
-        _update_deployment(
-            db, deployment_id, status="FAILED",
-            ec2_instance_id=ec2_instance_id, ec2_ip_address=ec2_ip,
-            error_message=err,
-        )
-        _update_job(db, job_id, status="FAILED", error=err)
+        _fail(db, job_id, deployment_id, ec.DEP_UNHEALTHY,
+              f"Microcks on EC2 {ec2_ip} did not become healthy in time",
+              ec2_instance_id=ec2_instance_id, ec2_ip_address=ec2_ip)
         return
 
     stub_url = f"http://{ec2_ip}:8080"
@@ -498,7 +513,7 @@ def run_loop(
                     QueueUrl=queue_url,
                     ReceiptHandle=message["ReceiptHandle"],
                 )
-            except Exception as exc:
-                logger.exception("Unhandled error processing message %s: %s", message.get("MessageId"), exc)
+            except Exception:
+                _mark_failed_after_crash(db, message)
             finally:
                 db.close()

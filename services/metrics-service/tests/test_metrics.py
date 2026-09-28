@@ -297,6 +297,9 @@ def test_metrics_current_returns_404_when_not_in_redis():
     client = _build_test_app(redis_mock=mock_redis)
     resp = client.get(f"/api/v1/metrics/{DEPLOYMENT_ID}/current")
     assert resp.status_code == 404
+    body = resp.json()
+    assert body["code"] == "MB-REQ-404"
+    assert body["detail"] == f"No metrics cached for deployment {DEPLOYMENT_ID}"
 
 
 def test_metrics_current_requires_auth():

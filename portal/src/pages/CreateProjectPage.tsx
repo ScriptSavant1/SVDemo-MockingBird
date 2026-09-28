@@ -63,7 +63,7 @@ export function CreateProjectPage() {
   }
 
   const apiError =
-    mutation.error instanceof ApiError ? mutation.error.detail : null;
+    mutation.error instanceof ApiError ? mutation.error.userMessage : null;
 
   return (
     <div>

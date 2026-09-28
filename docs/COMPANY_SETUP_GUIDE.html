@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockingbird Setup Guide</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1f2328; --muted: #57606a; --border: #d0d7de;
+    --accent: #0969da; --code-bg: #f6f8fa; --note-bg: #fff8c5; --note-border: #d4a72c;
+    --th-bg: #f6f8fa; --warn-bg: #fff1e5; --warn-border: #e16f24;
+    --ok-bg: #dafbe1; --ok-border: #1a7f37;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--fg); background: var(--bg); line-height: 1.55;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 32px 24px 80px; }
+  h1 { font-size: 30px; border-bottom: 2px solid var(--border); padding-bottom: 12px; margin-top: 0; }
+  h2 { font-size: 22px; margin-top: 44px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  h3 { font-size: 17px; margin-top: 26px; color: #24292f; }
+  p, li { font-size: 15px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    background: var(--code-bg); padding: 2px 6px; border-radius: 6px;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 85%;
+  }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 16px; overflow-x: auto; font-size: 13px; line-height: 1.45;
+  }
+  pre code { background: none; padding: 0; font-size: 100%; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14px; display: block; overflow-x: auto; }
+  td code, li code, p code { overflow-wrap: anywhere; }
+  th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--th-bg); font-weight: 600; }
+  tr:nth-child(even) td { background: #fafbfc; }
+  blockquote {
+    margin: 16px 0; padding: 12px 16px; background: var(--note-bg);
+    border-left: 4px solid var(--note-border); border-radius: 4px; font-size: 14px;
+  }
+  blockquote.warn { background: var(--warn-bg); border-left-color: var(--warn-border); }
+  blockquote.ok { background: var(--ok-bg); border-left-color: var(--ok-border); }
+  .lead { color: var(--muted); font-size: 15px; }
+  .meta { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; margin: 20px 0; }
+  .meta ul { margin: 0; padding-left: 20px; }
+  .toc { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; margin: 24px 0; }
+  .toc h2 { margin: 0 0 8px; border: none; font-size: 16px; padding: 0; }
+  .toc ol { margin: 0; padding-left: 22px; }
+  .toc a { font-size: 14px; }
+  .step { display: inline-block; background: #003875; color: #fff; border-radius: 999px; min-width: 26px; text-align: center; padding: 1px 8px; font-size: 13px; font-weight: 600; margin-right: 6px; }
+  .check { list-style: none; padding-left: 4px; }
+  .check li::before { content: "☐  "; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Mockingbird Setup Guide: Company Machine, Node 24</h1>
+<p class="lead">Follow these steps to move a new copy of the Mockingbird code onto your company Windows machine, build it, and run the portal and its services. The steps assume you are upgrading from an older copy that ran on Node 20 or 22. They work just as well for a first install: skip the parts marked <em>(upgrade only)</em>.</p>
+
+<blockquote class="warn"><strong>All company-specific values are placeholders.</strong> Wherever you see <code>&lt;ARTIFACTORY_NPM_URL&gt;</code>, <code>&lt;ARTIFACTORY_PYPI_URL&gt;</code> or <code>&lt;CORP_CA_BUNDLE&gt;</code>, substitute your own values on your machine. Never write them back into the repository, because it is public.</blockquote>
+
+<div class="meta" style="border-left: 4px solid var(--accent);">
+  <p style="margin: 0 0 8px; font-weight: 600;">The short version</p>
+  <ol style="margin: 0; padding-left: 20px;">
+    <li>Stop the old services and rename the old folder to keep it as a backup.</li>
+    <li>Make sure <code>node -v</code> shows <strong>v24.x</strong> in a <em>new</em> terminal.</li>
+    <li>Put the new code in <code>C:\Workspace\Mockingbird</code>. Copy across <strong>four data items</strong> from the old folder (§5).</li>
+    <li>Run <code>.\setup.ps1</code>. It installs, upgrades and checks everything, and stops with a clear message if something is wrong.</li>
+    <li>Run <code>.\start-dev.ps1</code>, then open <strong>http://localhost:3010</strong>.</li>
+  </ol>
+</div>
+
+<div class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#why">Why a plain copy fails after the Node 24 upgrade</a></li>
+    <li><a href="#prereq">Prerequisites checklist</a></li>
+    <li><a href="#network">Company network: npm and pip registries, certificates</a></li>
+    <li><a href="#stop">Stop and back up the old install <em>(upgrade only)</em></a></li>
+    <li><a href="#copy">Put the new code in place and bring your data across</a></li>
+    <li><a href="#setup">Run setup.ps1</a></li>
+    <li><a href="#start">Start the services and check they are healthy</a></li>
+    <li><a href="#login">First login and a quick smoke test</a></li>
+    <li><a href="#stopping">Stopping everything</a></li>
+    <li><a href="#trouble">Troubleshooting</a></li>
+    <li><a href="#manual">Appendix A: what setup.ps1 does (manual equivalent)</a></li>
+    <li><a href="#tests">Appendix B: running the automated tests (optional)</a></li>
+  </ol>
+</div>
+
+<h2 id="why">1. Why a plain copy fails after the Node 24 upgrade</h2>
+<p>Copying the new code over the old folder and starting it usually breaks in one of these ways. <code>setup.ps1</code> now handles every one of them, so you only need this table if you want to know what it is doing.</p>
+<table>
+  <tr><th>What changed</th><th>What breaks if you only copy files</th><th>How it's handled</th></tr>
+  <tr><td>Node.js 24 is now required (<code>"engines": ">=24"</code> in all three Node projects)</td><td>Old <code>node_modules</code> contain the <strong>native module</strong> <code>better-sqlite3</code>, compiled for Node 20/22 (bcrypt 6 uses a version-independent binary and is unaffected). auth-service crashes at start with <code>NODE_MODULE_VERSION 127 … requires 137</code>, and the portal login then shows <code>ECONNREFUSED</code>.</td><td>setup.ps1 checks Node ≥ 24, runs <code>npm install</code> and <code>npm rebuild</code>, then <em>loads</em> each native module to prove it works.</td></tr>
+  <tr><td>New Python dependency: <code>openpyxl</code> (xlsx stub template)</td><td>An existing venv doesn't have it, so an xlsx upload fails with <code>MB-SYS-002 · Server is missing the 'openpyxl' component</code>.</td><td>setup.ps1 now installs each service <em>with</em> its dependencies, then checks that the xlsx parser imports.</td></tr>
+  <tr><td>New database migrations (per-stub protocol/TLS columns)</td><td>The old <code>mockingbird.db</code> lacks the new columns, giving <code>no such column: stubs.protocol</code> and "Failed to load projects".</td><td>setup.ps1 backs up the database, then <strong>upgrades</strong> it with <code>alembic upgrade head</code>. Your projects and stubs are kept.</td></tr>
+  <tr><td><code>.env</code> files are not in git</td><td>A fresh copy has none, so services start with no JWT secret. Everything returns 401, or auth refuses to start.</td><td>setup.ps1 creates any missing file with one shared secret, and fixes an ingestion database path copied from another folder.</td></tr>
+  <tr><td>Ports changed: auth-service <strong>3002</strong>, portal <strong>3010</strong></td><td>Old bookmarks and scripts still use 3001 and 3000.</td><td>Use <code>start-dev.ps1</code> and <code>http://localhost:3010</code>.</td></tr>
+</table>
+
+<h2 id="prereq">2. Prerequisites checklist</h2>
+<p>Open a <strong>new</strong> PowerShell window after installing anything, because PATH changes only reach new windows. Then check each line:</p>
+<table>
+  <tr><th>Tool</th><th>Check command</th><th>Must show</th><th>Needed for</th></tr>
+  <tr><td>Node.js <strong>24</strong> (npm comes with it)</td><td><code>node -v</code> · <code>npm -v</code></td><td><code>v24.x.x</code> · <code>10.x</code> or newer</td><td>portal, auth-service</td></tr>
+  <tr><td>Python 3.11 or newer</td><td><code>python --version</code></td><td><code>Python 3.11.x</code> or <code>3.12.x</code></td><td>project, ingestion and parser services</td></tr>
+  <tr><td>Git</td><td><code>git --version</code></td><td>any version</td><td>getting the code</td></tr>
+  <tr><td>Java 21 + Maven <em>(only for building generated stubs)</em></td><td><code>java -version</code> · <code>mvn -v</code></td><td><code>21.x</code> · <code>3.9.x</code></td><td>stub validation, not the platform itself</td></tr>
+</table>
+<blockquote><strong>Several Node versions installed?</strong> <code>where.exe node</code> lists every <code>node.exe</code> on your PATH, and the first one wins. If it isn't Node 24, fix PATH or uninstall the old one. With nvm-windows, run <code>nvm use 24</code>.</blockquote>
+
+<h2 id="network">3. Company network: npm and pip registries, certificates</h2>
+<p>Do this once per machine. Check first, because it may already be configured from your old install:</p>
+<pre><code>npm config get registry
+python -m pip config list</code></pre>
+<p>If npm doesn't point at your Artifactory, or pip shows no <code>index-url</code>, set them:</p>
+<pre><code>npm config set registry &lt;ARTIFACTORY_NPM_URL&gt;
+python -m pip config --user set global.index-url &lt;ARTIFACTORY_PYPI_URL&gt;
+
+:: Only if you get SSL / "self-signed certificate in chain" errors:
+npm config set cafile &lt;CORP_CA_BUNDLE&gt;
+python -m pip config --user set global.cert &lt;CORP_CA_BUNDLE&gt;</code></pre>
+<h3 id="native">Native modules (<code>better-sqlite3</code>, <code>bcrypt</code>)</h3>
+<p>These two modules contain compiled code for your exact Node version.</p>
+<ul>
+  <li><strong>bcrypt</strong> ships its Windows binary inside the npm package, so there's nothing extra to download.</li>
+  <li><strong>better-sqlite3</strong> downloads a matching prebuilt binary from GitHub during <code>npm install</code>. If your proxy blocks GitHub, it falls back to compiling locally. That needs <strong>Visual Studio Build Tools</strong> with the <em>“Desktop development with C++”</em> workload, plus Python (which you already have).</li>
+</ul>
+<p>You'll know which case you're in because setup.ps1 stops with <em>“Native module 'better-sqlite3' does not load”</em>. When that happens, either:</p>
+<ul>
+  <li>ask IT to install Visual Studio Build Tools (C++ workload), then delete <code>services\auth-service\node_modules</code> and re-run <code>.\setup.ps1</code>, or</li>
+  <li>ask whether Artifactory proxies GitHub release downloads. If it does, point the prebuilt download at that mirror before running setup. The variable is read by better-sqlite3's installer; check the exact URL format with whoever runs Artifactory.</li>
+</ul>
+<pre><code>$env:npm_config_better_sqlite3_binary_host = "&lt;ARTIFACTORY_GITHUB_RELEASES_MIRROR&gt;"</code></pre>
+
+<h2 id="stop">4. Stop and back up the old install <em>(upgrade only)</em></h2>
+<ol>
+  <li>Close the four service windows of the old install, or press <strong>Ctrl+C</strong> in each.</li>
+  <li>Make sure nothing is still holding the ports. This must print nothing:
+<pre><code>Get-NetTCPConnection -State Listen -LocalPort 3001,3002,3010,8001,8003 -ErrorAction SilentlyContinue</code></pre>
+  If it prints something, stop that process: <code>Stop-Process -Id &lt;OwningProcess&gt;</code>.</li>
+  <li>Rename the old folder so it becomes your backup:
+<pre><code>Rename-Item C:\Workspace\Mockingbird Mockingbird-old</code></pre></li>
+</ol>
+<blockquote><strong>Why a new folder instead of copying over the old one?</strong> Python virtual environments (<code>venv</code>) remember the absolute path they were created in, and old <code>node_modules</code> carry Node 22 binaries. A clean folder avoids both problems, and the old one stays untouched if you need to go back.</blockquote>
+
+<h2 id="copy">5. Put the new code in place and bring your data across</h2>
+<h3><span class="step">1</span>Get the code into <code>C:\Workspace\Mockingbird</code></h3>
+<p>Use whichever way you normally get code onto the machine: <code>git clone</code>, <code>git pull</code> into a fresh clone, or unzipping a copy. <strong>Do not copy</strong> these from anywhere, because setup.ps1 creates them fresh:</p>
+<ul>
+  <li><code>venv</code> folders (in each <code>services\*</code> folder)</li>
+  <li><code>node_modules</code> folders (in <code>portal</code> and <code>services\auth-service</code>)</li>
+  <li><code>services\auth-service\dist</code></li>
+</ul>
+
+<h3><span class="step">2</span>Copy your data from the old folder <em>(upgrade only)</em></h3>
+<p>These four items hold your users, projects, stubs and uploaded files. Copy them from <code>Mockingbird-old</code> into the same place in the new folder:</p>
+<table>
+  <tr><th>Item</th><th>Contains</th><th>If you skip it</th></tr>
+  <tr><td><code>services\project-service\mockingbird.db</code></td><td>projects, stubs, jobs</td><td>The portal starts empty.</td></tr>
+  <tr><td><code>services\ingestion-service\uploads\</code> (whole folder)</td><td>uploaded spec files and generated stub projects</td><td>Existing stubs are listed, but <em>Download Stub Project</em> returns 404 until you re-upload.</td></tr>
+  <tr><td><code>services\auth-service\auth-local.db</code> (and any <code>auth-local.db-*</code> next to it)</td><td>user accounts</td><td>You have to create users again (§8).</td></tr>
+  <tr><td>The three <code>.env</code> files: <code>services\auth-service\.env.local</code>, <code>services\project-service\.env</code>, <code>services\ingestion-service\.env</code></td><td>JWT secret and paths</td><td>Nothing bad: setup.ps1 creates new ones.</td></tr>
+</table>
+<pre><code>$old = "C:\Workspace\Mockingbird-old"; $new = "C:\Workspace\Mockingbird"
+Copy-Item "$old\services\project-service\mockingbird.db" "$new\services\project-service\"
+Copy-Item "$old\services\ingestion-service\uploads" "$new\services\ingestion-service\" -Recurse
+Copy-Item "$old\services\auth-service\auth-local.db*" "$new\services\auth-service\"
+Copy-Item "$old\services\auth-service\.env.local" "$new\services\auth-service\"
+Copy-Item "$old\services\project-service\.env" "$new\services\project-service\"
+Copy-Item "$old\services\ingestion-service\.env" "$new\services\ingestion-service\"</code></pre>
+<p>Your sample and client files (<code>Sample_SV_Files</code>) are never part of the repository, so copy that folder too if you keep it inside the project.</p>
+
+<h2 id="setup">6. Run setup.ps1</h2>
+<pre><code>cd C:\Workspace\Mockingbird
+.\setup.ps1</code></pre>
+<p>The first run downloads every package and usually takes 3 to 10 minutes, depending on your network. Every step prints <code>[OK]</code>, <code>[SKIP]</code> (already done) or <code>[NOTE]</code> (something it fixed for you). The lines that matter:</p>
+<table>
+  <tr><th>You should see</th><th>Meaning</th></tr>
+  <tr><td><code>[OK] Node.js : v24.x.x</code></td><td>The right Node is on PATH.</td></tr>
+  <tr><td><code>[OK] existing JWT secret reused</code> or <code>new JWT secret generated</code></td><td>The <code>.env</code> files are consistent.</td></tr>
+  <tr><td><code>[NOTE] ingestion-service\.env database_url pointed at … corrected</code></td><td>Normal after copying <code>.env</code> from the old folder. It now points at this folder's database.</td></tr>
+  <tr><td><code>[OK] backed up existing database to mockingbird.db.bak-…</code><br><code>[OK] database upgraded to the latest version (projects and stubs kept)</code></td><td>Your old database was migrated. The backup sits next to it.</td></tr>
+  <tr><td><code>[OK] xlsx parser importable</code></td><td>openpyxl is installed; xlsx uploads will work.</td></tr>
+  <tr><td><code>[OK] better-sqlite3 loads under Node v24…</code><br><code>[OK] bcrypt loads under Node v24…</code></td><td>The native modules match Node 24, so auth-service will start.</td></tr>
+  <tr><td><code>Setup complete. All checks passed.</code></td><td>Go to §7.</td></tr>
+</table>
+<p>If it stops with <code>[ERROR]</code>, the message says what to do. The common ones are in <a href="#trouble">§10</a>. Fix the problem and re-run <code>.\setup.ps1</code>; it's safe to run any number of times.</p>
+
+<h2 id="start">7. Start the services and check they are healthy</h2>
+<pre><code>cd C:\Workspace\Mockingbird
+.\start-dev.ps1</code></pre>
+<p>Four windows open, one per service. Leave them open. After about 20 seconds (auth-service compiles TypeScript first), check each one in a new PowerShell window:</p>
+<pre><code>curl.exe http://localhost:3002/health    # auth-service
+curl.exe http://localhost:8001/health    # project-service
+curl.exe http://localhost:8003/health    # ingestion-service
+curl.exe -s -o NUL -w "%{http_code}" http://localhost:3010/   # portal - prints 200</code></pre>
+<p>The first three each print JSON containing <code>"status":"ok"</code>. If one doesn't respond, look at that service's window: the error is printed there.</p>
+<table>
+  <tr><th>Service</th><th>Port</th><th>Window title shows</th></tr>
+  <tr><td>portal (open this in the browser)</td><td><strong>3010</strong></td><td><code>[portal] Starting on http://localhost:3010</code></td></tr>
+  <tr><td>auth-service</td><td>3002</td><td><code>[auth-service] Starting on http://localhost:3002</code></td></tr>
+  <tr><td>project-service</td><td>8001</td><td><code>Uvicorn running on http://0.0.0.0:8001</code></td></tr>
+  <tr><td>ingestion-service</td><td>8003</td><td><code>Uvicorn running on http://0.0.0.0:8003</code></td></tr>
+</table>
+
+<h2 id="login">8. First login and a quick smoke test</h2>
+<h3>Users</h3>
+<p>If you copied <code>auth-local.db</code>, log in with your existing accounts. On a fresh install, create the two default accounts once, while the services are running:</p>
+<pre><code>.\scripts\seed-users.ps1</code></pre>
+<p>This creates <code>sv.admin</code> (ADMIN) and <code>sv.user</code> (SV_TEAM). The initial passwords are in the script; change them on the Admin page afterwards.</p>
+<h3>Smoke test (2 minutes)</h3>
+<ol class="check">
+  <li>Open <strong>http://localhost:3010</strong> and log in. The Projects dashboard lists your existing projects (upgrade) or is empty (fresh).</li>
+  <li>Open a project and check its stubs are listed with no "Failed to load" message.</li>
+  <li>Click <strong>Upload Spec</strong>, pick an <strong>empty</strong> <code>.txt</code> file and click <em>Upload &amp; Generate</em>. You should see the red line <code>MB-UPL-001 · '&lt;name&gt;.txt' is empty</code>. That proves the portal → ingestion → parser chain and the new error messages work end to end.</li>
+  <li>Upload a real spec as usual. It should reach <strong>DONE</strong> and <em>Download Stub Project</em> should download a zip.</li>
+</ol>
+<p>Validating the generated stubs and NFT scripts against your real files is a separate step, done with your own data.</p>
+
+<h2 id="stopping">9. Stopping everything</h2>
+<p>Close the four service windows, or press <strong>Ctrl+C</strong> in each. To check nothing is left running:</p>
+<pre><code>Get-NetTCPConnection -State Listen -LocalPort 3002,3010,8001,8003 -ErrorAction SilentlyContinue</code></pre>
+
+<h2 id="trouble">10. Troubleshooting</h2>
+<table>
+  <tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr>
+  <tr><td>Portal login: <code>http proxy error: /api/v1/auth/login … ECONNREFUSED</code></td><td>auth-service isn't running. Usually its window shows <code>NODE_MODULE_VERSION … requires …</code> (native module built for an older Node).</td><td>In <code>services\auth-service</code>: <code>npm rebuild</code>, or delete <code>node_modules</code> and re-run <code>.\setup.ps1</code>. Then restart with <code>.\start-dev.ps1</code>.</td></tr>
+  <tr><td>setup.ps1: <em>Native module 'better-sqlite3' does not load</em></td><td>No prebuilt binary could be downloaded, and there are no build tools to compile one.</td><td>See <a href="#native">§3, Native modules</a>.</td></tr>
+  <tr><td><code>npm warn install-scripts … packages have install scripts not yet covered by allowScripts</code> (bcrypt, better-sqlite3), followed by the "does not load" error above</td><td>Newer npm (11.x, shipped with Node 24) can be set up to <em>block</em> packages' install scripts, and better-sqlite3 needs its script to fetch or build its binary. With default settings this is only a warning and everything works.</td><td>In <code>services\auth-service</code>: <code>npm install-scripts approve better-sqlite3</code> and <code>npm install-scripts approve bcrypt</code>, then <code>npm rebuild</code>. Also check <code>npm config get ignore-scripts</code> prints <code>false</code>.</td></tr>
+  <tr><td>setup.ps1: <em>Node.js v22… found - needs 24</em></td><td>An older Node is first on PATH.</td><td><code>where.exe node</code>, fix PATH or run <code>nvm use 24</code>, then open a <strong>new</strong> terminal.</td></tr>
+  <tr><td><code>npm warn EBADENGINE … required: { node: '>=24.0.0' }</code></td><td>Same as above: npm is running under an old Node.</td><td>Same as above.</td></tr>
+  <tr><td>"Failed to load projects" / <code>no such column</code> in the project-service window</td><td>Database not migrated.</td><td>Re-run <code>.\setup.ps1</code>, or in <code>services\project-service</code>: <code>$env:DATABASE_URL="sqlite:///./mockingbird.db"; .\venv\Scripts\python.exe -m alembic upgrade head</code></td></tr>
+  <tr><td>Upload shows <code>MB-SYS-002 · Server is missing the 'openpyxl' component</code></td><td>The ingestion-service venv is missing a dependency.</td><td>Re-run <code>.\setup.ps1</code>, or in <code>services\ingestion-service</code>: <code>.\venv\Scripts\python.exe -m pip install -e ..\parser-worker</code>. Restart the ingestion window.</td></tr>
+  <tr><td>Login works, but every page then fails or shows "Session expired"</td><td>The JWT secret differs between services.</td><td>setup.ps1 detects this and names the files. Make all three <code>.env</code> secrets identical, with no trailing spaces.</td></tr>
+  <tr><td>Portal empty after upgrade, but you copied the database</td><td>ingestion-service or project-service is pointing at a different <code>mockingbird.db</code>.</td><td>Re-run <code>.\setup.ps1</code>; it corrects ingestion's path. Check <code>services\project-service\.env</code> says <code>database_url=sqlite:///./mockingbird.db</code>.</td></tr>
+  <tr><td>Existing stubs: <em>Download Stub Project</em> gives 404</td><td>The <code>uploads</code> folder wasn't copied.</td><td>Copy <code>services\ingestion-service\uploads\</code> from the old folder (§5), or re-upload that stub.</td></tr>
+  <tr><td><code>SSL: CERTIFICATE_VERIFY_FAILED</code> (pip) or <code>SELF_SIGNED_CERT_IN_CHAIN</code> (npm)</td><td>Company proxy re-signs HTTPS.</td><td>Set <code>cafile</code> / <code>cert</code> to <code>&lt;CORP_CA_BUNDLE&gt;</code> (§3).</td></tr>
+  <tr><td><code>running scripts is disabled on this system</code></td><td>PowerShell execution policy.</td><td><code>Set-ExecutionPolicy RemoteSigned -Scope CurrentUser</code>, or run <code>powershell -ExecutionPolicy Bypass -File .\setup.ps1</code>. If Group Policy blocks both, ask IT.</td></tr>
+  <tr><td>A window says <code>address already in use</code> / <code>EADDRINUSE</code></td><td>An old service still holds the port.</td><td>§4 step 2: find and stop the process holding the port.</td></tr>
+  <tr><td>Any other message starting <code>MB-</code></td><td>A known, coded error.</td><td>Look the code up in <code>docs\ERROR_CODES.md</code>. For <code>(ref xxxxxxxx)</code>, search the service window's log for that ref.</td></tr>
+</table>
+
+<h2 id="manual">Appendix A: what setup.ps1 does (manual equivalent)</h2>
+<p>Use these commands only if you can't run the script. Run them in order, from <code>C:\Workspace\Mockingbird</code>:</p>
+<pre><code># 1. .env files (see section 5) - all three JWT secrets identical, no trailing spaces
+#    services\auth-service\.env.local : JWT_SECRET=&lt;secret&gt;
+#    services\project-service\.env    : database_url=sqlite:///./mockingbird.db
+#                                        jwt_secret=&lt;secret&gt;
+#                                        local_storage_path=./uploads
+#    services\ingestion-service\.env  : database_url=sqlite:///C:/Workspace/Mockingbird/services/project-service/mockingbird.db
+#                                        jwt_secret=&lt;secret&gt;
+#                                        local_storage_path=./uploads
+
+# 2. parser-worker
+cd services\parser-worker
+python -m venv venv
+.\venv\Scripts\python.exe -m pip install -r requirements.txt
+.\venv\Scripts\python.exe -m pip install -e .
+
+# 3. project-service + database (back up mockingbird.db first if it exists)
+cd ..\project-service
+python -m venv venv
+.\venv\Scripts\python.exe -m pip install -r requirements.txt
+.\venv\Scripts\python.exe -m pip install -e .
+$env:DATABASE_URL = "sqlite:///./mockingbird.db"
+.\venv\Scripts\python.exe -m alembic upgrade head
+Remove-Item Env:DATABASE_URL
+
+# 4. ingestion-service (parser-worker first)
+cd ..\ingestion-service
+python -m venv venv
+.\venv\Scripts\python.exe -m pip install -e ..\parser-worker
+.\venv\Scripts\python.exe -m pip install -r requirements.txt
+.\venv\Scripts\python.exe -m pip install -e .
+.\venv\Scripts\python.exe -c "import openpyxl, parser_worker.detector"   # must print nothing
+
+# 5. auth-service + portal (Node 24)
+cd ..\auth-service
+npm install
+npm rebuild
+node -e "require('better-sqlite3'); require('bcrypt')"                  # must print nothing
+cd ..\..\portal
+npm install</code></pre>
+
+<h2 id="tests">Appendix B: running the automated tests (optional)</h2>
+<p>These are useful to confirm the copy is healthy on your machine. None of them need company data.</p>
+<pre><code># Python services (from each service folder)
+cd services\parser-worker;    .\venv\Scripts\python.exe -m pytest -q
+cd ..\ingestion-service;      .\venv\Scripts\python.exe -m pytest -q
+cd ..\project-service;        .\venv\Scripts\python.exe -m pytest -q
+
+# auth-service
+cd ..\auth-service;           npm test
+
+# portal unit tests
+cd ..\..\portal;              npx vitest run
+
+# portal end-to-end, against the RUNNING services (start-dev.ps1 first; needs sv.admin / sv.user)
+npx playwright install chromium        # first time only
+npx playwright test --config=playwright.real.config.ts</code></pre>
+<p>Tests that read real capture files from <code>Sample_SV_Files</code> are skipped automatically when those files aren't present.</p>
+
+</div>
+</body>
+</html>

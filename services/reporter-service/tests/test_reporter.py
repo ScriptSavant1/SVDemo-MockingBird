@@ -235,12 +235,77 @@ def test_worker_db_load_failure_sets_job_failed():
     mock_ts = MagicMock()
     mock_s3 = MagicMock()
 
-    with patch("reporter_service.worker.build_report_data", side_effect=ValueError("Not found")):
+    with patch("reporter_service.worker.build_report_data", side_effect=ValueError("Not found: timestream-db-x")):
         process_message(_make_message(), db, mock_ts, mock_s3)
 
-    row = db.execute(text("SELECT status FROM jobs WHERE id=:id"), {"id": JOB_ID}).fetchone()
+    row = db.execute(text("SELECT status, error_message FROM jobs WHERE id=:id"), {"id": JOB_ID}).fetchone()
     assert row[0] == "FAILED"
+    assert row[1].startswith("MB-RPT-001 · The metrics for this report could not be loaded (ref ")
+    assert "timestream-db-x" not in row[1]
     db.close()
+
+
+def test_worker_partial_failure_is_done_with_coded_warning():
+    from reporter_service.worker import process_message
+
+    Session = _build_db()
+    db = Session()
+    mock_s3 = MagicMock()
+
+    with patch("reporter_service.worker.build_report_data", return_value=_make_report_data()), \
+         patch("reporter_service.renderers.pdf.render_pdf", return_value=b"pdf"), \
+         patch("reporter_service.worker.render_excel", side_effect=RuntimeError("font missing")), \
+         patch("reporter_service.worker.render_ppt", return_value=b"pptx"):
+        process_message(_make_message(), db, MagicMock(), mock_s3)
+
+    row = db.execute(text("SELECT status, result FROM jobs WHERE id=:id"), {"id": JOB_ID}).fetchone()
+    assert row[0] == "DONE"
+    result = json.loads(row[1])
+    assert result["excel_key"] is None and result["ppt_key"] is not None
+    assert len(result["warnings"]) == 1
+    assert result["warnings"][0].startswith("MB-RPT-003 · The Excel report could not be produced (ref ")
+    db.close()
+
+
+def test_worker_all_formats_failing_is_failed_not_done():
+    """Previously this reported DONE with nothing to download."""
+    from reporter_service.worker import process_message
+
+    Session = _build_db()
+    db = Session()
+
+    with patch("reporter_service.worker.build_report_data", return_value=_make_report_data()), \
+         patch("reporter_service.renderers.pdf.render_pdf", side_effect=RuntimeError("x")), \
+         patch("reporter_service.worker.render_excel", side_effect=RuntimeError("y")), \
+         patch("reporter_service.worker.render_ppt", side_effect=RuntimeError("z")):
+        process_message(_make_message(), db, MagicMock(), MagicMock())
+
+    row = db.execute(text("SELECT status, error_message, result FROM jobs WHERE id=:id"), {"id": JOB_ID}).fetchone()
+    assert row[0] == "FAILED"
+    assert row[1].startswith("MB-RPT-002 · No report could be produced in any format")
+    assert len(json.loads(row[2])["warnings"]) == 3
+    db.close()
+
+
+def test_run_loop_crash_marks_job_failed():
+    from reporter_service.worker import run_loop
+
+    Session = _build_db()
+    db = Session()
+    sqs_client = MagicMock()
+    sqs_client.receive_message.side_effect = [{"Messages": [_make_message()]}, _StopLoop()]
+
+    with patch("reporter_service.worker.process_message", side_effect=RuntimeError("secret boom")):
+        with pytest.raises(_StopLoop):
+            run_loop(sqs_client, lambda: db, MagicMock(), MagicMock(), "https://sqs.example/q", poll_wait=0)
+
+    check = Session()
+    row = check.execute(text("SELECT status, error_message FROM jobs WHERE id=:id"), {"id": JOB_ID}).fetchone()
+    assert row[0] == "FAILED"
+    assert row[1].startswith("MB-RPT-004 · Report generation failed unexpectedly")
+    assert "secret" not in row[1]
+    sqs_client.delete_message.assert_not_called()
+    check.close()
 
 
 # ── project-service enqueue_report_job test ───────────────────────────────────

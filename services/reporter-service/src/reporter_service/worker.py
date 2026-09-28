@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,7 @@ from .models import ReportPaths
 from .renderers.excel import render_excel
 from .renderers.pdf import render_html  # render_pdf imports WeasyPrint lazily
 from .renderers.ppt import render_ppt
+from . import error_codes as ec
 from .s3_store import upload_excel, upload_pdf, upload_ppt
 
 logger = logging.getLogger(__name__)
@@ -54,6 +56,25 @@ def _update_job(db: Session, job_id: str, *, status: str, error: str | None = No
     db.commit()
 
 
+def _ref() -> str:
+    return uuid.uuid4().hex[:8]
+
+
+def _mark_failed_after_crash(db: Session, message: dict) -> None:
+    """An exception escaped process_message: log it under a ref and mark the
+    job FAILED so the portal doesn't show the report as in progress forever."""
+    ref = _ref()
+    logger.exception("[ref %s] Unhandled error processing message %s", ref, message.get("MessageId"))
+    try:
+        job_id = json.loads(message["Body"])["job_id"]
+        db.rollback()
+        _update_job(db, job_id, status="FAILED", error=ec.job_error(
+            ec.RPT_WORKER_FAILED, "Report generation failed unexpectedly â€” the details are in the server log", ref,
+        ))
+    except Exception:
+        logger.exception("[ref %s] Could not mark the job FAILED", ref)
+
+
 def process_message(
     message: dict,
     db: Session,
@@ -68,7 +89,7 @@ def process_message(
 
     _update_job(db, job_id, status="RUNNING")
 
-    # ── Step 1: Assemble report data ──────────────────────────────────────────
+    # â”€â”€ Step 1: Assemble report data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     try:
         report_data = build_report_data(
             db, ts_query_client,
@@ -78,9 +99,11 @@ def process_message(
             hours=hours,
         )
     except Exception as exc:
-        err = f"Failed to load report data: {exc}"
-        logger.error(err)
-        _update_job(db, job_id, status="FAILED", error=err)
+        ref = _ref()
+        logger.error("[ref %s] Failed to load report data for %s: %r", ref, deployment_id, exc)
+        _update_job(db, job_id, status="FAILED", error=ec.job_error(
+            ec.RPT_DATA_LOAD_FAILED, "The metrics for this report could not be loaded", ref,
+        ))
         return
 
     primary = settings.brand_primary_colour
@@ -88,36 +111,51 @@ def process_message(
     company = settings.brand_company_name
     dt = report_data.generated_at
 
-    # ── Step 2: Render all three formats ─────────────────────────────────────
+    # â”€â”€ Step 2: Render all three formats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     report_paths = ReportPaths()
+    warnings: list[str] = []
 
-    # PDF — WeasyPrint; in local/test mode without WeasyPrint, skip gracefully
+    def _format_failed(label: str, exc: Exception) -> None:
+        ref = _ref()
+        logger.error("[ref %s] %s render/upload failed for %s: %r", ref, label, deployment_id, exc)
+        warnings.append(ec.job_error(ec.RPT_FORMAT_FAILED, f"The {label} report could not be produced", ref))
+
+    # PDF â€” WeasyPrint; in local/test mode without WeasyPrint, skip gracefully
     try:
         from .renderers.pdf import render_pdf
         pdf_bytes = render_pdf(report_data, primary, secondary, company)
         report_paths.pdf_key = upload_pdf(s3_client, settings.s3_bucket, deployment_id, pdf_bytes, dt)
     except ImportError:
-        logger.warning("WeasyPrint not available — skipping PDF")
+        logger.warning("WeasyPrint not available â€” skipping PDF")
+        warnings.append(ec.job_error(ec.RPT_FORMAT_FAILED, "PDF reports are not available on this server (WeasyPrint not installed)"))
     except Exception as exc:
-        logger.error("PDF render/upload failed for %s: %s", deployment_id, exc)
+        _format_failed("PDF", exc)
 
     # Excel
     try:
         xlsx_bytes = render_excel(report_data, primary, secondary, company)
         report_paths.excel_key = upload_excel(s3_client, settings.s3_bucket, deployment_id, xlsx_bytes, dt)
     except Exception as exc:
-        logger.error("Excel render/upload failed for %s: %s", deployment_id, exc)
+        _format_failed("Excel", exc)
 
     # PowerPoint
     try:
         ppt_bytes = render_ppt(report_data, primary, secondary, company)
         report_paths.ppt_key = upload_ppt(s3_client, settings.s3_bucket, deployment_id, ppt_bytes, dt)
     except Exception as exc:
-        logger.error("PPT render/upload failed for %s: %s", deployment_id, exc)
+        _format_failed("PowerPoint", exc)
 
     result = report_paths.model_dump()
+    if not any(result.values()):
+        # Nothing to download â€” reporting DONE here used to look like success.
+        _update_job(db, job_id, status="FAILED", error=ec.job_error(
+            ec.RPT_NO_FORMAT_PRODUCED, "No report could be produced in any format â€” see the server log",
+        ), result={"warnings": warnings})
+        return
+    if warnings:
+        result["warnings"] = warnings
     _update_job(db, job_id, status="DONE", result=result)
-    logger.info("Report job %s done for deployment %s — %s", job_id, deployment_id, result)
+    logger.info("Report job %s done for deployment %s â€” %s", job_id, deployment_id, result)
 
 
 def run_loop(
@@ -139,14 +177,14 @@ def run_loop(
             db = db_factory()
             try:
                 process_message(message, db, ts_query_client, s3_client)
-                # Only delete on success — an unhandled exception leaves the
+                # Only delete on success â€” an unhandled exception leaves the
                 # message in the queue so it's redelivered (and eventually
                 # DLQ'd) instead of being silently discarded as "handled."
                 sqs_client.delete_message(
                     QueueUrl=queue_url,
                     ReceiptHandle=message["ReceiptHandle"],
                 )
-            except Exception as exc:
-                logger.exception("Unhandled error processing message %s: %s", message.get("MessageId"), exc)
+            except Exception:
+                _mark_failed_after_crash(db, message)
             finally:
                 db.close()

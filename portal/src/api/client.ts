@@ -96,9 +96,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   if (res.status === 401) {
     // Only treat as "session expired" if a token was already present (i.e., we were
-    // authenticated). On the login endpoint there is no token yet, so read the body.
+    // authenticated) — and never for the login call itself: a 401 there means bad
+    // credentials even when a stale token is still in the store (e.g. someone
+    // opens /login while signed in and mistypes their password).
     const hasToken = !!useAuthStore.getState().token;
-    if (hasToken) {
+    const isLoginCall = path.endsWith("/auth/login");
+    if (hasToken && !isLoginCall) {
       useAuthStore.getState().logout();
       throw new ApiError(401, "Session expired — please log in again", "Unauthorised");
     }

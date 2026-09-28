@@ -260,6 +260,35 @@ class TestGenerateEndpoint:
             headers=auth_headers,
         )
         assert resp.status_code == 429
+        assert resp.json()["code"] == "MB-AI-001"
+        assert resp.json()["detail"].startswith("Limit reached: ")
+
+    def test_unusable_ai_reply_is_coded_without_internals(self, client, auth_headers):
+        with patch("ai_service.routers.generate._get_anthropic_client", return_value=MagicMock()), \
+             patch("ai_service.routers.generate.generate_stub_spec",
+                   side_effect=ValueError("raw model text: {'secret': 'x'}")):
+            resp = client.post(
+                "/api/v1/ai/generate",
+                json={"description": "A payment processing API for card transactions"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 502
+        body = resp.json()
+        assert body["code"] == "MB-AI-002"
+        assert body["detail"].startswith("The AI reply couldn't be turned into a stub spec")
+        assert "(ref " in body["detail"]
+        assert "secret" not in resp.text
+
+    def test_missing_api_key_is_coded(self, client, auth_headers, monkeypatch):
+        from ai_service.config import settings
+        monkeypatch.setattr(settings, "anthropic_api_key", "")
+        resp = client.post(
+            "/api/v1/ai/generate",
+            json={"description": "A payment processing API for card transactions"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 503
+        assert resp.json()["code"] == "MB-AI-003"
 
 
 class TestHistoryEndpoint:

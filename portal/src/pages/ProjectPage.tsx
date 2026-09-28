@@ -73,7 +73,7 @@ export function ProjectPage() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["stubs", projectId] });
     },
-    onError: (err: Error) => setDeployError(err.message),
+    onError: (err: Error) => setDeployError(err instanceof ApiError ? err.userMessage : err.message),
     onSettled: () => setGeneratingId(null),
   });
 
@@ -86,7 +86,7 @@ export function ProjectPage() {
     onSuccess: (_data, stubId) => {
       void navigate(`/projects/${projectId}/stubs/${stubId}`);
     },
-    onError: (err: Error) => setDeployError(err.message),
+    onError: (err: Error) => setDeployError(err instanceof ApiError ? err.userMessage : err.message),
     onSettled: () => {
       setDeployingId(null);
       void qc.invalidateQueries({ queryKey: ["stubs", projectId] });
@@ -125,7 +125,7 @@ export function ProjectPage() {
       void qc.invalidateQueries({ queryKey: ["stubs", projectId] });
     },
     onError: (err: unknown) => {
-      setStubDeleteError(err instanceof ApiError ? err.detail : "Delete failed. Please try again.");
+      setStubDeleteError(err instanceof ApiError ? err.userMessage : "Delete failed. Please try again.");
     },
   });
 
@@ -181,7 +181,7 @@ export function ProjectPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      setDownloadError(err instanceof Error ? err.message : "Download failed");
+      setDownloadError(err instanceof ApiError ? err.userMessage : err instanceof Error ? err.message : "Download failed");
     } finally {
       setDownloadingId(null);
     }
@@ -199,7 +199,7 @@ export function ProjectPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      setDownloadError(err instanceof Error ? err.message : "Download failed");
+      setDownloadError(err instanceof ApiError ? err.userMessage : err instanceof Error ? err.message : "Download failed");
     } finally {
       setJmeterDownloadingId(null);
     }
@@ -285,7 +285,7 @@ export function ProjectPage() {
       void qc.invalidateQueries({ queryKey: ["stubs", projectId] });
       setTlsStubTarget(null);
     } catch (err) {
-      setTlsError(err instanceof ApiError ? err.detail : "Failed to save TLS settings. Please try again.");
+      setTlsError(err instanceof ApiError ? err.userMessage : "Failed to save TLS settings. Please try again.");
     } finally {
       setTlsSaving(false);
     }

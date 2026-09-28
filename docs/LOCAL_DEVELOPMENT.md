@@ -1,5 +1,9 @@
 # Mockingbird — Local Development Guide
 
+> **Copying the code to another machine, or upgrading an older install (e.g. Node 22 → 24)?**
+> Follow `docs/COMPANY_SETUP_GUIDE.html` — step-by-step, including company-network
+> notes (npm/pip registries, native modules) and what data to bring across.
+
 This guide covers two environments:
 
 | Environment | OS | Script |
@@ -13,7 +17,7 @@ This guide covers two environments:
 
 A fully running Mockingbird platform:
 
-- Web portal at http://localhost:3000
+- Web portal at http://localhost:3010
 - Login, create projects, upload spec files
 - Auto-detect format, validate, generate stubs
 - No Docker required
@@ -114,7 +118,7 @@ Expected final output:
 
 Next steps:
   1. Start services:  .\start-dev.ps1
-  2. Open browser:    http://localhost:3000
+  2. Open browser:    http://localhost:3010
   3. Create admin:    see docs\LOCAL_DEVELOPMENT.md Section A5
 ```
 
@@ -135,14 +139,14 @@ Four PowerShell windows open automatically — one per service. Leave them open.
 Wait about 20 seconds, then check all services are running:
 
 ```powershell
-curl.exe http://localhost:3001/health
+curl.exe http://localhost:3002/health
 curl.exe http://localhost:8001/health
 curl.exe http://localhost:8003/health
 ```
 
 Each should respond with `{"status":"ok", ...}`.
 
-Open the portal: **http://localhost:3000**
+Open the portal: **http://localhost:3010**
 
 ---
 
@@ -259,12 +263,12 @@ tail -f logs/ingestion-service.log
 
 Check health:
 ```bash
-curl http://localhost:3001/health
+curl http://localhost:3002/health
 curl http://localhost:8001/health
 curl http://localhost:8003/health
 ```
 
-Open the portal from your browser: **http://\<your-ec2-ip\>:3000**
+Open the portal from your browser: **http://\<your-ec2-ip\>:3010**
 
 > Make sure your EC2 security group allows inbound TCP on ports 3000, 3001, 8001, 8003 from your IP.
 
@@ -281,7 +285,7 @@ This creates `sv.admin` / `Admin@2026!` (ADMIN) and `sv.user` / `User@2026!` (SV
 
 If you don't have a `seed-users.sh` yet, run manually:
 ```bash
-curl -X POST http://localhost:3001/api/v1/auth/setup \
+curl -X POST http://localhost:3002/api/v1/auth/setup \
   -H "Content-Type: application/json" \
   -d '{"username":"sv.admin","email":"sv.admin@mockingbird.internal","password":"Admin@2026!"}'
 ```
@@ -297,7 +301,7 @@ Or kill by port:
 kill $(lsof -ti:3001) 2>/dev/null
 kill $(lsof -ti:8001) 2>/dev/null
 kill $(lsof -ti:8003) 2>/dev/null
-kill $(lsof -ti:3000) 2>/dev/null
+kill $(lsof -ti:3010) 2>/dev/null
 ```
 
 ---
@@ -310,7 +314,7 @@ kill $(lsof -ti:3000) 2>/dev/null
 
 ## C1 — Log in
 
-Open **http://localhost:3000** (Windows) or **http://\<server-ip\>:3000** (RHEL 9).
+Open **http://localhost:3010** (Windows) or **http://\<server-ip\>:3010** (RHEL 9).
 
 - Username: `sv.admin`
 - Password: `Admin@2026!`

@@ -59,7 +59,7 @@ export function AdminPage() {
       setCreateError(null);
     },
     onError: (err) => {
-      setCreateError(err instanceof ApiError ? err.detail : "Failed to create user");
+      setCreateError(err instanceof ApiError ? err.userMessage : "Failed to create user");
     },
   });
 
@@ -77,7 +77,7 @@ export function AdminPage() {
       setResetError(null);
     },
     onError: (err) => {
-      setResetError(err instanceof ApiError ? err.detail : "Failed to reset password");
+      setResetError(err instanceof ApiError ? err.userMessage : "Failed to reset password");
     },
   });
 

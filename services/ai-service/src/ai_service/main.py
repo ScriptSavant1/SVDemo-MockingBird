@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .database import create_tables
+from .errors import install_error_handlers
 from .routers.generate import router as generate_router
 
 
@@ -31,6 +32,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+install_error_handlers(app, "ai-service")
 
 app.include_router(generate_router)
 

@@ -7,6 +7,7 @@
  */
 import Fastify, { FastifyInstance } from "fastify";
 import databasePlugin from "./plugins/database.js";
+import errorsPlugin from "./plugins/errors.js";
 import localDatabasePlugin from "./plugins/database-local.js";
 import jwtPlugin from "./plugins/jwt.js";
 import ldapPlugin from "./plugins/ldap.js";
@@ -25,6 +26,8 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   const app = Fastify({
     logger: opts.logger ?? true,
   });
+
+  await app.register(errorsPlugin, { serviceName: "auth-service" });
 
   // Use SQLite locally when no PostgreSQL DATABASE_URL is set.
   // In production (ECS + Vault) DATABASE_URL is always provided.

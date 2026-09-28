@@ -47,7 +47,7 @@ export function DashboardPage() {
       void qc.invalidateQueries({ queryKey: ["projects"] });
     },
     onError: (err: unknown) => {
-      setDeleteError(err instanceof ApiError ? err.detail : "Delete failed. Please try again.");
+      setDeleteError(err instanceof ApiError ? err.userMessage : "Delete failed. Please try again.");
     },
   });
 

@@ -479,7 +479,7 @@ docker compose up -d auth-service project-service
 This starts:
 - **PostgreSQL 15** on `localhost:5432`
 - **Redis 7** on `localhost:6379`
-- **auth-service** on `http://localhost:3001`
+- **auth-service** on `http://localhost:3002`
 - **project-service** on `http://localhost:8001`
 
 ### Run database migrations (first time only)
@@ -493,7 +493,7 @@ docker compose run --rm project-service alembic upgrade head
 ### Verify everything is running
 
 ```bash
-curl http://localhost:3001/health
+curl http://localhost:3002/health
 # {"status":"ok","service":"auth-service","version":"0.1.0"}
 
 curl http://localhost:8001/health
@@ -503,7 +503,7 @@ curl http://localhost:8001/health
 ### Create the first admin user (first time only)
 
 ```bash
-curl -X POST http://localhost:3001/api/v1/auth/setup \
+curl -X POST http://localhost:3002/api/v1/auth/setup \
   -H "Content-Type: application/json" \
   -d '{
     "username": "admin",
@@ -517,7 +517,7 @@ curl -X POST http://localhost:3001/api/v1/auth/setup \
 ### Log in and get a token
 
 ```bash
-curl -X POST http://localhost:3001/api/v1/auth/login \
+curl -X POST http://localhost:3002/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username": "admin", "password": "your-secure-password"}'
 ```

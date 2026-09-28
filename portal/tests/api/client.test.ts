@@ -63,4 +63,21 @@ describe("api client", () => {
 
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
   });
+
+  it("a 401 from the login call is 'wrong credentials', even with a stale token", async () => {
+    useAuthStore.getState().login(MOCK_TOKEN, { username: "u", role: "SV_TEAM" });
+    vi.spyOn(global, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ code: "MB-REQ-401", detail: "Username or password is incorrect", status: 401 }),
+        { status: 401 },
+      ),
+    );
+
+    const { api, ApiError } = await import("@/api/client");
+    const err = await api.post("/api/v1/auth/login", { username: "u", password: "x" }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as InstanceType<typeof ApiError>).userMessage).toBe("MB-REQ-401 · Username or password is incorrect");
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+  });
 });

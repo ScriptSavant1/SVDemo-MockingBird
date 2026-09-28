@@ -22,7 +22,7 @@ export function LoginPage() {
       login(res.access_token, { username: res.user.username, role: res.user.role });
       void navigate("/");
     } catch (err) {
-      setError(err instanceof ApiError ? err.detail : "Login failed");
+      setError(err instanceof ApiError ? err.userMessage : "Login failed");
     } finally {
       setLoading(false);
     }

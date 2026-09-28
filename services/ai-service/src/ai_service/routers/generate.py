@@ -11,18 +11,27 @@ GET /api/v1/ai/history
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.orm import Session
 
 from ..claude_client import GenerationResult, generate_stub_spec
 from ..config import settings
 from ..database import get_db
 from ..dependencies import CurrentUser, get_current_user, require_sv_team_or_admin
+from ..errors import MockingbirdError
 from ..models import AiGeneration
 from ..schemas import GenerateRequest, GenerateResponse, GenerationHistoryItem
+
+logger = logging.getLogger(__name__)
+
+# Codes catalogued in docs/ERROR_CODES.md — stable once shipped.
+AI_RATE_LIMITED = "MB-AI-001"
+AI_GENERATION_FAILED = "MB-AI-002"
+AI_NOT_CONFIGURED = "MB-AI-003"
 
 router = APIRouter(prefix="/api/v1/ai", tags=["ai"])
 
@@ -35,9 +44,9 @@ def _check_rate_limit(db: Session, user_id: uuid.UUID) -> None:
         .count()
     )
     if count >= settings.rate_limit_per_hour:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"Rate limit exceeded: max {settings.rate_limit_per_hour} AI generations per hour.",
+        raise MockingbirdError(
+            status.HTTP_429_TOO_MANY_REQUESTS, AI_RATE_LIMITED,
+            f"Limit reached: {settings.rate_limit_per_hour} AI generations per hour — try again later",
         )
 
 
@@ -46,15 +55,15 @@ def _get_anthropic_client():
     try:
         from anthropic import Anthropic  # noqa: PLC0415
     except ImportError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Anthropic package not installed",
+        raise MockingbirdError(
+            status.HTTP_503_SERVICE_UNAVAILABLE, AI_NOT_CONFIGURED,
+            "AI generation isn't available on this server (the 'anthropic' package is not installed)",
         ) from exc
 
     if not settings.anthropic_api_key:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="ANTHROPIC_API_KEY not configured. Set it via HashiCorp Vault or the ANTHROPIC_API_KEY env var.",
+        raise MockingbirdError(
+            status.HTTP_503_SERVICE_UNAVAILABLE, AI_NOT_CONFIGURED,
+            "AI generation isn't configured on this server (no Anthropic API key) — ask an admin",
         )
     return Anthropic(api_key=settings.anthropic_api_key)
 
@@ -83,9 +92,11 @@ def generate(
             max_tokens=settings.max_tokens,
         )
     except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"AI generation failed: {exc}",
+        ref = uuid.uuid4().hex[:8]
+        logger.warning("[ref %s] AI reply could not be used: %s", ref, exc)
+        raise MockingbirdError(
+            status.HTTP_502_BAD_GATEWAY, AI_GENERATION_FAILED,
+            f"The AI reply couldn't be turned into a stub spec — try rephrasing the description (ref {ref})",
         ) from exc
 
     record = AiGeneration(
