@@ -9,6 +9,7 @@ from fastapi import FastAPI
 
 from .config import settings
 from .database import create_tables
+from .errors import install_error_handlers
 from .routers import admin, deploy, jobs, projects, stubs
 from .schemas import HealthOut
 
@@ -36,6 +37,7 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
         lifespan=_lifespan,
     )
+    install_error_handlers(app, "project-service")
 
     app.include_router(projects.router)
     app.include_router(stubs.router)

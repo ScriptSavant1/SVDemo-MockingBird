@@ -27,6 +27,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .error_codes import GEN_WORKER_FAILED, job_error, summarise_validation_errors
+
 logger = logging.getLogger(__name__)
 
 
@@ -79,6 +81,24 @@ def _create_generate_job(db: Any, stub_id: str, project_id: str, parsed_s3_key: 
     return new_id
 
 
+def _mark_failed_after_crash(db: Any, message: dict, stage: str) -> None:
+    """An exception escaped process_message: log it under a short ref and
+    mark the job FAILED with a coded one-liner, so the portal's job page shows
+    what happened instead of spinning on RUNNING forever. If SQS later
+    redelivers the message and a retry succeeds, process_message sets the job
+    back to RUNNING/DONE as normal."""
+    ref = uuid.uuid4().hex[:8]
+    logger.exception("[ref %s] Unhandled error processing message %s", ref, message.get("MessageId"))
+    try:
+        job_id = json.loads(message["Body"])["job_id"]
+        db.rollback()
+        _update_job(db, job_id, status="FAILED", error=job_error(
+            GEN_WORKER_FAILED, f"{stage} failed unexpectedly — the details are in the server log", ref,
+        ))
+    except Exception:
+        logger.exception("[ref %s] Could not mark the job FAILED", ref)
+
+
 # ── Message processor ─────────────────────────────────────────────────────────
 
 def process_message(
@@ -119,9 +139,9 @@ def process_message(
             tmp_path.unlink(missing_ok=True)
 
     if not vr.valid or pf is None:
-        errors = "; ".join(str(e) for e in vr.errors)
-        logger.warning("PARSE job %s failed: %s", job_id, errors)
-        _update_job(db, job_id, status="FAILED", error=errors)
+        logger.warning("PARSE job %s failed: %s", job_id, "; ".join(str(e) for e in vr.errors))
+        code, summary = summarise_validation_errors(vr.errors)
+        _update_job(db, job_id, status="FAILED", error=job_error(code, summary))
         return
 
     # Upload ParsedFile JSON to S3
@@ -193,7 +213,7 @@ def run_loop(*, once: bool = False) -> None:
                     process_message(message, s3, sqs, s3_bucket, generate_queue_url, db)
                     sqs.delete_message(QueueUrl=parse_queue_url, ReceiptHandle=message["ReceiptHandle"])
                 except Exception:
-                    logger.exception("Unhandled error processing message %s", message.get("MessageId"))
+                    _mark_failed_after_crash(db, message, "Parsing")
         finally:
             db.close()
 

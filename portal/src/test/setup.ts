@@ -30,3 +30,22 @@ if (typeof Blob !== "undefined" && !Blob.prototype.arrayBuffer) {
     });
   };
 }
+
+// Same gap, same fix, for .text() — jsdom's File extends its own Blob, which
+// doesn't implement it either (confirmed: jsdom 24.1.0's File.prototype.text
+// is undefined, unlike Node's native File). UploadPage's batch-mode preview
+// reads every selected file's content via file.text() to pair/classify
+// request+response captures before upload; without this, that effect throws
+// "file.text is not a function" as an unhandled rejection in every test that
+// exercises batch mode, even though the test's own assertions still pass —
+// the effect fires (and fails) asynchronously after the assertions run.
+if (typeof Blob !== "undefined" && !Blob.prototype.text) {
+  Blob.prototype.text = function (this: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(this);
+    });
+  };
+}

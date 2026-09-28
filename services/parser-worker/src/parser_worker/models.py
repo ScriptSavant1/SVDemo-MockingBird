@@ -93,6 +93,12 @@ class ParsedScenario(BaseModel):
     # different URLs differing only in one segment (an account/customer ID
     # embedded in the path itself — see _detect_url_segment_pattern). None
     # for stubs generated the normal (static-mapping, single shared URL) way.
+    # Composite keys (xlsx CSV lookups with more than one key column) join
+    # each column's raw value with "\x1f" (ASCII unit separator), in the
+    # same order as the owning stub's lookup_discriminator_field comma list —
+    # the same join character _detect_url_segment_pattern already uses for
+    # multi-segment URL patterns, reused here rather than inventing a second
+    # convention.
     lookup_key: Optional[str] = None
     # This scenario's own exact URL, when it differs from the owning
     # ParsedStub's request.url — set only in the URL-path-segment case
@@ -137,11 +143,30 @@ class ParsedStub(BaseModel):
     # _detect_url_segment_pattern — lookup_discriminator_field is None in
     # that case; lookup_url_pattern carries the templated path instead).
     lookup_discriminator_type: Optional[str] = None
+    # A single field name ("bban"), or — xlsx-sourced composite keys only —
+    # multiple comma-separated field names ("identifier,action") in the same
+    # left-to-right order as the corresponding CSV lookup file's key columns.
+    # generator/lookup_table.py passes this straight through unchanged;
+    # DynamicLookupRequestFilter.java splits on "," at load time and joins
+    # each request's extracted values with the same \x1f separator
+    # ParsedScenario.lookup_key composite values already use, so a
+    # single-field stub (the comma-never-appears case) and a composite one
+    # go through identical code on both sides.
     lookup_discriminator_field: Optional[str] = None
     # Set only for the "url-segment" discriminator type: the WireMock
     # urlPathPattern regex (one capture group, at the varying path segment)
     # that a single generic route can match every captured URL against.
     lookup_url_pattern: Optional[str] = None
+    # xlsx-sourced stubs only (xlsx_parser.py): force lookup-table routing
+    # even when this stub has fewer scenarios than
+    # generator/lookup_table.py's LOOKUP_TABLE_THRESHOLD auto-detect count.
+    # The xlsx sheet's own "Lookup File" column is a deliberate authoring
+    # signal — a CSV-backed keyed lookup, not a handful of ad-hoc
+    # conditions — and that intent is honoured regardless of row count (see
+    # the xlsx implementation plan (internal notes, not in this repo) §5.2). Always False for
+    # every non-xlsx parser; never changes CA LISA's existing count-only
+    # auto-detect behaviour.
+    force_lookup_table: bool = False
 
 
 class ParsedFile(BaseModel):
@@ -154,6 +179,13 @@ class ValidationError(BaseModel):
     line: Optional[int] = None
     field: Optional[str] = None
     message: str
+    # Mockingbird error code (docs/ERROR_CODES.md), e.g. "MB-UPL-004" — lets
+    # the upload API give the user one short, specific line instead of the
+    # raw message list. None = the caller's generic default for its context.
+    code: Optional[str] = None
+    # The one thing the error is about (e.g. the missing file's name), so a
+    # summary can list several of them without re-parsing `message`.
+    subject: Optional[str] = None
 
     def __str__(self) -> str:
         parts = []

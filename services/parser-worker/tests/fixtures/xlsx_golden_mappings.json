@@ -1,0 +1,73 @@
+{
+  "mapping_count": 4,
+  "mappings": [
+    {
+      "name": "SimpleStub — default",
+      "priority": 1,
+      "request": {
+        "method": "GET",
+        "urlPath": "/v1/simple"
+      },
+      "response": {
+        "body": "{\"ok\":true}",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "name": "ComplexStub — Success 1",
+      "priority": 2,
+      "request": {
+        "bodyPatterns": [
+          {
+            "matchesJsonPath": "$.action"
+          }
+        ],
+        "method": "POST",
+        "urlPath": "/v1/complex"
+      },
+      "response": {
+        "body": "{\"status\":\"created\"}",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "name": "ComplexStub — Default",
+      "priority": 1,
+      "request": {
+        "method": "POST",
+        "urlPath": "/v1/complex"
+      },
+      "response": {
+        "body": "{\"status\":\"unknown\"}",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "name": "TemplatedStub — default",
+      "priority": 1,
+      "request": {
+        "method": "POST",
+        "urlPattern": "/[^/]+/ACCTSVC120/01"
+      },
+      "response": {
+        "body": "<r><id>{{request.headers.X-Interaction-Id}}</id></r>",
+        "headers": {
+          "Content-Type": "text/xml"
+        },
+        "status": 200,
+        "transformers": [
+          "response-template"
+        ]
+      }
+    }
+  ]
+}

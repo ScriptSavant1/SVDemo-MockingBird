@@ -7,9 +7,10 @@ import { UploadZone } from "@/components/UploadZone";
 import { BatchUploadZone, type BatchFile } from "@/components/BatchUploadZone";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { IssueList } from "@/components/IssueList";
 import { pairHttpCaptureFiles, mergeHttpCaptureFiles } from "@/lib/httpCapturePairing";
 import { zipHttpCaptureFiles } from "@/lib/zipHttpCaptureFiles";
-import type { Protocol } from "@/api/types";
+import type { IngestionResult, Protocol } from "@/api/types";
 
 type BatchStatus = "pending" | "uploading" | "generating" | "done" | "error";
 type BatchGroupMode = "combined" | "separate";
@@ -18,7 +19,17 @@ interface BatchRow {
   key: string;
   name: string;
   status: BatchStatus;
+  /** One line, e.g. "MB-UPL-004 · Referenced file is missing from the upload: a.xml". */
   error?: string;
+  /** Every validation error behind `error`, when there is more than one. */
+  errorDetails?: string[];
+  warnings?: string[];
+}
+
+/** The coded one-liner for a failed validation, falling back to the first raw error. */
+function failureLine(result: IngestionResult): string {
+  if (result.error_code && result.error_summary) return `${result.error_code} · ${result.error_summary}`;
+  return result.errors[0] ?? "File failed validation.";
 }
 
 function stripExtension(filename: string): string {
@@ -70,6 +81,7 @@ export function UploadPage() {
   const [stubName, setStubName] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [errorLine, setErrorLine] = useState<string | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
 
@@ -126,9 +138,21 @@ export function UploadPage() {
   );
   const batchUploadCount = batchPairing.pairs.length + batchPairing.unpaired.length;
 
+  // A Mockingbird xlsx stub template (+ its data/ folder of response/lookup
+  // files) has nothing in common with CA LISA request/response pairing — one
+  // workbook defines many stubs by name already, so "combined vs separate"
+  // and per-file pairing preview don't apply. Detected purely by extension
+  // here (a client-side UX hint only); the server always decides the real
+  // format from content, same as every other upload path.
+  const isXlsxMode = useMemo(
+    () => batchFiles.some(({ file }) => /\.(xlsx|xlsm)$/i.test(file.name)),
+    [batchFiles],
+  );
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!file || !projectId) return;
+    setErrorLine(null);
     setErrors([]);
     setWarnings([]);
     setUploading(true);
@@ -137,7 +161,8 @@ export function UploadPage() {
       const result = await uploadSpec(projectId, stubName || file.name, file, buildTlsOptions());
 
       if (!result.valid || !result.stub_id) {
-        setErrors(result.errors.length > 0 ? result.errors : ["File failed validation."]);
+        setErrorLine(failureLine(result));
+        setErrors(result.errors);
         setWarnings(result.warnings);
         return;
       }
@@ -147,7 +172,7 @@ export function UploadPage() {
       const { job_id } = await projectsApi.generate(projectId, result.stub_id);
       void navigate(`/jobs/${job_id}?projectId=${projectId}`);
     } catch (err) {
-      setErrors([err instanceof ApiError ? err.detail : "Upload failed. Please try again."]);
+      setErrorLine(err instanceof ApiError ? err.userMessage : "Upload failed. Please try again.");
     } finally {
       setUploading(false);
     }
@@ -161,13 +186,16 @@ export function UploadPage() {
 
     let items: { key: string; name: string; file: File }[];
 
-    if (groupMode === "combined") {
-      // One stub for the whole batch: zip every raw file as-is and let the
-      // backend's existing ZIP-upload pairing (parser-worker's
-      // _detect_and_parse_zip / _pair_files) match request/response halves
-      // and fold every endpoint into one Stub record with multiple WireMock
-      // mappings — the same mechanism a manually-zipped upload already uses.
-      const name = combinedStubName.trim() || "Combined Spec";
+    if (groupMode === "combined" || isXlsxMode) {
+      // One upload for the whole batch: zip every raw file as-is and let the
+      // backend's existing ZIP-upload dispatch (parser-worker's
+      // _detect_and_parse_zip) sniff the xlsx shape first, or otherwise fall
+      // back to CA LISA request/response pairing — same zip-building call
+      // either way, zipHttpCaptureFiles is grouping-agnostic. For xlsx mode
+      // this "name" becomes the overall Stub record's display name only —
+      // the workbook's own "Stub Name" column supplies each individual
+      // operation's real name (see upload.py's override-skip for this format).
+      const name = combinedStubName.trim() || (isXlsxMode ? "Xlsx Stub Package" : "Combined Spec");
       const zip = await zipHttpCaptureFiles(
         batchFiles.map((f) => f.file),
         name,
@@ -206,22 +234,26 @@ export function UploadPage() {
       try {
         const result = await uploadSpec(projectId, stubNameForFile, f, buildTlsOptions());
         if (!result.valid || !result.stub_id) {
-          const msg = result.errors[0] ?? "File failed validation.";
+          const msg = failureLine(result);
           setBatchRows((rows) =>
-            rows.map((r) => (r.key === key ? { ...r, status: "error", error: msg } : r)),
+            rows.map((r) =>
+              r.key === key
+                ? { ...r, status: "error", error: msg, errorDetails: result.errors, warnings: result.warnings }
+                : r,
+            ),
           );
           continue;
         }
 
         setBatchRows((rows) =>
-          rows.map((r) => (r.key === key ? { ...r, status: "generating" } : r)),
+          rows.map((r) => (r.key === key ? { ...r, status: "generating", warnings: result.warnings } : r)),
         );
         await projectsApi.generate(projectId, result.stub_id);
         setBatchRows((rows) =>
           rows.map((r) => (r.key === key ? { ...r, status: "done" } : r)),
         );
       } catch (err) {
-        const msg = err instanceof ApiError ? err.detail : "Upload failed.";
+        const msg = err instanceof ApiError ? err.userMessage : "Upload failed.";
         setBatchRows((rows) =>
           rows.map((r) => (r.key === key ? { ...r, status: "error", error: msg } : r)),
         );
@@ -246,7 +278,7 @@ export function UploadPage() {
         </h1>
         <p className="mt-1 text-sm text-gray-500">
           {batchMode
-            ? "Upload several .txt / .json files at once — combine them into one stub, or keep each as its own."
+            ? "Upload several .txt / .json files at once — combine them into one stub, or keep each as its own. Or drop a Mockingbird xlsx stub template + its data files to generate every stub it defines."
             : "Upload a .txt (raw HTTP pairs) or .json (Postman v2.1) spec to generate stubs."}
         </p>
       </div>
@@ -439,23 +471,16 @@ export function UploadPage() {
                 </div>
               </div>
 
-              {errors.length > 0 && (
-                <div className="rounded bg-red-50 p-3" role="alert">
-                  <p className="mb-1 text-sm font-medium text-red-700">Validation failed</p>
-                  <ul className="list-inside list-disc space-y-0.5 text-xs text-red-600">
-                    {errors.map((e, i) => <li key={i}>{e}</li>)}
-                  </ul>
+              {errorLine && (
+                <div className="space-y-2 rounded bg-red-50 p-3" role="alert">
+                  <p className="text-sm font-medium text-red-700" data-testid="upload-error-line">{errorLine}</p>
+                  {errors.length > 1 && (
+                    <IssueList label={`Details (${errors.length})`} items={errors} tone="error" />
+                  )}
                 </div>
               )}
 
-              {warnings.length > 0 && (
-                <div className="rounded bg-yellow-50 p-3">
-                  <p className="mb-1 text-sm font-medium text-yellow-700">Warnings</p>
-                  <ul className="list-inside list-disc space-y-0.5 text-xs text-yellow-600">
-                    {warnings.map((w, i) => <li key={i}>{w}</li>)}
-                  </ul>
-                </div>
-              )}
+              <IssueList label={`Warnings (${warnings.length})`} items={warnings} tone="warning" testId="upload-warnings" />
 
               <div className="flex justify-end gap-3 pt-2">
                 <Link to={`/projects/${projectId}`}>
@@ -480,52 +505,60 @@ export function UploadPage() {
             </CardHeader>
 
             <div className="space-y-5">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">
-                  How should these files become stubs?
-                </label>
-                <div className="mt-2 space-y-2">
-                  <label className="flex cursor-pointer items-start gap-2 rounded border border-gray-200 p-3 text-sm has-[:checked]:border-[#003875] has-[:checked]:bg-blue-50">
-                    <input
-                      type="radio"
-                      name="group-mode"
-                      value="combined"
-                      checked={groupMode === "combined"}
-                      onChange={() => setGroupMode("combined")}
-                      disabled={batchRunning}
-                      className="mt-0.5"
-                    />
-                    <span>
-                      <span className="font-medium text-gray-800">One stub for all files</span>{" "}
-                      <span className="text-xs text-gray-500">(recommended)</span>
-                      <p className="mt-0.5 text-xs text-gray-500">
-                        Use this when the files describe one downstream system with several
-                        operations — e.g. a client's CreateAdviser and GetAdvisers endpoints.
-                        They deploy together as one virtual service with one URL, matching how
-                        the real service actually works.
-                      </p>
-                    </span>
-                  </label>
-                  <label className="flex cursor-pointer items-start gap-2 rounded border border-gray-200 p-3 text-sm has-[:checked]:border-[#003875] has-[:checked]:bg-blue-50">
-                    <input
-                      type="radio"
-                      name="group-mode"
-                      value="separate"
-                      checked={groupMode === "separate"}
-                      onChange={() => setGroupMode("separate")}
-                      disabled={batchRunning}
-                      className="mt-0.5"
-                    />
-                    <span>
-                      <span className="font-medium text-gray-800">One stub per file</span>
-                      <p className="mt-0.5 text-xs text-gray-500">
-                        Use this when the files are genuinely unrelated, independently
-                        deployable services — each gets its own stub and its own URL when deployed.
-                      </p>
-                    </span>
-                  </label>
+              {isXlsxMode ? (
+                <div className="rounded border border-blue-200 bg-blue-50 p-3 text-xs text-blue-700" data-testid="xlsx-mode-banner">
+                  <span className="font-medium">Mockingbird xlsx stub template detected.</span>{" "}
+                  Every stub defined in the workbook's "Stubs" tab is created automatically, using
+                  its own name from the sheet — the grouping choice below doesn't apply and is hidden.
                 </div>
-              </div>
+              ) : (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    How should these files become stubs?
+                  </label>
+                  <div className="mt-2 space-y-2">
+                    <label className="flex cursor-pointer items-start gap-2 rounded border border-gray-200 p-3 text-sm has-[:checked]:border-[#003875] has-[:checked]:bg-blue-50">
+                      <input
+                        type="radio"
+                        name="group-mode"
+                        value="combined"
+                        checked={groupMode === "combined"}
+                        onChange={() => setGroupMode("combined")}
+                        disabled={batchRunning}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="font-medium text-gray-800">One stub for all files</span>{" "}
+                        <span className="text-xs text-gray-500">(recommended)</span>
+                        <p className="mt-0.5 text-xs text-gray-500">
+                          Use this when the files describe one downstream system with several
+                          operations — e.g. a client's CreateAdviser and GetAdvisers endpoints.
+                          They deploy together as one virtual service with one URL, matching how
+                          the real service actually works.
+                        </p>
+                      </span>
+                    </label>
+                    <label className="flex cursor-pointer items-start gap-2 rounded border border-gray-200 p-3 text-sm has-[:checked]:border-[#003875] has-[:checked]:bg-blue-50">
+                      <input
+                        type="radio"
+                        name="group-mode"
+                        value="separate"
+                        checked={groupMode === "separate"}
+                        onChange={() => setGroupMode("separate")}
+                        disabled={batchRunning}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="font-medium text-gray-800">One stub per file</span>
+                        <p className="mt-0.5 text-xs text-gray-500">
+                          Use this when the files are genuinely unrelated, independently
+                          deployable services — each gets its own stub and its own URL when deployed.
+                        </p>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700">Spec files</label>
@@ -538,16 +571,20 @@ export function UploadPage() {
                 </div>
               </div>
 
-              {groupMode === "combined" && batchFiles.length > 0 && (
+              {(groupMode === "combined" || isXlsxMode) && batchFiles.length > 0 && (
                 <div>
                   <label htmlFor="combined-stub-name" className="block text-sm font-medium text-gray-700">
-                    Stub name{" "}
-                    <span className="font-normal text-gray-400">(optional — defaults to "Combined Spec")</span>
+                    {isXlsxMode ? "Package name" : "Stub name"}{" "}
+                    <span className="font-normal text-gray-400">
+                      {isXlsxMode
+                        ? "(optional — defaults to \"Xlsx Stub Package\"; individual stub names come from the sheet)"
+                        : "(optional — defaults to \"Combined Spec\")"}
+                    </span>
                   </label>
                   <input
                     id="combined-stub-name"
                     type="text"
-                    placeholder="e.g. Payments Client API"
+                    placeholder={isXlsxMode ? "e.g. Payments SV Project" : "e.g. Payments Client API"}
                     value={combinedStubName}
                     onChange={(e) => setCombinedStubName(e.target.value)}
                     disabled={batchRunning}
@@ -558,7 +595,7 @@ export function UploadPage() {
                 </div>
               )}
 
-              {groupMode === "separate" && batchRows.length === 0 && batchPairing.pairs.length > 0 && (
+              {!isXlsxMode && groupMode === "separate" && batchRows.length === 0 && batchPairing.pairs.length > 0 && (
                 <div className="rounded bg-blue-50 p-3 text-xs text-blue-700" data-testid="batch-pairing-preview">
                   Detected {batchPairing.pairs.length} request/response pair
                   {batchPairing.pairs.length === 1 ? "" : "s"} — each will be combined
@@ -576,9 +613,25 @@ export function UploadPage() {
               {batchRows.length > 0 && (
                 <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200">
                   {batchRows.map((row) => (
-                    <li key={row.key} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                      <span className="truncate font-medium text-gray-800">{row.name}</span>
-                      <BatchStatusBadge row={row} />
+                    <li key={row.key} className="space-y-1.5 px-3 py-2 text-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="truncate font-medium text-gray-800">{row.name}</span>
+                        <BatchStatusBadge row={row} />
+                      </div>
+                      {row.error && (
+                        <p className="text-xs text-red-600" data-testid="batch-row-error">{row.error}</p>
+                      )}
+                      {row.errorDetails && row.errorDetails.length > 1 && (
+                        <IssueList label={`Details (${row.errorDetails.length})`} items={row.errorDetails} tone="error" />
+                      )}
+                      {row.warnings && (
+                        <IssueList
+                          label={`Warnings (${row.warnings.length})`}
+                          items={row.warnings}
+                          tone="warning"
+                          testId="batch-row-warnings"
+                        />
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -605,9 +658,11 @@ export function UploadPage() {
                       <Button type="button" variant="ghost" disabled={batchRunning}>Cancel</Button>
                     </Link>
                     <Button type="submit" loading={batchRunning} disabled={batchFiles.length === 0}>
-                      {groupMode === "combined"
-                        ? "Upload & Generate (1 stub)"
-                        : `Upload & Generate ${batchUploadCount > 0 ? `(${batchUploadCount})` : ""}`}
+                      {isXlsxMode
+                        ? "Upload & Generate"
+                        : groupMode === "combined"
+                          ? "Upload & Generate (1 stub)"
+                          : `Upload & Generate ${batchUploadCount > 0 ? `(${batchUploadCount})` : ""}`}
                     </Button>
                   </>
                 )}

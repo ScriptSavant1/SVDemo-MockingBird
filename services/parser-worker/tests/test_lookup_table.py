@@ -107,6 +107,32 @@ class TestGenerateLookupTables:
                 "headers": {"Content-Type": "application/xml"},
                 "body": "<Account><Full>user-0</Full></Account>"} in table["entries"]
 
+    def test_templated_url_with_body_discriminator_becomes_a_url_pattern(self, tmp_path):
+        # Regression test for a real bug found by actually deploying and
+        # curling a generated stub (LKP01_RetrieveAccountStatus, a real pilot
+        # operation at "/{brand}/ACCTSVC120/01" with a "bban" body
+        # discriminator): putting the literal, un-substituted "{brand}"
+        # string in urlPath meant DynamicLookupRequestFilter's exact-URL
+        # HashMap lookup could never match any real request (whose path
+        # always has a real brand value substituted) — every request
+        # silently, permanently fell through to WireMock's static Default
+        # mapping instead of ever reaching the lookup table.
+        stub = _make_stub(LOOKUP_TABLE_THRESHOLD + 1)
+        stub.request.url = "/{brand}/ACCTSVC120/01"
+        parsed = ParsedFile(format="mockingbird-xlsx-stub-template", source_file="t", stubs=[stub])
+
+        [path] = generate_lookup_tables(parsed, tmp_path)
+        table = json.loads(path.read_text(encoding="utf-8"))
+
+        assert table["urlPath"] is None
+        assert table["urlPattern"] == "/[^/]+/ACCTSVC120/01"
+        # The body discriminator must still be present — this route is
+        # matched by URL pattern, but its VALUE still comes from the body,
+        # not from the pattern's own capture group (that's the url-segment
+        # case, a different, mutually-exclusive discriminator type).
+        assert table["discriminatorType"] == "xpath"
+        assert table["discriminatorField"] == "Full"
+
     def test_wildcard_required_headers_excluded(self, tmp_path):
         stub = _make_stub(LOOKUP_TABLE_THRESHOLD + 1)
         stub.request.required_headers["X-Any"] = "*"
@@ -164,11 +190,11 @@ def _make_url_segment_stub(scenario_count: int) -> ParsedStub:
             response_headers={"Content-Type": "application/xml"},
             body=f"<Entry><Id>{i}</Id></Entry>",
             lookup_key=f"id-{i}",
-            url_override=f"/api/customerinstructions/id-{i}/addressbook",
+            url_override=f"/api/sampleservice/id-{i}/addressbook",
         )
         for i in range(scenario_count)
     ]
-    pattern = r"/api/customerinstructions/([^/]+)/addressbook"
+    pattern = r"/api/sampleservice/([^/]+)/addressbook"
     return ParsedStub(
         name="Customer Instructions Address Book",
         request=ParsedRequestSpec(method=HttpMethod.POST, url=pattern),
@@ -195,7 +221,7 @@ class TestUrlSegmentLookupTable:
         table = json.loads(path.read_text(encoding="utf-8"))
 
         assert table["urlPath"] is None
-        assert table["urlPattern"] == r"/api/customerinstructions/([^/]+)/addressbook"
+        assert table["urlPattern"] == r"/api/sampleservice/([^/]+)/addressbook"
         assert table["discriminatorType"] == "url-segment"
         assert table["discriminatorField"] is None
         assert len(table["entries"]) == LOOKUP_TABLE_THRESHOLD + 1
@@ -218,6 +244,6 @@ class TestUrlSegmentLookupTable:
         for f in mapping_files:
             mapping = json.loads(f.read_text(encoding="utf-8"))
             assert mapping["request"]["urlPath"] in [
-                f"/api/customerinstructions/id-{i}/addressbook" for i in range(3)
+                f"/api/sampleservice/id-{i}/addressbook" for i in range(3)
             ]
             assert "bodyPatterns" not in mapping["request"]

@@ -56,7 +56,7 @@ import java.util.regex.Pattern;
  *     picked by a field extracted from the request body (an account name,
  *     a customer ID in the payload, ...).
  *   - URL-pattern, path-discriminated: a regex matching every captured
- *     URL's shape (e.g. "/customerinstructions/{id}/addressbook", where an
+ *     URL's shape (e.g. "/sampleservice/{id}/addressbook", where an
  *     ID is embedded in the path itself, not the body) — the response is
  *     picked by the one value the pattern's capture group extracts from
  *     the URL, with no body inspection at all. An earlier version of this
@@ -142,7 +142,7 @@ public class DynamicLookupRequestFilter implements StubRequestFilterV2 {
             discriminatorValue = route.extractBodyDiscriminator(request.getBodyAsString());
         } else {
             LookupRoute matchedPatternRoute = null;
-            String extractedFromUrl = null;
+            String extractedValue = null;
             for (LookupRoute candidate : patternRoutes) {
                 if (!candidate.method.equalsIgnoreCase(method)) {
                     continue;
@@ -150,12 +150,24 @@ public class DynamicLookupRequestFilter implements StubRequestFilterV2 {
                 Matcher m = candidate.urlPattern.matcher(path);
                 if (m.matches() && headersMatch(request, candidate.requiredHeaders)) {
                     matchedPatternRoute = candidate;
-                    extractedFromUrl = joinCaptureGroups(m);
+                    // Two different pattern-route shapes share this list:
+                    // "url-segment" routes (discriminatorFields null) — the
+                    // discriminator IS the matched URL segment(s), e.g. an
+                    // account ID embedded in the path itself — vs a
+                    // templated-URL route that ALSO carries a body
+                    // discriminator (e.g. "/{brand}/..." + a "bban" body
+                    // field — see lookup_table.py's _build_table for why
+                    // this needs its own urlPattern entry instead of an
+                    // exact-URL one). The two are mutually exclusive per
+                    // route, never both — see should_use_lookup_table.
+                    extractedValue = candidate.discriminatorFields != null
+                            ? candidate.extractBodyDiscriminator(request.getBodyAsString())
+                            : joinCaptureGroups(m);
                     break;
                 }
             }
             route = matchedPatternRoute;
-            discriminatorValue = extractedFromUrl;
+            discriminatorValue = extractedValue;
         }
 
         if (route == null || discriminatorValue == null) {
@@ -353,6 +365,14 @@ public class DynamicLookupRequestFilter implements StubRequestFilterV2 {
         final Map<String, String> requiredHeaders;
         final String discriminatorType; // "xpath" | "json" | "url-segment"
         final String discriminatorField; // null for "url-segment" — the value comes from the URL match instead
+        // Split from discriminatorField once here, not per-request: a plain
+        // "bban" (the common case — CA LISA always, xlsx single-key lookups
+        // like LKP01) yields a one-element array; an xlsx composite key
+        // ("identifier,action" — e.g. LKP03-shaped stubs, once that sheet
+        // names both its key columns) yields more than one. Both go through
+        // the identical extraction loop below — no special-casing which
+        // case a given route is.
+        final String[] discriminatorFields;
         final Map<String, CannedResponse> entries;
 
         private LookupRoute(String method, String urlPath, Pattern urlPattern, Map<String, String> requiredHeaders,
@@ -364,19 +384,45 @@ public class DynamicLookupRequestFilter implements StubRequestFilterV2 {
             this.requiredHeaders = requiredHeaders;
             this.discriminatorType = discriminatorType;
             this.discriminatorField = discriminatorField;
+            this.discriminatorFields = discriminatorField != null ? discriminatorField.split(",") : null;
             this.entries = entries;
         }
 
         /** Body-based discriminator extraction — never called for a
          * "url-segment" route, whose discriminator comes from the URL
-         * pattern's capture group instead (see filter()). */
+         * pattern's capture group instead (see filter()). Extracts every
+         * field named in discriminatorFields and joins them with
+         * URL_SEGMENT_KEY_JOIN, reconstructing exactly the composite key
+         * xlsx_parser.py's _build_lookup_table_scenarios built the table's
+         * entry keys from (see models.py's ParsedScenario.lookup_key
+         * docstring for the shared convention). If ANY named field is
+         * missing from this particular request's body, the whole
+         * discriminator is null — a partial composite key is never built
+         * and never risks colliding with an unrelated, differently-keyed
+         * entry. */
         String extractBodyDiscriminator(String body) {
-            if (discriminatorField == null) {
+            if (discriminatorFields == null || discriminatorFields.length == 0) {
                 return null;
             }
-            return "xpath".equals(discriminatorType)
-                    ? extractXmlField(body, discriminatorField)
-                    : extractJsonField(body, discriminatorField);
+            if (discriminatorFields.length == 1) {
+                return "xpath".equals(discriminatorType)
+                        ? extractXmlField(body, discriminatorFields[0])
+                        : extractJsonField(body, discriminatorFields[0]);
+            }
+            StringBuilder key = new StringBuilder();
+            for (int i = 0; i < discriminatorFields.length; i++) {
+                String value = "xpath".equals(discriminatorType)
+                        ? extractXmlField(body, discriminatorFields[i])
+                        : extractJsonField(body, discriminatorFields[i]);
+                if (value == null) {
+                    return null;
+                }
+                if (i > 0) {
+                    key.append(URL_SEGMENT_KEY_JOIN);
+                }
+                key.append(value);
+            }
+            return key.toString();
         }
 
         static LookupRoute fromJson(JsonNode root) {

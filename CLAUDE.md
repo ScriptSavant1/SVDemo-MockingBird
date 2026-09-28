@@ -58,7 +58,7 @@ Project teams upload their API spec in any format. Mockingbird auto-detects the 
 
 | Service              | Language                   | Purpose                                                 |
 | -------------------- | -------------------------- | ------------------------------------------------------- |
-| auth-service         | Node.js 22 + Fastify       | LDAP auth → JWT; SAML added in Phase 3                  |
+| auth-service         | Node.js 24 + Fastify       | LDAP auth → JWT; SAML added in Phase 3                  |
 | project-service      | Python 3.11 + FastAPI      | Project/stub CRUD, audit log                            |
 | ingestion-service    | Python 3.11 + FastAPI      | File upload, format auto-detection                      |
 | parser-worker        | Python 3.11 (SQS consumer) | Parses .txt / .json / Postman / OpenAPI                 |
@@ -66,7 +66,7 @@ Project teams upload their API spec in any format. Mockingbird auto-detects the 
 | deployer-worker      | Python 3.11 (SQS consumer) | Triggers GitLab CI build; runs Terraform for EC2        |
 | metrics-service      | Python 3.11 + FastAPI      | Scrapes Prometheus → Timestream; WebSocket TPS feed     |
 | reporter-service     | Python 3.11 (SQS consumer) | PDF (WeasyPrint) + Excel (openpyxl) + PPT (python-pptx) |
-| notification-service | Node.js 22 + Fastify       | Email, Slack, MS Teams webhooks                         |
+| notification-service | Node.js 24 + Fastify       | Email, Slack, MS Teams webhooks                         |
 | ai-service           | Python 3.11 + FastAPI      | Claude API — plain English → OpenAPI stub generation    |
 
 All Python packages from your organisation PyPI mirror (Artifactory). All Node packages from your organisation npm mirror.
@@ -300,7 +300,7 @@ model = "claude-haiku-4-5-20251001"  # 12x cheaper, sufficient for classificatio
 
 - **Python**: type hints on every function, Pydantic v2 models, no `Any`, PEP 8
 - **TypeScript**: strict mode, no `any`, functional components, named exports
-- **API errors**: RFC 7807 Problem JSON (`type`, `title`, `status`, `detail`)
+- **API errors**: RFC 7807 Problem JSON (`type`, `title`, `status`, `detail`) plus a Mockingbird `code` (and `ref` on unexpected errors) — `detail` is one plain-string line, never exception text. Use each service's `errors.py`; codes catalogued in `docs/ERROR_CODES.md`
 - **DB columns**: snake_case, UUID primary keys, `created_at` + `updated_at` on all tables
 - **SQS messages**: JSON with `job_id`, `type`, `payload`, `created_at`, `project_id`
 - **EventBridge**: `source: "mockingbird.{service}"`, `detail-type: "{Entity}.{Action}"`

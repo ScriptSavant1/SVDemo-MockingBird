@@ -99,6 +99,8 @@ describe("DeploymentPage", () => {
     expect(screen.getByTestId("deployment-api-key")).toHaveTextContent(LIVE_DEPLOYMENT.api_key);
   });
 
+  // Longer timeout: passes in ~2s alone, but full-suite parallel jsdom setup
+  // for this page (ECharts) can push the first render past vitest's 5s default.
   it("switches to Reports tab when clicked", async () => {
     vi.spyOn(global, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify([LIVE_DEPLOYMENT]), { status: 200 }))
@@ -112,7 +114,7 @@ describe("DeploymentPage", () => {
     await waitFor(() => {
       expect(screen.getByTestId("generate-report-button")).toBeDefined();
     });
-  });
+  }, 15_000);
 
   it("shows report job list with download buttons when reports exist", async () => {
     vi.spyOn(global, "fetch")

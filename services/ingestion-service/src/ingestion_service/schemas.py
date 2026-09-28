@@ -13,6 +13,11 @@ class IngestionResult(BaseModel):
     scenario_count: int = 0
     warnings: list[str] = []
     errors: list[str] = []
+    # Set only when valid=False: one Mockingbird code (docs/ERROR_CODES.md)
+    # and one short line saying what's wrong — what the portal shows first;
+    # `errors` keeps the full detail underneath.
+    error_code: str | None = None
+    error_summary: str | None = None
     # Set only when valid=True — the stub record created and its S3 key
     s3_key: str | None = None
     stub_id: str | None = None

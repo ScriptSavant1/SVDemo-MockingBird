@@ -153,10 +153,12 @@ From the project detail page, click **Upload Spec File**.
 
 2. **Drag and drop** your spec file onto the upload zone, or click the zone to open a file browser.
 
-   Accepted formats:
-   - CA LISA HTTP capture pair (two `.txt` files — request + response — or a `.zip` containing them)
+   Accepted formats (single file):
+   - CA LISA HTTP capture pair, already zipped into one `.zip`
    - JSON stub definition
    - Postman v2.1 collection (`.json`)
+
+   A spec made of more than one file — an unzipped CA LISA request/response pair, or a Mockingbird xlsx stub template plus its `data/` folder — uses **Multiple files (batch)** instead (same page, mode toggle at the top); the portal zips the selection for you.
 
    See [Appendix A](#appendix-a--supported-input-formats) for format details.
 
@@ -299,6 +301,16 @@ A structured JSON file following the Mockingbird stub schema. Suitable for hand-
 ### Postman collection (v2.1)
 
 Export your Postman collection with **saved responses** enabled. Mockingbird reads each request/response pair and creates a WireMock mapping for it.
+
+### Mockingbird xlsx stub template
+
+For SV teams migrating an existing IBM DevOps Test / Green Hat project (or authoring a new set of stubs directly in a spreadsheet): the `mockingbird-stub-template.xlsx` workbook, with a `Stubs` tab (one row per operation) and a `Rules` tab (one row per response scenario for operations with more than one response). Response bodies and CSV lookup files live in a `data/` folder next to the workbook.
+
+**Upload as a `.zip`** containing the `.xlsx` file plus its `data/` folder — from the portal, drag both the workbook and every file it references into the multi-file upload zone (**Multiple files (batch)**) and the portal zips them for you automatically; a manually-built zip (workbook at the root, files anywhere inside) works the same way. Every stub the workbook defines is created under its own name from the sheet's `Stub Name` column — unlike a CA LISA batch upload, the upload's own "package name" field does not rename them.
+
+`%%Token%%` placeholders in response bodies are converted to WireMock Handlebars automatically, the same as CA LISA captures. A `Lookup File` column on the `Rules` tab routes a scenario through the same O(1) dynamic lookup-table engine large CA LISA operations use — see the CSV's own columns for the key field(s) (comma-separated in `Extract Field` for more than one) and its outcome column for which scenario each row selects.
+
+Uploading validates the workbook first: a missing referenced file, an unfilled template placeholder cell, or a `Rules` row that doesn't match anything on the `Stubs` tab are all reported back before anything is generated, rather than silently producing a broken or unreachable stub.
 
 ---
 

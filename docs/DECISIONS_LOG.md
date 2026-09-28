@@ -34,6 +34,7 @@
 | API framework | FastAPI + Pydantic v2 | 2026-06-12 |
 | Auth / notification services | Node.js 20 + Fastify (superseded — see 2026-08-24 row below) | 2026-06-12 |
 | Auth / notification services — Node runtime bump | Node.js 22.11.0 + Fastify, to match the company's standard toolchain version | 2026-08-24 |
+| Auth / notification / portal — Node runtime bump (superseded 2026-08-24 row) | Node.js 24.21.0. **Note:** company standard toolchain was Node 22 as of the previous entry — this bump tracks the requester's locally-installed version, not a confirmed company-wide standard change. Flagged 2026-09-25: verify the Artifactory npm/Docker mirror actually serves Node 24 before this reaches GitLab CI (see pending input C2, still TBC) — local dev and CI/Artifactory can silently diverge otherwise. | 2026-09-25 |
 | Java version | **OpenJDK 21** (virtual threads, confirmed) | 2026-06-14 |
 | Stub engine (primary) | Spring Boot + WireMock as embedded library (NOT standalone JAR) + Netty | 2026-06-13 |
 | Stub engine (high TPS) | Hoverfly — only if > 18K TPS needed | 2026-06-13 |
@@ -195,6 +196,8 @@ These are closed. Do not reopen unless new hard facts change them.
 | EC2 Docker image pull | EC2 pulls from GitLab registry using deploy token (stored in Vault, fetched via Direct Connect) | |
 | SOAP engine | Spring-WS (not WireMock SOAP) | WireMock SOAP fragile for complex enterprise WSDLs |
 | EC2 provisioning | Terraform inside deployer-worker (not separate GitLab pipeline) | Simpler, faster, full audit via Terraform state |
+| Public-repo hygiene (2026-09-28) | This GitHub repo is public: nothing from client files is committed. `Sample_SV_Files/` is gitignored and never committed; client operation names, internal API paths, account-like values and brand codes are replaced by generic placeholders (e.g. `LKP01`, `ACCTSVC120`, `BRANDA`) in code, tests and docs; client walkthroughs/screenshots/review notes stay local (gitignored) | Company-specific details must not appear in project documents (user instruction) |
+| User-facing errors (2026-09-28) | Every error is one line `MB-XXX-NNN · message`; RFC 7807 body + `code` (+ `ref` on unexpected errors, full detail only in server logs); catalogue in `docs/ERROR_CODES.md` | Users saw bare "HTTP 500" / "Failed" with no reason (e.g. a missing xlsx data file). Codes are stable once shipped. Per-service `errors.py` copies rather than a shared package — services deploy independently. Phase 1 = upload/generate path; phase 2 = remaining services and portal pages |
 
 ---
 

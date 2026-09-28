@@ -23,8 +23,11 @@ import os
 import shutil
 import sys
 import tempfile
+import uuid
 import zipfile
 from typing import Any
+
+from parser_worker.error_codes import GEN_WORKER_FAILED, job_error
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +71,24 @@ def _update_job(db: Any, job_id: str, *, status: str, error: str | None = None, 
     set_clause = ", ".join(f"{k} = :{k}" for k in updates)
     db.execute(text(f"UPDATE jobs SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = :id"), {**updates, "id": job_id})
     db.commit()
+
+
+def _mark_failed_after_crash(db: Any, message: dict, stage: str) -> None:
+    """An exception escaped process_message: log it under a short ref and
+    mark the job FAILED with a coded one-liner, so the portal's job page shows
+    what happened instead of spinning on RUNNING forever. If SQS later
+    redelivers the message and a retry succeeds, process_message sets the job
+    back to RUNNING/DONE as normal."""
+    ref = uuid.uuid4().hex[:8]
+    logger.exception("[ref %s] Unhandled error processing message %s", ref, message.get("MessageId"))
+    try:
+        job_id = json.loads(message["Body"])["job_id"]
+        db.rollback()
+        _update_job(db, job_id, status="FAILED", error=job_error(
+            GEN_WORKER_FAILED, f"{stage} failed unexpectedly — the details are in the server log", ref,
+        ))
+    except Exception:
+        logger.exception("[ref %s] Could not mark the job FAILED", ref)
 
 
 # ── Message processor ─────────────────────────────────────────────────────────
@@ -170,7 +191,7 @@ def run_loop(*, once: bool = False) -> None:
                     process_message(message, s3, s3_bucket, db)
                     sqs.delete_message(QueueUrl=generate_queue_url, ReceiptHandle=message["ReceiptHandle"])
                 except Exception:
-                    logger.exception("Unhandled error processing message %s", message.get("MessageId"))
+                    _mark_failed_after_crash(db, message, "Stub generation")
         finally:
             db.close()
 

@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from ingestion_service import config as _cfg
-from ingestion_service.s3_client import upload_local
+from ingestion_service.s3_client import local_file_url, upload_local
 
 
 @pytest.fixture()
@@ -41,3 +41,13 @@ def test_upload_local_rejects_absolute_path_escape(storage_root):
     with pytest.raises(ValueError):
         upload_local(outside, b"pwned")
     assert not Path(outside).exists()
+
+
+def test_local_file_url_handles_relative_storage_path(tmp_path, monkeypatch):
+    # "./uploads" is the default and what start-dev.ps1 uses; Path.as_uri()
+    # raises on relative paths, which made GET .../source return 500 locally.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(_cfg.settings, "local_storage_path", "./uploads")
+    url = local_file_url("stubs/p/s/source/payment.txt")
+    assert url.startswith("file:///")
+    assert url.endswith("/uploads/stubs/p/s/source/payment.txt")

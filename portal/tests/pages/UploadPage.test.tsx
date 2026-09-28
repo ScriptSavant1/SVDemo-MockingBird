@@ -77,6 +77,50 @@ describe("UploadPage", () => {
     });
   });
 
+  it("leads with the coded one-line summary when the API provides one", async () => {
+    vi.spyOn(global, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          valid: false, stub_id: null, warnings: [], stub_count: 0, scenario_count: 0, format_detected: null,
+          errors: ["Rules!row2: ... a.xml ...", "Rules!row3: ... b.xml ..."],
+          error_code: "MB-UPL-004",
+          error_summary: "Referenced 2 files are missing from the upload: a.xml, b.xml",
+        }),
+        { status: 200 },
+      ),
+    );
+
+    renderUpload();
+    fireEvent.change(screen.getByTestId("file-input"), { target: { files: [new File(["d"], "pkg.txt")] } });
+    fireEvent.click(screen.getByRole("button", { name: /upload & generate/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("upload-error-line").textContent).toBe(
+        "MB-UPL-004 · Referenced 2 files are missing from the upload: a.xml, b.xml",
+      );
+    });
+    expect(screen.getByText("Details (2)")).toBeDefined();
+  });
+
+  it("shows the coded server error line (with ref) on an unexpected failure", async () => {
+    vi.spyOn(global, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ code: "MB-SYS-002", detail: "Server is missing the 'openpyxl' component (ref ab12cd34)", ref: "ab12cd34", status: 500, title: "Server error" }),
+        { status: 500 },
+      ),
+    );
+
+    renderUpload();
+    fireEvent.change(screen.getByTestId("file-input"), { target: { files: [new File(["d"], "spec.txt")] } });
+    fireEvent.click(screen.getByRole("button", { name: /upload & generate/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("upload-error-line").textContent).toBe(
+        "MB-SYS-002 · Server is missing the 'openpyxl' component (ref ab12cd34)",
+      );
+    });
+  });
+
   it("navigates to job status page on successful upload and generate", async () => {
     vi.spyOn(global, "fetch")
       .mockResolvedValueOnce(
@@ -295,6 +339,155 @@ describe("UploadPage", () => {
       await waitFor(() => {
         expect(screen.getByText(/0 of 1 stub created successfully, 1 failed/i)).toBeDefined();
       });
+    });
+  });
+
+  describe("batch mode — xlsx: Mockingbird stub template", () => {
+    it("detects an xlsx file and hides the grouping choice", () => {
+      renderUpload();
+      fireEvent.click(screen.getByTestId("mode-batch"));
+
+      const input = screen.getByTestId("batch-file-input");
+      fireEvent.change(input, {
+        target: { files: [new File(["x"], "mockingbird-stub-template.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })] },
+      });
+
+      expect(screen.getByTestId("xlsx-mode-banner")).toBeDefined();
+      expect(screen.queryByText(/how should these files become stubs/i)).toBeNull();
+      expect(screen.queryByLabelText(/one stub per file/i)).toBeNull();
+    });
+
+    it("zips the xlsx + every dependent file into ONE upload, regardless of file count", async () => {
+      vi.spyOn(global, "fetch")
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ valid: true, stub_id: "stub-xlsx", errors: [], warnings: [], stub_count: 47, scenario_count: 74, format_detected: "mockingbird-xlsx-stub-template" }),
+            { status: 200 },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ job_id: "job-xlsx", status: "QUEUED", type: "GENERATE" }), { status: 202 }),
+        );
+
+      renderUpload();
+      fireEvent.click(screen.getByTestId("mode-batch"));
+
+      const input = screen.getByTestId("batch-file-input");
+      const files = [
+        new File(["x"], "mockingbird-stub-template.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+        new File(["{}"], "SVC_fetch_s1_response.json", { type: "application/json" }),
+        new File(["bban,scenario"], "LKP01.csv", { type: "text/csv" }),
+      ];
+      fireEvent.change(input, { target: { files } });
+
+      // No stub count in the button — the real count is only known once the
+      // xlsx is parsed server-side, unlike combined/separate mode which can
+      // count files/pairs client-side.
+      fireEvent.click(screen.getByRole("button", { name: /^upload & generate$/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/1 of 1 stub created successfully/i)).toBeDefined();
+      });
+
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+      const uploadCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+      const uploadBody = uploadCall[1].body as FormData;
+      const uploadedFile = uploadBody.get("file") as File;
+      expect(uploadedFile.type).toBe("application/zip");
+      expect(uploadBody.get("stub_name")).toBe("Xlsx Stub Package");
+    });
+
+    function selectXlsxPackage() {
+      renderUpload();
+      fireEvent.click(screen.getByTestId("mode-batch"));
+      fireEvent.change(screen.getByTestId("batch-file-input"), {
+        target: {
+          files: [
+            new File(["x"], "mockingbird-stub-template.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+            new File(["{}"], "a_response.json", { type: "application/json" }),
+          ],
+        },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /^upload & generate$/i }));
+    }
+
+    it("shows WHY a batch item failed inline, not only in a hover tooltip", async () => {
+      vi.spyOn(global, "fetch").mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            valid: false, stub_id: null, stub_count: 0, scenario_count: 0, format_detected: "mockingbird-xlsx-stub-template",
+            errors: ["Rules!row149: ...s1...", "Rules!row154: ...s6..."],
+            warnings: ["w1", "w2", "w3"],
+            error_code: "MB-UPL-004",
+            error_summary: "Referenced 2 files are missing from the upload: s1.xml, s6.xml",
+          }),
+          { status: 200 },
+        ),
+      );
+
+      selectXlsxPackage();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("batch-row-error").textContent).toBe(
+          "MB-UPL-004 · Referenced 2 files are missing from the upload: s1.xml, s6.xml",
+        );
+      });
+      expect(screen.getByText("Details (2)")).toBeDefined();
+      expect(screen.getByTestId("batch-row-warnings").textContent).toContain("Warnings (3)");
+    });
+
+    it("lists a successful package's warnings behind a collapsed count", async () => {
+      vi.spyOn(global, "fetch")
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              valid: true, stub_id: "stub-xlsx", errors: [], stub_count: 76, scenario_count: 78, format_detected: "mockingbird-xlsx-stub-template",
+              warnings: ["SVC_fetch/Success 1: 'Path / Expression' is unfilled. Skipped.", "COP: no usable rows. Skipped."],
+            }),
+            { status: 200 },
+          ),
+        )
+        .mockResolvedValueOnce(new Response(JSON.stringify({ job_id: "j", status: "DONE", type: "PARSE" }), { status: 202 }));
+
+      selectXlsxPackage();
+
+      await waitFor(() => {
+        expect(screen.getByText(/1 of 1 stub created successfully/i)).toBeDefined();
+      });
+      const warnings = screen.getByTestId("batch-row-warnings");
+      expect(warnings.textContent).toContain("Warnings (2)");
+      expect(warnings.textContent).toContain("COP: no usable rows. Skipped.");
+      expect(screen.queryByTestId("batch-row-error")).toBeNull();
+    });
+
+    it("uses the entered package name instead of the default", async () => {
+      vi.spyOn(global, "fetch")
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ valid: true, stub_id: "stub-xlsx2", errors: [], warnings: [], stub_count: 2, scenario_count: 2, format_detected: "mockingbird-xlsx-stub-template" }),
+            { status: 200 },
+          ),
+        )
+        .mockResolvedValueOnce(new Response(JSON.stringify({ job_id: "job-xlsx2", status: "QUEUED", type: "GENERATE" }), { status: 202 }));
+
+      renderUpload();
+      fireEvent.click(screen.getByTestId("mode-batch"));
+
+      const input = screen.getByTestId("batch-file-input");
+      fireEvent.change(input, {
+        target: { files: [new File(["x"], "template.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })] },
+      });
+      fireEvent.change(screen.getByLabelText(/package name/i), { target: { value: "pilot Payments" } });
+
+      fireEvent.click(screen.getByRole("button", { name: /^upload & generate$/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/1 of 1 stub created successfully/i)).toBeDefined();
+      });
+
+      const uploadCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+      const uploadBody = uploadCall[1].body as FormData;
+      expect(uploadBody.get("stub_name")).toBe("pilot Payments");
     });
   });
 });

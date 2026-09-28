@@ -23,9 +23,12 @@ describe("buildJobSteps", () => {
     expect(steps[1].status).toBe("done");
   });
 
-  it("third step is active when job is DONE (generating in background)", () => {
+  // DONE shows every step ticked — changed deliberately in 8e7ccb3 (a
+  // spinner on steps 3+4 of a finished job read as "still working").
+  it("third and fourth steps are done when job is DONE", () => {
     const steps = buildJobSteps("DONE", "PARSE");
-    expect(steps[2].status).toBe("active");
+    expect(steps[2].status).toBe("done");
+    expect(steps[3].status).toBe("done");
   });
 
   it("third step is error when job is FAILED", () => {

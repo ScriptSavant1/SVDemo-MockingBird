@@ -142,7 +142,8 @@ class TestGetStub:
         project_id = _create_project(sv_client)
         r = sv_client.get(f"/api/v1/projects/{project_id}/stubs/{uuid.uuid4()}")
         assert r.status_code == 404
-        assert "stub-not-found" in r.json()["detail"]["type"]
+        assert "stub-not-found" in r.json()["type"]
+        assert r.json()["detail"].startswith("Stub ")
 
     def test_get_stub_wrong_project(self, sv_client: TestClient):
         pid1 = _create_project(sv_client, "Project X")

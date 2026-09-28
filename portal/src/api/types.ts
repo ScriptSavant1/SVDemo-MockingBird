@@ -82,6 +82,10 @@ export interface IngestionResult {
   warnings: string[];
   stub_count: number;
   scenario_count: number;
+  /** Set when valid=false — e.g. "MB-UPL-004"; see docs/ERROR_CODES.md. */
+  error_code?: string | null;
+  /** Set when valid=false — the one short line to show first. */
+  error_summary?: string | null;
 }
 
 export interface TlsCertUploadResult {

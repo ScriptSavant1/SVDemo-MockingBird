@@ -29,7 +29,9 @@ def upload_local(s3_key: str, data: bytes) -> str:
 def local_file_url(s3_key: str) -> str:
     """Return a file:// URL so the frontend can show a path (local dev only)."""
     dest = Path(settings.local_storage_path or "./uploads") / s3_key  # type: ignore[arg-type]
-    return dest.as_uri()
+    # resolve(): as_uri() raises ValueError on a relative path, and the default
+    # (and start-dev.ps1's) local_storage_path is the relative "./uploads".
+    return dest.resolve().as_uri()
 
 
 # ── S3 storage ───────────────────────────────────────────────────────────────

@@ -92,9 +92,9 @@ automatically.
 ### URL path segment differentiation
 
 Some operations embed the discriminating value in the **URL path itself**,
-not the body — e.g. `POST /customerinstructions/{customerId}/addressbook`,
+not the body — e.g. `POST /sampleservice/{customerId}/addressbook`,
 recorded once per customer with the ID as a literal path segment
-(`.../062-2187638988/addressbook`, `.../289-9984361405/addressbook`, ...).
+(`.../100-0000000001/addressbook`, `.../100-0000000002/addressbook`, ...).
 `_detect_url_segment_pattern` finds this shape: given every captured URL for
 one operation, split each on `/` and check whether (a) they all have the
 same segment count and (b) one or more segment indices vary across every

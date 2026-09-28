@@ -64,7 +64,7 @@ You need these installed before you start. Minimum versions are important.
 | Tool | Version | Why | Install |
 |------|---------|-----|---------|
 | Python | 3.11 or higher | Runs the parser and platform services | [python.org](https://www.python.org/downloads/) |
-| Node.js | 22 or higher | Runs the auth-service | [nodejs.org](https://nodejs.org/) |
+| Node.js | 24 or higher | Runs the auth-service | [nodejs.org](https://nodejs.org/) |
 | Docker + Docker Compose | Latest | Runs the generated stubs and platform | [docker.com](https://www.docker.com/get-started/) |
 | Java | 21 | Required only if building the Spring Boot stub without Docker | [adoptium.net](https://adoptium.net/) |
 | Git | Any | Version control | [git-scm.com](https://git-scm.com/) |
@@ -73,7 +73,7 @@ You need these installed before you start. Minimum versions are important.
 
 ```bash
 python --version        # should say Python 3.11.x or higher
-node --version          # should say v22.x.x or higher
+node --version          # should say v24.x.x or higher
 docker --version        # any recent version
 docker compose version  # any recent version
 java --version          # should say 21.x.x or higher
@@ -391,6 +391,21 @@ sv-gen --input payment.mq.json --output ./mq-stub
 
 Output: a Spring Boot + `mq-jms-spring-boot-starter` project. Set `MQ_HOST`, `MQ_PORT`, `MQ_QUEUE_MANAGER`, `MQ_CHANNEL`, `MQ_USER`, `MQ_PASSWORD` at runtime.
 
+### Format 10: Mockingbird xlsx stub template
+
+For SV teams migrating an existing IBM DevOps Test / Green Hat project, or authoring stubs directly in a spreadsheet. A `Stubs` tab (one row per operation) and a `Rules` tab (one row per response scenario, for operations with more than one), plus a `data/` folder of response bodies and CSV lookup files. REST and SOAP only — see Formats 7–9 above for Kafka/AsyncAPI/MQ.
+
+Zip the workbook together with its `data/` folder (workbook at the zip root, files anywhere inside — nesting doesn't matter) and point `sv-gen` at the zip, the same way a CA LISA capture pair is zipped:
+
+```bash
+sv-gen --input pilot-stubs.zip --output ./pilot-stub --dry-run   # validate first — reports every
+                                                                # missing file / unfilled cell / broken
+                                                                # cross-reference before generating anything
+sv-gen --input pilot-stubs.zip --output ./pilot-stub
+```
+
+`%%Token%%` placeholders in response bodies convert to WireMock Handlebars automatically, same as CA LISA. A `Rules` row with a `Lookup File` (a CSV mapping a request field's value — or several, comma-separated in `Extract Field`, for a composite key — to which scenario applies) routes through the same O(1) dynamic lookup-table engine large CA LISA operations use, regardless of how many scenarios the operation has.
+
 ---
 
 ## Available Response Features
@@ -575,8 +590,8 @@ SVDemo-MockingBird/
 │   │   │   └── templates/             ← Per-engine Java project templates
 │   │   └── tests/                     ← ~480 tests (pytest)
 │   │
-│   ├── auth-service/                  ← Login + JWT (Node.js 22 + Fastify)
-│   │   ├── package.json               ← Node.js 22 + Fastify v4
+│   ├── auth-service/                  ← Login + JWT (Node.js 24 + Fastify)
+│   │   ├── package.json               ← Node.js 24 + Fastify v4
 │   │   ├── tsconfig.json
 │   │   ├── Dockerfile
 │   │   ├── src/
@@ -680,7 +695,7 @@ npm run test:coverage
 │                                                                  │
 │  ┌─────────────┐  ┌──────────────┐  ┌───────────────────────┐   │
 │  │ auth-service│  │project-service│  │ Other platform        │   │
-│  │ Node.js 22  │  │ Python/FastAPI│  │ services (Phase 3-5)  │   │
+│  │ Node.js 24  │  │ Python/FastAPI│  │ services (Phase 3-5)  │   │
 │  │ Port: 3001  │  │ Port: 8001   │  │ ingestion, parser,    │   │
 │  └─────────────┘  └──────────────┘  │ generator, deployer   │   │
 │         │                │           └───────────────────────┘   │
@@ -832,7 +847,7 @@ These items are needed before connecting to the internal network. They do not af
 | Java version | OpenJDK 21 | Virtual threads — the key to 10K+ TPS on a single server |
 | CLI tool | Python 3.11 + Click | Fast development, excellent file parsing libraries |
 | Platform API | Python 3.11 + FastAPI | Auto-generates Swagger docs; Pydantic validation |
-| Auth service | Node.js 22 + Fastify | Fastest Node.js HTTP framework; TypeScript strict mode |
+| Auth service | Node.js 24 + Fastify | Fastest Node.js HTTP framework; TypeScript strict mode |
 | Database | PostgreSQL 15 (AWS RDS) | Zero licence cost; SQLAlchemy ORM works with both Postgres and SQLite (tests) |
 | Job queue | AWS SQS | Fully managed; no ops overhead |
 | Cache | Redis 7 (AWS ElastiCache) | Sessions, WebSocket pub/sub, API cache |

@@ -5,7 +5,146 @@ Format: one entry per bug, newest at the top.
 
 ---
 
-## BUG-037 — Only one varying URL path segment was supported; two+ fell back to one stub per distinct URL
+## BUG-044 — Stub-project generation failure during upload was only logged — upload reported success
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-044 |
+| **Found** | 2026-09-28 |
+| **Status** | FIXED |
+| **Severity** | Medium (user told "created successfully", then *Download Stub Project* 404s with no explanation) |
+| **Files** | `services/ingestion-service/src/ingestion_service/routers/upload.py` |
+| **Commit** | (session fix — error codes phase 1) |
+
+**Root cause:** the local-dev pre-generation of the Spring Boot project and WireMock ZIP deliberately doesn't fail the upload, but the `except` only logged — nothing reached the user.
+
+**Fix:** the failure is now returned as an upload warning, `MB-GEN-001` / `MB-GEN-002 · … (ref xxxx)`, shown on the Upload page. Regression test: `test_upload.py::test_stub_project_generation_failure_is_a_visible_warning`.
+
+---
+
+## BUG-043 — A crash in parser-worker / generator-worker left the job RUNNING forever
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-043 |
+| **Found** | 2026-09-28 |
+| **Status** | FIXED |
+| **Severity** | High (portal job page spins indefinitely with no error) |
+| **Files** | `services/parser-worker/src/parser_worker/worker.py`, `services/generator-worker/src/generator_worker/worker.py` |
+| **Commit** | (session fix — error codes phase 1) |
+
+**Root cause:** `run_loop` caught any exception from `process_message` and only logged it; the job row had already been set to RUNNING and was never updated. The existing test `test_invalid_parsed_json_sets_job_failed` only asserted that an exception was raised, never the job status.
+
+**Fix:** `_mark_failed_after_crash` marks the job FAILED with `MB-GEN-003 · <stage> failed unexpectedly … (ref xxxx)`. That test now drives the real `run_loop` (moto SQS + SQLite file DB) and asserts the FAILED status and message.
+
+---
+
+## BUG-042 — project-service errors reached the portal as a nested object ("[object Object]")
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-042 |
+| **Found** | 2026-09-28 |
+| **Status** | FIXED |
+| **Severity** | Medium (every project-service 4xx showed an unreadable message) |
+| **Files** | `services/project-service/src/project_service/errors.py` (new), `portal/src/api/client.ts` |
+| **Commit** | (session fix — error codes phase 1) |
+
+**Root cause:** routers raise `HTTPException(detail=ProblemDetail(...).model_dump())`, which FastAPI serialises as `{"detail": {type, title, status, detail}}`; the portal assumed `detail` is a string.
+
+**Fix:** a global handler flattens it to top-level Problem JSON with a string `detail` (keeping the original `type` URI) plus `code`; the portal's shared `apiErrorFromResponse` also reads the old nested shape defensively. Tests: `project-service/tests/test_errors.py`, `portal/tests/api/errors.test.ts`.
+
+---
+
+## BUG-041 — "Get source file" returned HTTP 500 in local dev (relative storage path → `as_uri()` ValueError)
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-041 |
+| **Found** | 2026-09-28 |
+| **Status** | FIXED |
+| **Severity** | Medium (local dev only — `GET /api/v1/projects/{pid}/stubs/{sid}/source` always 500'd; S3 mode unaffected) |
+| **Files** | `services/ingestion-service/src/ingestion_service/s3_client.py`, `services/ingestion-service/tests/test_s3_client.py` |
+| **Commit** | (session fix) |
+
+**Description:**
+Found by running the full ingestion-service suite: `test_upload.py::test_get_presigned_url_for_uploaded_stub` failed with a 500. The service's `.env` sets `local_storage_path=./uploads` (as does `start-dev.ps1`), so the endpoint takes the local-storage branch and calls `local_file_url()`.
+
+**Root cause:**
+`local_file_url()` returned `(Path(local_storage_path) / key).as_uri()`. `Path.as_uri()` raises `ValueError: relative path can't be expressed as a file URI` for any relative path — and the default storage path is relative.
+
+**Fix:**
+`.resolve().as_uri()`. New regression test `test_s3_client.py::test_local_file_url_handles_relative_storage_path` pins the relative-path case explicitly, so it no longer depends on whatever the developer's `.env` happens to contain.
+
+**Related (environment, not code):** local service venvs created before `openpyxl` was added to `parser-worker/pyproject.toml` lack it — xlsx uploads then 500 and parser-worker's tests fail at collection. Fix: `venv\Scripts\python.exe -m pip install -e ..\parser-worker` (ingestion-service) / `pip install -e .` (parser-worker). Docker builds are unaffected.
+
+---
+
+## BUG-040 — Lookup-table stubs with a templated URL always fell through to the static Default mapping, silently never consulting the lookup table
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-040 |
+| **Found** | 2026-09-25 |
+| **Status** | FIXED |
+| **Severity** | High (the lookup-table engine's entire keyed-routing behavior silently never engaged — every request landed on the Default fallback regardless of the actual discriminator value, for any stub matching this shape) |
+| **Files** | `services/parser-worker/src/parser_worker/generator/lookup_table.py`, `services/parser-worker/src/parser_worker/templates/stub-engine/src/main/java/com/mockingbird/stubs/DynamicLookupRequestFilter.java` |
+| **Commit** | (session fix, part of xlsx Phase 2) |
+
+**Description:**
+Found only by actually deploying a generated stub and curling it with different real values (the xlsx implementation plan (internal notes, not in this repo) §10 Phase 2's end-to-end verification) — not reproducible from unit tests against the Python objects alone, and not something any prior code path had ever exercised. `LKP01_RetrieveAccountStatus` (real pilot data) has a `"{brand}"`-templated URL (`/{brand}/ACCTSVC120/01`) **and** a body-field lookup discriminator (`bban`) — a combination that, before this fix, silently defeated the whole lookup-table engine: `generator/lookup_table.py`'s `_build_table` put the *literal, un-substituted* string `"{brand}"` into the table's `urlPath`, but `DynamicLookupRequestFilter`'s exact-URL routing does a plain `HashMap` lookup keyed by each *real* request's own resolved path (e.g. `/BRANDA/ACCTSVC120/01`) — which can never equal the literal `"{brand}"` placeholder. Every single request for such a stub missed the exact-URL route entirely and fell straight through to WireMock's static `Default` mapping, regardless of what the actual discriminator value was. Verified live: three different `bban` values (a known-success one, a known-error one, and one absent from the CSV) all returned the *same* `Default` response before the fix.
+
+**Root cause:**
+The lookup-table engine's two discriminator shapes were designed as mutually exclusive — `"url-segment"` (the URL's own varying part *is* the discriminator, matched via regex, no body inspection) vs. exact-URL body-discrimination (URL assumed fully literal, discriminator comes from the body). Nothing handled the case actually present in real xlsx data: a *templated* URL (needs regex/pattern matching) combined with a *separate* body-field discriminator (two independent things a real request varies, not one).
+
+**Fix:**
+`_build_table` now detects `{word}` placeholders in a body-discriminated stub's URL (reusing the identical substitution `generator/wiremock.py`'s `_apply_url_matcher` already uses for the exact same pattern) and emits a `urlPattern` regex route instead of a literal `urlPath` — while still carrying the body `discriminatorField`. `DynamicLookupRequestFilter.java`'s pattern-route matching now checks whether the matched route carries a body discriminator and, if so, extracts from the body instead of assuming (as before) that a pattern route's key always comes from the URL's own regex capture groups.
+
+**Verified live, twice** (not just re-run after the fix — reproduced broken, then reproduced fixed, on the same real data): regenerated, recompiled (`mvn package`, real jar), and re-ran the actual pilot-derived stub engine; `bban=90000000005356` → `Succeeded`, `bban=90000000005357` → `PartiallySucceeded` (previously *also* `Succeeded` — the bug), an unrecognised `bban` → the real `Default` body, and a different `{brand}` segment (`BRANDB` vs `BRANDA`) with a known-good `bban` → still routes correctly, proving the pattern-match and body-lookup now genuinely compose. New regression test: `tests/test_lookup_table.py::test_templated_url_with_body_discriminator_becomes_a_url_pattern`.
+
+---
+
+## BUG-039 — Upload's stub-name override would have clobbered xlsx-sourced stub names
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-039 |
+| **Found** | 2026-09-25 |
+| **Status** | FIXED |
+| **Severity** | High (would have silently destroyed every real per-operation stub name from any xlsx upload) |
+| **Files** | `services/ingestion-service/src/ingestion_service/routers/upload.py` |
+| **Commit** | (session fix, part of xlsx Phase 1) |
+
+**Description:**
+Found while wiring the portal's batch upload to support the new Mockingbird xlsx stub template format (§10 Phase 1, the xlsx implementation plan (internal notes, not in this repo)). `upload_stub_file`'s existing stub-name-override logic — written for CA LISA, whose parser derives names from a meaningless random temp filename — unconditionally overwrites every `ParsedStub.name` with `"{form stub_name} {i}"` whenever more than one stub comes back from a single upload. Applied to an xlsx upload, this would have silently replaced real, meaningful per-operation names (`"SVC_fetch"`, `"AccountDB"`, `"CoreCustomer"`, ...) with generic, indistinguishable names like `"My Package 1"`, `"My Package 2"`, ... for every one of a workbook's stubs — the exact same "lost meaningful names" failure class BUG-034/BUG-035 in this file already fixed for CA LISA, just reintroduced for the new format.
+
+**Root cause:**
+The override had no format-awareness — it assumed *every* multi-stub source's names are meaningless filename artifacts, true for CA LISA but false for xlsx (whose names come from the sheet's own "Stub Name" column).
+
+**Fix:**
+Override now skips entirely when `validation_result.format_detected == "mockingbird-xlsx-stub-template"`. `stub_name` still names the overall `Stub` database record (the uploaded package), it just no longer touches the individual `ParsedStub` names inside it for this format. Covered by `test_upload_xlsx_zip_generates_all_stubs_and_preserves_real_names` (`services/ingestion-service/tests/test_upload.py`) — uploads under a generic package name, downloads the generated WireMock zip, and asserts the real per-operation names survived into the mapping filenames while the generic package name did not.
+
+---
+
+## BUG-038 — JobProgress "Generating WireMock stubs" step shows done before generation has actually run
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-038 |
+| **Found** | 2026-09-25 |
+| **Status** | OPEN |
+| **Severity** | Low (UI-only — no data loss, no incorrect stub output; misleading progress indicator only) |
+| **Files** | `portal/src/components/JobProgress.tsx` |
+| **Commit** | — |
+
+**Description:**
+Found incidentally while verifying the portal test suite passes cleanly after the Node 22→24 runtime bump (not caused by that change — reproduced in isolation, unrelated to Node/jsdom). `tests/components/JobProgress.test.tsx`'s existing test "third step is active when job is DONE (generating in background)" fails: `buildJobSteps("DONE", "PARSE")` returns `steps[2].status === "done"`, not `"active"`.
+
+**Root cause:**
+`buildJobSteps` (`JobProgress.tsx:78`) sets the "Generating WireMock stubs" step's status to `isDone ? "done" : ...` where `isDone` reflects only the **parse** job's status. Per the platform's own documented flow (`START_HERE.md` §8, `README.md` architecture diagram), generation is a separate downstream job (`generate-queue` → `generator-worker`), triggered after parse completes, not part of the same job record this function receives. A `DONE` parse job does not mean generation has finished — the function conflates the two, so the UI can show "Generating WireMock stubs ✓ done" while generation is, in reality, still in progress or hasn't started.
+
+**Fix (not yet applied):**
+Needs `buildJobSteps` to receive (or the caller to poll) the generate job's own status separately from the parse job's, rather than inferring step 3 from `isDone` on the parse job alone. Left open rather than patched inline — the right fix depends on whether the generate-job status is already available to whatever calls `buildJobSteps` (needs a quick check of the JobStatus page's polling logic) or needs a new field threaded through; a one-line status-flag swap without checking that would just move the bug rather than fix it.
 
 | Field | Value |
 |-------|-------|
@@ -65,7 +204,7 @@ Captures are now split by HTTP method first; the existing same-URL / URL-pattern
 | **Commit** | (session fix) |
 
 **Description:**
-A real capture file (`CustomerInstructionsAddressBookPost_Request/Response.txt`, 29 captures) recorded the same operation once per customer, with the customer ID embedded directly in the URL path (`/customerinstructions/062-2187638988/addressbook`, `/customerinstructions/289-9984361405/addressbook`, ...) rather than in the body. Uploading it produced one stub reachable only at the *first* captured URL — every other capture's distinct URL was silently discarded, so a real client calling any other customer's URL got a 404.
+A real capture file (`SampleServiceAddressBookPost_Request/Response.txt`, 29 captures) recorded the same operation once per customer, with the customer ID embedded directly in the URL path (`/sampleservice/100-0000000001/addressbook`, `/sampleservice/100-0000000002/addressbook`, ...) rather than in the body. Uploading it produced one stub reachable only at the *first* captured URL — every other capture's distinct URL was silently discarded, so a real client calling any other customer's URL got a 404.
 
 **Root cause:**
 `_build_stub_from_captures` (the shared multi-capture pipeline added for BUG-029/032) had a hardcoded assumption that every capture of one operation shares one exact URL — `url = requests[0].url`. That's true when the URL is constant and only the body/headers vary, but false whenever the API itself encodes an identifier in the path.

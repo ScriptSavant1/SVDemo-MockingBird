@@ -76,15 +76,22 @@ skip_if_no_custom_label_samples = pytest.mark.skipif(
 )
 
 # Real-world sample where the URL itself varies per capture (a customer ID
-# embedded in the path, e.g. ".../062-2187638988/addressbook" vs
-# ".../289-9984361405/addressbook") rather than headers/body — the shape
+# embedded in the path, e.g. ".../100-0000000001/addressbook" vs
+# ".../100-0000000002/addressbook") rather than headers/body — the shape
 # that exposed the "only one URL created, repeatedly" bug.
-URL_SEGMENT_REQ = _LABELLED_SAMPLE_DIR / "XML Samples" / "CustomerInstructionsAddressBookPost_Request.txt"
-URL_SEGMENT_RESP = _LABELLED_SAMPLE_DIR / "XML Samples" / "CustomerInstructionsAddressBookPost_Response.txt"
+# Located by pattern, not exact name: the real local capture files carry
+# the client's service name, which must not appear in this public repo.
+def _first_match(pattern: str) -> Path:
+    matches = sorted((_LABELLED_SAMPLE_DIR / "XML Samples").glob(pattern))
+    return matches[0] if matches else _LABELLED_SAMPLE_DIR / "XML Samples" / pattern.replace("*", "")
+
+
+URL_SEGMENT_REQ = _first_match("*AddressBookPost_Request.txt")
+URL_SEGMENT_RESP = _first_match("*AddressBookPost_Response.txt")
 _URL_SEGMENT_SAMPLES_PRESENT = URL_SEGMENT_REQ.exists() and URL_SEGMENT_RESP.exists()
 skip_if_no_url_segment_samples = pytest.mark.skipif(
     not _URL_SEGMENT_SAMPLES_PRESENT,
-    reason="Sample_SV_Files/Wealth/XML Samples CustomerInstructionsAddressBook files not present in repo",
+    reason="Sample_SV_Files/Wealth/XML Samples *AddressBookPost files not present (local-only samples)",
 )
 
 
@@ -393,7 +400,8 @@ class TestInlineVariantSampleFiles:
         stub = pf.stubs[0]
 
         assert stub.request.method.value == "POST"
-        assert stub.request.url == "/NWB/DB_Core_Online_Systems/DBGetAccMasterDataAJC"
+        # Brand segment varies by (local, real) sample — assert the shape.
+        assert re.fullmatch(r"/[A-Z]+/DB_Core_Online_Systems/DBGetAccMasterDataAJC", stub.request.url), stub.request.url
         # SOAPAction must survive — it's often the only thing distinguishing
         # SOAP operations that share one URL.
         assert stub.request.required_headers.get("SOAPAction") == "getAccMasterData"
@@ -424,7 +432,8 @@ class TestInlineVariantSampleFiles:
         stub = pf.stubs[0]
 
         assert stub.request.method.value == "POST"
-        assert stub.request.url == "/NWB/DB_Core_Online_Systems/DBGetAccMasterDataAJC"
+        # Brand segment varies by (local, real) sample — assert the shape.
+        assert re.fullmatch(r"/[A-Z]+/DB_Core_Online_Systems/DBGetAccMasterDataAJC", stub.request.url), stub.request.url
         assert stub.request.required_headers.get("SOAPAction") == "getAccMasterData"
 
         scenario = stub.scenarios[0]
@@ -878,17 +887,17 @@ class TestWealthXmlSamples:
 class TestDetectUrlSegmentPattern:
     def test_finds_single_varying_segment(self):
         urls = [
-            "/api/customerinstructions/062-2187638988/addressbook",
-            "/api/customerinstructions/289-9984361405/addressbook",
-            "/api/customerinstructions/453-8232322043/addressbook",
+            "/api/sampleservice/100-0000000001/addressbook",
+            "/api/sampleservice/100-0000000002/addressbook",
+            "/api/sampleservice/100-0000000003/addressbook",
         ]
         result = _detect_url_segment_pattern(urls)
         assert result is not None
         pattern, values = result
-        assert values == ["062-2187638988", "289-9984361405", "453-8232322043"]
+        assert values == ["100-0000000001", "100-0000000002", "100-0000000003"]
         assert re.fullmatch(pattern, urls[0])
         assert re.fullmatch(pattern, urls[1])
-        assert not re.fullmatch(pattern, "/api/customerinstructions/addressbook")
+        assert not re.fullmatch(pattern, "/api/sampleservice/addressbook")
 
     def test_pattern_escapes_regex_special_characters_in_literal_segments(self):
         urls = ["/api/v1.0/a/thing", "/api/v1.0/b/thing"]
@@ -1124,8 +1133,9 @@ class TestUrlSegmentSampleFiles:
         url_overrides = [s.url_override for s in stub.scenarios]
         assert all(u is not None for u in url_overrides)
         assert len(set(url_overrides)) == len(url_overrides)
-        assert "/api/distribution/v3/customerinstructions/062-2187638988/addressbook" in url_overrides
-        assert "/api/distribution/v3/customerinstructions/289-9984361405/addressbook" in url_overrides
+        # Shape, not literal values — the real captured IDs stay out of the repo.
+        for url in url_overrides:
+            assert re.fullmatch(r"/api/distribution/v3/[a-z]+/\d{3}-\d{10}/addressbook", url), url
 
         # The stub's own request.url is the shared regex pattern, matching
         # every one of those exact URLs.

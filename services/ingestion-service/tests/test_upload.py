@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import io
 import uuid
+import zipfile
 
+import openpyxl
 import pytest
 
 # Mirror the UUIDs defined in conftest — must start with a letter (SQLite NUMERIC affinity guard)
@@ -167,6 +169,84 @@ def test_upload_postman_json_detected(sv_client):
     assert "postman" in body["format_detected"].lower()
 
 
+def _xlsx_zip_bytes() -> bytes:
+    """Build a minimal, real Mockingbird xlsx stub template zip in memory —
+    one static stub, one data-driven stub with a real (non-placeholder)
+    match condition and a Default row, mirroring xlsx_parser's own test
+    fixtures. Used here specifically to prove upload.py's stub-name-override
+    fix: these two names ("SimpleStub", "ComplexStub") must survive into the
+    generated WireMock mappings untouched by whatever stub_name the form
+    submits.
+    """
+    wb = openpyxl.Workbook()
+    stubs_ws = wb.active
+    stubs_ws.title = "Stubs"
+    stubs_ws.append(["STUBS"])
+    stubs_ws.append([
+        "Stub Name", "Model", "Protocol", "Method", "URL Path", "Templated URL?",
+        "Request Body", "Response Status", "Response Content-Type",
+        "Response Body  (inline, file:<name>, or SEE Rules)", "Data-driven?", "Notes",
+    ])
+    stubs_ws.append(["SimpleStub", "Demo", "REST", "GET", "/v1/simple", "No", None, "200",
+                      "application/json", '{"ok":true}', "No", ""])
+    stubs_ws.append(["ComplexStub", "Demo", "REST", "POST", "/v1/complex", "No", None, "200",
+                      "application/json", "SEE Rules tab", "Yes", ""])
+
+    rules_ws = wb.create_sheet("Rules")
+    rules_ws.append(["RULES"])
+    rules_ws.append([
+        "Stub Name", "Order", "Scenario", "Extract Field", "Extract From",
+        "Path / Expression", "Lookup File", "Match On", "Response Status",
+        "Response Body (file:<name>)",
+    ])
+    rules_ws.append(["ComplexStub", 1, "Success 1", "action", "body-json-path", "$.action",
+                      None, "action == 'create'", 200, '{"status":"created"}'])
+    rules_ws.append(["ComplexStub", 2, "Default", "action", "body-json-path", "$.action",
+                      None, "always", 200, '{"status":"unknown"}'])
+
+    xlsx_buf = io.BytesIO()
+    wb.save(xlsx_buf)
+
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("mockingbird-stub-template.xlsx", xlsx_buf.getvalue())
+    return zip_buf.getvalue()
+
+
+def test_upload_xlsx_zip_generates_all_stubs_and_preserves_real_names(sv_client):
+    """Regression test for the stub-name-override bug: uploading an xlsx zip
+    with a generic package-level stub_name must NOT overwrite the sheet's own
+    per-operation stub names ("SimpleStub", "ComplexStub") with "My Package 1"
+    / "My Package 2" the way CA LISA/Postman uploads intentionally do.
+    """
+    resp = sv_client.post(
+        f"/api/v1/projects/{PROJECT_ID}/stubs/upload",
+        data={"stub_name": "My Package"},
+        files={"file": ("xlsx-mini.zip", io.BytesIO(_xlsx_zip_bytes()), "application/zip")},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["valid"] is True, body.get("errors")
+    assert "xlsx" in body["format_detected"]
+    assert body["stub_count"] == 2
+    assert body["scenario_count"] == 3  # SimpleStub: 1, ComplexStub: 2
+
+    stub_id = body["stub_id"]
+    zip_resp = sv_client.get(f"/api/v1/projects/{PROJECT_ID}/stubs/{stub_id}/wiremock.zip")
+    assert zip_resp.status_code == 200
+
+    with zipfile.ZipFile(io.BytesIO(zip_resp.content)) as zf:
+        names = zf.namelist()
+
+    # The real per-operation names must appear in the generated mapping
+    # filenames; the generic package-level "stub_name" must NOT have replaced
+    # them (that would collapse both operations into indistinguishable
+    # "my_package_1_*"/"my_package_2_*" files).
+    assert any("simplestub" in n.lower() for n in names), names
+    assert any("complexstub" in n.lower() for n in names), names
+    assert not any("my_package" in n.lower() for n in names), names
+
+
 def test_upload_by_admin_succeeds(admin_client):
     resp = admin_client.post(
         f"/api/v1/projects/{PROJECT_ID}/stubs/upload",
@@ -202,7 +282,9 @@ def test_upload_empty_file_returns_error(sv_client):
     )
     assert resp.status_code == 200
     assert resp.json()["valid"] is False
-    assert resp.json()["errors"][0] == "Uploaded file is empty"
+    body = resp.json()
+    assert body["error_code"] == "MB-UPL-001"
+    assert body["error_summary"] == "'empty.txt' is empty"
 
 
 # ── 404 – project not found ───────────────────────────────────────────────────
@@ -215,6 +297,9 @@ def test_upload_to_unknown_project_returns_404(sv_client):
         files={"file": ("payment.txt", io.BytesIO(LEVEL1_TXT), "text/plain")},
     )
     assert resp.status_code == 404
+    body = resp.json()
+    assert body["code"] == "MB-REQ-404"
+    assert body["detail"] == f"Project {UNKNOWN_PROJECT_ID} not found"
 
 
 # ── Auth / RBAC ───────────────────────────────────────────────────────────────
@@ -258,6 +343,9 @@ def test_upload_oversized_file_returns_413(sv_client):
         files={"file": ("big.txt", io.BytesIO(big_content), "text/plain")},
     )
     assert resp.status_code == 413
+    body = resp.json()
+    assert body["code"] == "MB-UPL-002"
+    assert body["detail"] == "Upload is 11.0 MB — the limit is 10 MB"
 
 
 # ── S3 key and stub record ────────────────────────────────────────────────────
@@ -470,3 +558,150 @@ def test_get_presigned_url_without_auth_returns_401(unauth_client):
     fake_id = uuid.uuid4()
     resp = unauth_client.get(f"/api/v1/projects/{PROJECT_ID}/stubs/{fake_id}/source")
     assert resp.status_code == 401
+
+
+# ── Error codes: xlsx template with a missing referenced file ─────────────────
+
+
+def _xlsx_template_zip(referenced: list[str], included: list[str]) -> bytes:
+    """A minimal Mockingbird xlsx stub template zip: one static stub per
+    `referenced` file (Response Body = file:<name>), plus only the `included`
+    data files — so any referenced-but-not-included file is missing."""
+    import openpyxl
+    import zipfile
+
+    wb = openpyxl.Workbook()
+    stubs = wb.active
+    stubs.title = "Stubs"
+    stubs.append(["Mockingbird stub template"])
+    stubs.append(["Stub Name", "Protocol", "Method", "URL Path", "Response Status",
+                  "Response Content-Type", "Response Body", "Data-driven?"])
+    for i, name in enumerate(referenced):
+        stubs.append([f"Stub{i}", "REST", "GET", f"/api/s{i}", "200", "application/json", f"file:{name}", "No"])
+    rules = wb.create_sheet("Rules")
+    rules.append(["Rules"])
+    rules.append(["Stub Name", "Order", "Scenario", "Extract Field", "Extract From",
+                  "Path / Expression", "Lookup File", "Match On", "Response Status", "Response Body"])
+    xlsx = io.BytesIO()
+    wb.save(xlsx)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("template.xlsx", xlsx.getvalue())
+        for name in included:
+            zf.writestr(f"data/{name}", b'{"ok": true}')
+    return buf.getvalue()
+
+
+def test_xlsx_missing_referenced_files_get_one_line_summary(sv_client):
+    zip_bytes = _xlsx_template_zip(
+        referenced=["a_response.json", "b_response.json", "c_response.json"],
+        included=["a_response.json"],
+    )
+    resp = sv_client.post(
+        f"/api/v1/projects/{PROJECT_ID}/stubs/upload",
+        data={"stub_name": "Xlsx Package"},
+        files={"file": ("pkg.zip", io.BytesIO(zip_bytes), "application/zip")},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["valid"] is False
+    assert body["error_code"] == "MB-UPL-004"
+    assert body["error_summary"] == "Referenced 2 files are missing from the upload: b_response.json, c_response.json"
+    assert len(body["errors"]) == 2  # full detail still there underneath
+
+
+def test_xlsx_complete_upload_is_valid(sv_client):
+    zip_bytes = _xlsx_template_zip(referenced=["a_response.json"], included=["a_response.json"])
+    resp = sv_client.post(
+        f"/api/v1/projects/{PROJECT_ID}/stubs/upload",
+        data={"stub_name": "Xlsx Package"},
+        files={"file": ("pkg.zip", io.BytesIO(zip_bytes), "application/zip")},
+    )
+    body = resp.json()
+    assert body["valid"] is True, body
+    assert body["error_code"] is None
+
+
+def test_unrecognised_format_gets_upl_003(sv_client):
+    resp = sv_client.post(
+        f"/api/v1/projects/{PROJECT_ID}/stubs/upload",
+        data={"stub_name": "Junk"},
+        files={"file": ("junk.txt", io.BytesIO(b"this is not any spec format at all"), "text/plain")},
+    )
+    body = resp.json()
+    assert body["valid"] is False
+    assert body["error_code"] == "MB-UPL-003"
+    assert body["error_summary"].startswith("File format not recognised.")
+
+
+def test_invalid_protocol_gets_upl_006(sv_client):
+    resp = sv_client.post(
+        f"/api/v1/projects/{PROJECT_ID}/stubs/upload",
+        data={"stub_name": "P", "protocol": "FTP"},
+        files={"file": ("payment.txt", io.BytesIO(LEVEL1_TXT), "text/plain")},
+    )
+    body = resp.json()
+    assert body["error_code"] == "MB-UPL-006"
+    assert body["error_summary"] == "Protocol must be one of BOTH, HTTP, HTTPS (got 'FTP')"
+
+
+def test_unexpected_parser_crash_returns_coded_500_without_internals(sv_client, monkeypatch):
+    import parser_worker.detector as detector
+
+    def boom(_path):
+        raise RuntimeError("secret internal path C:/very/internal/thing")
+
+    monkeypatch.setattr(detector, "detect_and_parse", boom)
+    resp = sv_client.post(
+        f"/api/v1/projects/{PROJECT_ID}/stubs/upload",
+        data={"stub_name": "Crash"},
+        files={"file": ("payment.txt", io.BytesIO(LEVEL1_TXT), "text/plain")},
+    )
+    assert resp.status_code == 500
+    body = resp.json()
+    assert body["code"] == "MB-SYS-001"
+    assert body["ref"] and body["ref"] in body["detail"]
+    assert "secret" not in resp.text and "internal/thing" not in resp.text
+
+
+def test_missing_dependency_returns_sys_002_naming_the_component(sv_client, monkeypatch):
+    import parser_worker.detector as detector
+
+    def missing(_path):
+        raise ModuleNotFoundError("No module named 'openpyxl'", name="openpyxl")
+
+    monkeypatch.setattr(detector, "detect_and_parse", missing)
+    resp = sv_client.post(
+        f"/api/v1/projects/{PROJECT_ID}/stubs/upload",
+        data={"stub_name": "Dep"},
+        files={"file": ("payment.txt", io.BytesIO(LEVEL1_TXT), "text/plain")},
+    )
+    assert resp.status_code == 500
+    body = resp.json()
+    assert body["code"] == "MB-SYS-002"
+    assert "'openpyxl'" in body["detail"]
+
+
+def test_stub_project_generation_failure_is_a_visible_warning(sv_client, monkeypatch, tmp_path):
+    import parser_worker.generator.springboot as springboot
+    from ingestion_service import config as _cfg
+
+    # Stub-project pre-generation only runs in local-storage mode — pin it
+    # here rather than depend on the developer's .env.
+    monkeypatch.setattr(_cfg.settings, "local_storage_path", str(tmp_path))
+
+    def boom(*_a, **_k):
+        raise RuntimeError("template missing")
+
+    monkeypatch.setattr(springboot, "generate_springboot_project_zip", boom)
+    resp = sv_client.post(
+        f"/api/v1/projects/{PROJECT_ID}/stubs/upload",
+        data={"stub_name": "GenFail"},
+        files={"file": ("payment.txt", io.BytesIO(LEVEL1_TXT), "text/plain")},
+    )
+    body = resp.json()
+    assert body["valid"] is True
+    gen = [w for w in body["warnings"] if w.startswith("MB-GEN-001 · ")]
+    assert len(gen) == 1 and "(ref " in gen[0]
+    assert "template missing" not in gen[0]

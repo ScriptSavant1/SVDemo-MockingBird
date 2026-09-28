@@ -156,9 +156,11 @@ class TestGetProject:
     def test_get_nonexistent_project_returns_404(self, sv_client: TestClient):
         r = sv_client.get(f"/api/v1/projects/{uuid.uuid4()}")
         assert r.status_code == 404
-        detail = r.json()["detail"]
-        assert detail["status"] == 404
-        assert "not-found" in detail["type"]
+        body = r.json()
+        assert body["status"] == 404
+        assert "not-found" in body["type"]
+        assert body["code"] == "MB-REQ-404"
+        assert isinstance(body["detail"], str)
 
     def test_viewer_can_get_project(self, sv_client: TestClient, viewer_client: TestClient):
         create_r = sv_client.post("/api/v1/projects", json={"name": "Viewer Get", "team": "T"})

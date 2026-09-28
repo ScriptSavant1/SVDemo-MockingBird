@@ -2,7 +2,8 @@
 
 Supports:
   Text files:  all registered BaseParser implementations (can_handle check)
-  ZIP files:   CA LISA HTTP pair archives (request+response file pairs)
+  ZIP files:   Mockingbird XLSX stub template (xlsx + data/ folder), else
+               CA LISA HTTP pair archives (request+response file pairs)
 """
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ import re
 import zipfile
 from pathlib import Path
 
+from . import error_codes as ec
 from .models import ParsedFile, ValidationError, ValidationResult
 from .parsers import (
     BaseParser,
@@ -24,6 +26,13 @@ from .parsers import (
     TxtLevel2Parser,
 )
 from .parsers.ca_lisa_parser import parse_ca_lisa_pair
+from .parsers.xlsx_parser import (
+    check_zip_safety,
+    extract_data_files,
+    parse_xlsx_zip,
+    sniff_xlsx_zip_entry,
+    validate_xlsx_zip,
+)
 
 _PARSERS: list[BaseParser] = [
     JsonLevel3Parser(),    # Mockingbird native JSON — before generic OpenAPI
@@ -65,7 +74,7 @@ def detect_and_parse(file_path: Path) -> tuple[BaseParser | None, object, object
     except Exception as exc:
         result = ValidationResult(
             valid=False,
-            errors=[ValidationError(message=f"Could not read file: {exc}")],
+            errors=[ValidationError(message=f"Could not read file: {exc}", code=ec.UPL_FILE_UNREADABLE)],
         )
         return None, result, None
 
@@ -81,7 +90,8 @@ def detect_and_parse(file_path: Path) -> tuple[BaseParser | None, object, object
                     "Postman v2.1 collection, OpenAPI / Swagger, "
                     "CA LISA HTTP capture (.txt/.xml/.json pair or .zip), "
                     "Mockingbird JSON (native format)."
-                )
+                ),
+                code=ec.UPL_FORMAT_NOT_RECOGNISED,
             )],
         )
         return None, result, None
@@ -102,21 +112,32 @@ _TIMESTAMP_RE = re.compile(r'_(\d{8}_\d{6})')
 def _detect_and_parse_zip(
     file_path: Path,
 ) -> tuple[BaseParser | None, ValidationResult, ParsedFile | None]:
-    """Handle ZIP archives containing CA LISA HTTP capture file pairs.
+    """Handle ZIP archives — either a Mockingbird XLSX stub template (xlsx +
+    its data/ folder of response/lookup files) or a CA LISA HTTP capture
+    file pair archive.
 
-    Pairs are matched by:
+    The XLSX shape is sniffed FIRST (single .xlsx entry with "Stubs" +
+    "Rules" sheets) — if it doesn't match, falls through unchanged to the
+    existing CA LISA request/response pairing logic below.
+
+    CA LISA pairs are matched by:
       1. Shared timestamp in filename (_20260610_100059)
       2. Shared prefix after stripping _Request_ / _Response_
     Returns a ParsedFile containing one stub per matched pair.
     """
-    parser = CALISAParser()
-
     if not zipfile.is_zipfile(file_path):
         result = ValidationResult(
             valid=False,
-            errors=[ValidationError(message="File has .zip extension but is not a valid ZIP archive.")],
+            errors=[ValidationError(message="File has .zip extension but is not a valid ZIP archive.", code=ec.UPL_FILE_UNREADABLE)],
         )
         return None, result, None
+
+    with zipfile.ZipFile(file_path, "r") as zf:
+        xlsx_entry = sniff_xlsx_zip_entry(zf)
+        if xlsx_entry is not None:
+            return _detect_and_parse_xlsx_zip(zf, xlsx_entry, file_path)
+
+    parser = CALISAParser()
 
     # CA LISA captures arrive as .txt most often, but the same content shows up
     # with .xml or .json extensions too (e.g. a SOAP capture saved as .xml) —
@@ -136,7 +157,8 @@ def _detect_and_parse_zip(
                     valid=False,
                     errors=[ValidationError(
                         message="ZIP contains no .txt/.xml/.json files. "
-                                "Expected CA LISA *_Request_* and *_Response_* files."
+                                "Expected CA LISA *_Request_* and *_Response_* files.",
+                        code=ec.UPL_ZIP_PAIRING_FAILED,
                     )],
                 )
                 return None, result, None
@@ -150,7 +172,7 @@ def _detect_and_parse_zip(
     except Exception as exc:
         result = ValidationResult(
             valid=False,
-            errors=[ValidationError(message=f"Could not read ZIP: {exc}")],
+            errors=[ValidationError(message=f"Could not read ZIP: {exc}", code=ec.UPL_FILE_UNREADABLE)],
         )
         return None, result, None
 
@@ -200,7 +222,8 @@ def _detect_and_parse_zip(
             valid=False,
             errors=[ValidationError(
                 message="No request files found in ZIP. "
-                        "Expected filenames containing 'Request' (e.g., *_Request_*.txt / .xml / .json)."
+                        "Expected filenames containing 'Request' (e.g., *_Request_*.txt / .xml / .json).",
+                code=ec.UPL_ZIP_PAIRING_FAILED,
             )],
         )
         return None, result, None
@@ -210,7 +233,8 @@ def _detect_and_parse_zip(
             valid=False,
             errors=[ValidationError(
                 message="No response files found in ZIP. "
-                        "Expected filenames containing 'Response' (e.g., *_Response_*.txt / .xml / .json)."
+                        "Expected filenames containing 'Response' (e.g., *_Response_*.txt / .xml / .json).",
+                code=ec.UPL_ZIP_PAIRING_FAILED,
             )],
         )
         return None, result, None
@@ -223,7 +247,8 @@ def _detect_and_parse_zip(
             valid=False,
             errors=[ValidationError(
                 message="Could not match request files to response files in ZIP. "
-                        "Files should share a timestamp suffix or name prefix."
+                        "Files should share a timestamp suffix or name prefix.",
+                code=ec.UPL_ZIP_PAIRING_FAILED,
             )],
         )
         return None, result, None
@@ -266,6 +291,63 @@ def _detect_and_parse_zip(
         stubs=stubs,
     )
     return parser, result, parsed_file
+
+
+def _detect_and_parse_xlsx_zip(
+    zf: zipfile.ZipFile,
+    xlsx_entry: str,
+    file_path: Path,
+) -> tuple[BaseParser | None, ValidationResult, ParsedFile | None]:
+    """Handle a ZIP identified as a Mockingbird XLSX stub template.
+
+    Validates the workbook against its zipped data/ folder first (hard
+    errors — missing files, unreadable workbook, missing sheets — block
+    entirely, same as every other format). If it validates, builds real
+    stubs via parse_xlsx_zip; any row parse_xlsx_zip couldn't build (Lookup
+    File rows — Phase 2, not yet generated; unfilled placeholder rows; a
+    handful of other per-row issues) is reported as a warning rather than
+    silently dropped or silently wrong, the same "partial failures become
+    warnings" pattern the CA LISA zip path below already uses.
+
+    `parser` is always None here (see the module docstring in xlsx_parser.py
+    for why this format has no BaseParser instance to return).
+    """
+    unsafe_reason = check_zip_safety(zf)
+    if unsafe_reason is not None:
+        return None, ValidationResult(
+            valid=False,
+            format_detected="mockingbird-xlsx-stub-template",
+            errors=[ValidationError(message=unsafe_reason, code=ec.UPL_ARCHIVE_REJECTED)],
+        ), None
+
+    xlsx_bytes = zf.read(xlsx_entry)
+    data_files = extract_data_files(zf, xlsx_entry)
+    validation = validate_xlsx_zip(xlsx_bytes, data_files)
+    if not validation.valid:
+        return None, validation, None
+
+    parsed_file, skip_notes = parse_xlsx_zip(xlsx_bytes, data_files, source_name=str(file_path))
+    combined_warnings = validation.warnings + skip_notes
+
+    if not parsed_file.stubs:
+        return None, ValidationResult(
+            valid=False,
+            format_detected=validation.format_detected,
+            errors=[ValidationError(
+                message="No usable stubs could be built from this workbook — see warnings for why every row was skipped.",
+                code=ec.UPL_WORKBOOK_INVALID,
+            )],
+            warnings=combined_warnings,
+        ), None
+
+    scenario_count = sum(len(s.scenarios) for s in parsed_file.stubs)
+    result = ValidationResult(
+        valid=True,
+        format_detected=validation.format_detected,
+        summary=f"{len(parsed_file.stubs)} stub(s), {scenario_count} scenario(s) generated from the xlsx template",
+        warnings=combined_warnings,
+    )
+    return None, result, parsed_file
 
 
 def _pair_files(

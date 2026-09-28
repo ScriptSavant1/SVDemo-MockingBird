@@ -26,8 +26,12 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from ..config import settings
+from parser_worker import error_codes as ec
+from parser_worker.error_codes import summarise_validation_errors
+
 from ..database import get_db
 from ..dependencies import CurrentUser, get_current_user, require_sv_team_or_admin
+from ..errors import MockingbirdError
 from ..models import Project, Stub
 from ..s3_client import (
     generate_presigned_url,
@@ -46,6 +50,10 @@ router = APIRouter()
 
 _PRESIGNED_EXPIRY = 3600  # 60 minutes
 _VALID_PROTOCOLS = {"HTTP", "HTTPS", "BOTH"}
+
+
+def _invalid(code: str, message: str) -> IngestionResult:
+    return IngestionResult(valid=False, errors=[message], error_code=code, error_summary=message)
 
 
 @router.post(
@@ -80,7 +88,7 @@ def upload_stub_file(
     #    optional even for HTTPS/BOTH — entrypoint.sh auto-generates a
     #    self-signed one at container startup when none is uploaded here.
     if protocol not in _VALID_PROTOCOLS:
-        return IngestionResult(valid=False, errors=[f"protocol must be one of {sorted(_VALID_PROTOCOLS)}"])
+        return _invalid(ec.UPL_INVALID_PROTOCOL, f"Protocol must be one of {', '.join(sorted(_VALID_PROTOCOLS))} (got '{protocol}')")
 
     tls_cert_bytes: bytes | None = None
     tls_key_bytes: bytes | None = None
@@ -89,7 +97,7 @@ def upload_stub_file(
     if protocol != "HTTP":
         if server_cert is not None or server_key is not None:
             if server_cert is None or server_key is None:
-                return IngestionResult(valid=False, errors=["server_cert and server_key must both be provided together"])
+                return _invalid(ec.UPL_TLS_CERT_INVALID, "Upload the server certificate and its private key together")
             tls_cert_bytes = read_limited(server_cert, "server_cert")
             tls_key_bytes = read_limited(server_key, "server_key")
             if ca_bundle is not None:
@@ -99,24 +107,19 @@ def upload_stub_file(
                 if tls_bundle_bytes is not None:
                     validate_ca_bundle(tls_bundle_bytes)
             except TlsCertValidationError as exc:
-                return IngestionResult(valid=False, errors=[str(exc)])
+                return _invalid(ec.UPL_TLS_CERT_INVALID, str(exc))
         if mtls_enabled and tls_bundle_bytes is None:
-            return IngestionResult(
-                valid=False,
-                errors=["mTLS requires a CA bundle — upload one together with the server certificate"],
-            )
+            return _invalid(ec.UPL_TLS_CERT_INVALID, "mTLS requires a CA bundle — upload one together with the server certificate")
 
     # 3. Read file content and enforce size limit
     content = file.file.read()
     if len(content) == 0:
-        return IngestionResult(
-            valid=False,
-            errors=["Uploaded file is empty"],
-        )
+        return _invalid(ec.UPL_EMPTY_FILE, f"'{file.filename or 'The uploaded file'}' is empty")
     if len(content) > settings.max_upload_bytes:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File exceeds {settings.max_upload_bytes // (1024 * 1024)} MB limit",
+        raise MockingbirdError(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            ec.UPL_TOO_LARGE,
+            f"Upload is {len(content) / (1024 * 1024):.1f} MB — the limit is {settings.max_upload_bytes // (1024 * 1024)} MB",
         )
 
     # 4. Write to a temp file so the parser (which expects a Path) can read it.
@@ -147,17 +150,33 @@ def upload_stub_file(
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
     if not validation_result.valid:
+        code, summary = summarise_validation_errors(validation_result.errors)
         return IngestionResult(
             valid=False,
             format_detected=validation_result.format_detected or None,
             errors=[str(e) for e in validation_result.errors],
             warnings=validation_result.warnings,
+            error_code=code,
+            error_summary=summary,
         )
 
     # Override parser-derived stub names with the user-supplied stub_name.
     # Parsers like CA LISA derive names from the source filename, which is a
     # random temp path (e.g. tmppn51v54h.txt) when files arrive via the portal.
-    if parsed_file is not None and parsed_file.stubs and stub_name:
+    #
+    # Skipped for the xlsx format specifically: its stub names come from the
+    # sheet's own "Stub Name" column (e.g. "SVC_fetch", "AccountDB") and are
+    # meaningful on their own — unlike CA LISA's filename-derived names, they
+    # must never be overwritten with "{stub_name} 1", "{stub_name} 2", ... or
+    # every operation in the workbook becomes indistinguishable in the UI.
+    # stub_name still names the overall Stub *record* (the uploaded package),
+    # just not each individual ParsedStub inside it.
+    if (
+        parsed_file is not None
+        and parsed_file.stubs
+        and stub_name
+        and validation_result.format_detected != "mockingbird-xlsx-stub-template"
+    ):
         if len(parsed_file.stubs) == 1:
             parsed_file.stubs[0].name = stub_name
         else:
@@ -213,6 +232,7 @@ def upload_stub_file(
 
     # 8. Pre-generate WireMock ZIP so the download endpoint works immediately.
     #    Stored at stubs/{project_id}/{stub_id}/wiremock/mappings.zip
+    generation_warnings: list[str] = []
     wiremock_key = f"stubs/{project_id}/{stub_id}/wiremock/mappings.zip"
     try:
         from datetime import datetime, timezone  # noqa: PLC0415
@@ -223,12 +243,16 @@ def upload_stub_file(
         else:
             upload_bytes(get_s3_client(), wiremock_key, wiremock_bytes, "application/zip")
         stub.generated_at = datetime.now(timezone.utc)
-    except Exception:
+    except Exception as exc:
+        ref = uuid.uuid4().hex[:8]
         logger.exception(
-            "WireMock pre-generation failed for stub %s (project %s) — upload still succeeds, "
+            "[ref %s] WireMock pre-generation failed for stub %s (project %s) — upload still succeeds, "
             "but the user will need to retry Generate manually",
-            stub_id, project_id,
+            ref, stub_id, project_id,
         )
+        generation_warnings.append(ec.job_error(
+            ec.GEN_WIREMOCK_FAILED, f"WireMock mappings could not be generated ({type(exc).__name__})", ref,
+        ))
         wiremock_key = None  # non-fatal — upload still succeeds
 
     # 9. Pre-generate the full Spring Boot stub project in local dev.
@@ -255,12 +279,20 @@ def upload_stub_file(
                 protocol=protocol,
             )
             upload_local(springboot_key, gen_bytes)
-        except Exception:
+        except Exception as exc:
+            ref = uuid.uuid4().hex[:8]
             logger.exception(
-                "Spring Boot stub-engine pre-generation failed for stub %s (project %s) — "
+                "[ref %s] Spring Boot stub-engine pre-generation failed for stub %s (project %s) — "
                 "upload still succeeds, but Download Stub Project will 404 until regenerated",
-                stub_id, project_id,
+                ref, stub_id, project_id,
             )
+            # Surfaced, not just logged: otherwise the upload reports success
+            # and the user only finds out when Download Stub Project 404s.
+            generation_warnings.append(ec.job_error(
+                ec.GEN_STUB_PROJECT_FAILED,
+                f"Stub project could not be generated ({type(exc).__name__}) — Download Stub Project won't work until you re-upload",
+                ref,
+            ))
 
     db.commit()
 
@@ -270,7 +302,7 @@ def upload_stub_file(
         summary=validation_result.summary,
         stub_count=stub_count,
         scenario_count=scenario_count,
-        warnings=validation_result.warnings,
+        warnings=generation_warnings + validation_result.warnings,
         s3_key=s3_key,
         stub_id=str(stub_id),
     )

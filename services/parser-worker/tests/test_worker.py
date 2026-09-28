@@ -164,8 +164,7 @@ def test_invalid_file_sets_job_to_failed():
 
     job = _get_job(db, job_id)
     assert job["status"] == "FAILED"
-    assert job["error_message"] is not None
-    assert len(job["error_message"]) > 0
+    assert job["error_message"].startswith("MB-UPL-003 · File format not recognised.")
 
     # No message sent to generate-queue
     msgs = sqs.receive_message(QueueUrl=gen_queue_url).get("Messages", [])
@@ -229,4 +228,37 @@ def test_generate_job_created_in_db_after_parse():
     assert gen_job["status"] == "QUEUED"
     assert gen_job["stub_id"] == STUB_ID
 
+    db.close()
+
+
+def test_crash_marks_job_failed_with_coded_message_not_internals():
+    from parser_worker.worker import _mark_failed_after_crash
+
+    engine, Session = _build_db()
+    db = Session()
+    job_id = str(uuid.uuid4())
+    _insert_job(db, job_id)
+
+    try:
+        raise RuntimeError("secret connection string")
+    except RuntimeError:
+        _mark_failed_after_crash(db, _build_sqs_message(job_id), "Parsing")
+
+    job = _get_job(db, job_id)
+    assert job["status"] == "FAILED"
+    assert job["error_message"].startswith("MB-GEN-003 · Parsing failed unexpectedly")
+    assert "(ref " in job["error_message"]
+    assert "secret" not in job["error_message"]
+    db.close()
+
+
+def test_crash_with_unreadable_message_does_not_raise():
+    from parser_worker.worker import _mark_failed_after_crash
+
+    engine, Session = _build_db()
+    db = Session()
+    try:
+        raise RuntimeError("boom")
+    except RuntimeError:
+        _mark_failed_after_crash(db, {"MessageId": "m", "Body": "not json"}, "Parsing")
     db.close()

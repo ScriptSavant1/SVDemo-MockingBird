@@ -341,7 +341,7 @@ unchanged and still keeps body-file/status locked to the same captured row as pa
    zero quote characters in it.
 2. **Re-parsed the actual real `Sample_SV_Files/Wealth` files** (zipped, run through
    the real `detect_and_parse`, the same 4 stubs the user's own download produced:
-   CreateAdviserPost, GetAdvisers, AccountInstructions ×8, CustomerInstructionsAddressBookPost
+   CreateAdviserPost, GetAdvisers, AccountInstructions ×8, SampleServiceAddressBookPost
    ×29) and confirmed directly: every generated CSV row now contains zero embedded
    quote characters; every `.body.txt` file holds the real captured JSON/XML verbatim,
    including its natural quotes, completely unescaped.
@@ -352,7 +352,7 @@ unchanged and still keeps body-file/status locked to the same captured row as pa
    and ran all 4 real stubs for 3 iterations. Result: all 12 transaction calls
    `Passed`, real bodies (the exact JSON with `joe.doe@doe`, the exact XML with
    `xmlns:xsi=` attributes) sent correctly over real HTTP, correct row cycling across
-   `AccountInstructions`' 8 scenarios and `CustomerInstructionsAddressBookPost`'s 29.
+   `AccountInstructions`' 8 scenarios and `SampleServiceAddressBookPost`'s 29.
 4. Full suite re-run: parser-worker 694/694, ingestion-service 38/39 (same
    pre-existing, unrelated failure as before).
 

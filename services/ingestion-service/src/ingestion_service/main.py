@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from .config import settings
 from .database import create_tables
+from .errors import install_error_handlers
 from .routers.nft import router as nft_router
 from .routers.tls import router as tls_router
 from .routers.upload import router as upload_router
@@ -23,6 +24,8 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+install_error_handlers(app, "ingestion-service")
 
 app.include_router(upload_router)
 app.include_router(nft_router)

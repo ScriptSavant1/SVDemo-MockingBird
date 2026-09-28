@@ -73,3 +73,13 @@ services/auth-service/auth-local.db-wal
 # (see project history: removed and purged via git-filter-repo)
 Sample_SV_Files/
 docs/screenshots/audit/
+
+# Local run artefacts
+*.log
+.service-pids
+/*.pdf
+/project-audit-prompt.md
+/project-setup-prompt.md
+services/ingestion-service/uploads/
+*.db.bak-*
+portal/test-results/

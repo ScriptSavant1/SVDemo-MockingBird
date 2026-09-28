@@ -2,8 +2,12 @@ import { useRef, type DragEvent, type ChangeEvent } from "react";
 import { clsx } from "clsx";
 
 // Format is detected server-side from content, not extension — this list only
-// controls what the browser's file picker shows/allows.
-const ACCEPTED_EXTENSIONS = [".txt", ".json", ".xml"];
+// controls what the browser's file picker shows/allows. .xlsx/.csv added for
+// the Mockingbird xlsx stub template + its data/ folder (response bodies use
+// the extensions above already; lookup tables are .csv, previously rejected
+// here even though xlsx_parser.py has always accepted them from a manually
+// built zip).
+const ACCEPTED_EXTENSIONS = [".txt", ".json", ".xml", ".xlsx", ".csv"];
 
 export interface BatchFile {
   file: File;
@@ -76,7 +80,7 @@ export function BatchUploadZone({ files, onChange, disabled }: BatchUploadZonePr
           Drop multiple spec files here, or click to browse
         </p>
         <p className="mt-1 text-xs text-gray-400">
-          .txt / .xml (REST or SOAP HTTP pairs) · .json (Postman v2.1)
+          .txt / .xml (REST or SOAP HTTP pairs) · .json (Postman v2.1) · .xlsx + .csv (Mockingbird stub template)
         </p>
       </div>
 

@@ -33,16 +33,26 @@ def build_wiremock_mappings(
     otherwise qualify for the lookup-table engine (include_lookup_table_stubs=True).
 
     By default (include_lookup_table_stubs=False, used for the full Spring
-    Boot project), a stub crossing generator/lookup_table.py's threshold is
-    skipped here — it's handled by generate_lookup_tables instead, as one
-    generic request-filter route rather than N static mappings.
+    Boot project), a scenario that generator/lookup_table.py's should_use_lookup_table
+    claims for a stub (i.e. it carries a lookup_key) is skipped here — it's
+    handled by generate_lookup_tables instead, as one generic request-filter
+    route rather than a static mapping. This is a per-SCENARIO skip, not a
+    per-stub one: an xlsx-sourced stub can mix CSV-keyed scenarios (skipped
+    here, routed via the Java filter) with a plain always-match catch-all
+    (still emitted here as a normal static mapping, so an unrecognised
+    lookup key still gets a deliberate response instead of falling through
+    to WireMock's generic 404). CA LISA-sourced stubs are unaffected by this
+    distinction — _differentiate_bodies keys either every scenario or none,
+    so should_use_lookup_table(stub) already implies every one of its
+    scenarios carries a lookup_key, same as before this change.
     """
     results: list[tuple[ParsedStub, ParsedScenario, dict]] = []
     for stub in parsed.stubs:
-        if not include_lookup_table_stubs and should_use_lookup_table(stub):
-            continue
+        use_lookup = should_use_lookup_table(stub)
         total = len(stub.scenarios)
         for i, scenario in enumerate(stub.scenarios):
+            if use_lookup and not include_lookup_table_stubs and scenario.lookup_key is not None:
+                continue
             priority = total - i  # first listed scenario gets highest priority
             mapping = _build_mapping(stub, scenario, priority)
             results.append((stub, scenario, mapping))

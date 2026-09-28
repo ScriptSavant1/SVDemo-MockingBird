@@ -1,5 +1,5 @@
 import { useAuthStore } from "@/store/auth";
-import { ApiError } from "@/api/client";
+import { apiErrorFromResponse, fetchOrNetworkError } from "@/api/client";
 import type { IngestionResult, Protocol, TlsCertUploadResult } from "./types";
 
 // Protocol/TLS is chosen at upload time — each stub is its own deployable
@@ -30,22 +30,13 @@ export async function uploadSpec(
   if (tls?.server_key) form.append("server_key", tls.server_key);
   if (tls?.ca_bundle) form.append("ca_bundle", tls.ca_bundle);
 
-  const res = await fetch(`/api/v1/projects/${projectId}/stubs/upload`, {
+  const res = await fetchOrNetworkError(`/api/v1/projects/${projectId}/stubs/upload`, {
     method: "POST",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: form,
   });
 
-  if (!res.ok) {
-    let detail = `HTTP ${res.status}`;
-    try {
-      const body = (await res.json()) as { detail?: string };
-      detail = body.detail ?? detail;
-    } catch {
-      // non-JSON error body
-    }
-    throw new ApiError(res.status, detail);
-  }
+  if (!res.ok) throw await apiErrorFromResponse(res);
 
   return res.json() as Promise<IngestionResult>;
 }
@@ -63,98 +54,61 @@ export async function uploadTlsCert(
     form.append("ca_bundle", files.ca_bundle);
   }
 
-  const res = await fetch(`/api/v1/projects/${projectId}/stubs/${stubId}/tls-cert`, {
+  const res = await fetchOrNetworkError(`/api/v1/projects/${projectId}/stubs/${stubId}/tls-cert`, {
     method: "POST",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: form,
   });
 
-  if (!res.ok) {
-    let detail = `HTTP ${res.status}`;
-    try {
-      const body = (await res.json()) as { detail?: string };
-      detail = body.detail ?? detail;
-    } catch {
-      // non-JSON error body
-    }
-    throw new ApiError(res.status, detail);
-  }
+  if (!res.ok) throw await apiErrorFromResponse(res);
 
   return res.json() as Promise<TlsCertUploadResult>;
 }
 
 async function downloadWiremockZip(projectId: string, stubId: string): Promise<Blob> {
   const token = useAuthStore.getState().token;
-  const res = await fetch(
+  const res = await fetchOrNetworkError(
     `/api/v1/projects/${projectId}/stubs/${stubId}/wiremock.zip`,
     { headers: token ? { Authorization: `Bearer ${token}` } : {} },
   );
 
-  if (!res.ok) {
-    let detail = `HTTP ${res.status}`;
-    try {
-      const body = (await res.json()) as { detail?: string };
-      detail = body.detail ?? detail;
-    } catch { /* non-JSON */ }
-    throw new ApiError(res.status, detail);
-  }
+  if (!res.ok) throw await apiErrorFromResponse(res);
 
   return res.blob();
 }
 
 async function downloadStubEngineZip(projectId: string, stubId: string): Promise<Blob> {
   const token = useAuthStore.getState().token;
-  const res = await fetch(
+  const res = await fetchOrNetworkError(
     `/api/v1/projects/${projectId}/stubs/${stubId}/stub-engine.zip`,
     { headers: token ? { Authorization: `Bearer ${token}` } : {} },
   );
 
-  if (!res.ok) {
-    let detail = `HTTP ${res.status}`;
-    try {
-      const body = (await res.json()) as { detail?: string };
-      detail = body.detail ?? detail;
-    } catch { /* non-JSON */ }
-    throw new ApiError(res.status, detail);
-  }
+  if (!res.ok) throw await apiErrorFromResponse(res);
 
   return res.blob();
 }
 
 async function downloadJmeterZip(projectId: string, stubId: string): Promise<Blob> {
   const token = useAuthStore.getState().token;
-  const res = await fetch(
+  const res = await fetchOrNetworkError(
     `/api/v1/projects/${projectId}/stubs/${stubId}/nft-jmeter.zip`,
     { headers: token ? { Authorization: `Bearer ${token}` } : {} },
   );
 
-  if (!res.ok) {
-    let detail = `HTTP ${res.status}`;
-    try {
-      const body = (await res.json()) as { detail?: string };
-      detail = body.detail ?? detail;
-    } catch { /* non-JSON */ }
-    throw new ApiError(res.status, detail);
-  }
+  if (!res.ok) throw await apiErrorFromResponse(res);
 
   return res.blob();
 }
 
 async function downloadNftScriptsZip(projectId: string, stubId: string): Promise<Blob> {
   const token = useAuthStore.getState().token;
-  const res = await fetch(
+  const res = await fetchOrNetworkError(
     `/api/v1/projects/${projectId}/stubs/${stubId}/nft-scripts.zip`,
     { headers: token ? { Authorization: `Bearer ${token}` } : {} },
   );
 
-  if (!res.ok) {
-    let detail = `HTTP ${res.status}`;
-    try {
-      const body = (await res.json()) as { detail?: string };
-      detail = body.detail ?? detail;
-    } catch { /* non-JSON */ }
-    throw new ApiError(res.status, detail);
-  }
+  if (!res.ok) throw await apiErrorFromResponse(res);
 
   return res.blob();
 }

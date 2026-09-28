@@ -212,23 +212,41 @@ def test_mtls_enabled_on_stub_bakes_client_cert_directives_into_nginx_conf():
 
 
 @mock_aws
-def test_invalid_parsed_json_sets_job_failed():
-    from generator_worker.worker import process_message
+def test_invalid_parsed_json_sets_job_failed(tmp_path, monkeypatch):
+    """Drives the real run_loop (moto SQS + a SQLite file DB, as the worker
+    opens its own session from DATABASE_URL): a message whose processing
+    raises must leave the job FAILED with a coded message — not RUNNING."""
+    from generator_worker.worker import run_loop
 
     s3 = boto3.client("s3", region_name=REGION)
     s3.create_bucket(Bucket=S3_BUCKET, CreateBucketConfiguration={"LocationConstraint": REGION})
     s3.put_object(Bucket=S3_BUCKET, Key=PARSED_S3_KEY, Body=INVALID_JSON)
+    sqs = boto3.client("sqs", region_name=REGION)
+    queue_url = sqs.create_queue(QueueName="generate-queue")["QueueUrl"]
 
-    Session = _build_db()
-    db = Session()
+    db_url = f"sqlite:///{(tmp_path / 'jobs.db').as_posix()}"
+    engine = create_engine(db_url)
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE jobs (id TEXT PRIMARY KEY, type TEXT, status TEXT, project_id TEXT, stub_id TEXT, "
+            "payload TEXT, result TEXT, error_message TEXT, sqs_message_id TEXT, "
+            "created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)"
+        ))
+        conn.execute(text("CREATE TABLE stubs (id TEXT PRIMARY KEY, protocol TEXT DEFAULT 'HTTP', mtls_enabled INTEGER DEFAULT 0)"))
+    db = sessionmaker(bind=engine)()
     job_id = str(uuid.uuid4())
     _insert_job(db, job_id)
+    sqs.send_message(QueueUrl=queue_url, MessageBody=_build_message(job_id)["Body"])
 
-    # process_message raises; the caller (run_loop) catches it — we test the raise directly
-    try:
-        process_message(_build_message(job_id), s3, S3_BUCKET, db)
-        assert False, "Expected exception for invalid JSON"
-    except Exception:
-        pass
+    monkeypatch.setenv("DATABASE_URL", db_url)
+    monkeypatch.setenv("SQS_GENERATE_QUEUE_URL", queue_url)
+    monkeypatch.setenv("S3_BUCKET", S3_BUCKET)
+    monkeypatch.setenv("AWS_REGION", REGION)
+    run_loop(once=True)
 
+    job = _get_job(db, job_id)
+    assert job["status"] == "FAILED"
+    assert job["error_message"].startswith("MB-GEN-003 · Stub generation failed unexpectedly")
+    assert "(ref " in job["error_message"]
+    assert "not valid json" not in job["error_message"]
     db.close()
