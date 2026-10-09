@@ -1,0 +1,26 @@
+Evidence Title (10-200 characters)
+
+Mockingbird - designed and delivered a self-service service virtualisation platform to replace licensed SV tools
+
+Description (10-500 characters)
+
+I designed and delivered Mockingbird, a self-service platform where teams upload an API spec (or a CA LISA capture) and get a live, high-throughput stub on its own AWS EC2 in minutes. It replaces licensed tools (CA LISA, IBM RTW) with open source, keeps stubs permanently so they redeploy in about 4 minutes, and also generates JMeter and LoadRunner test scripts. Attached: architecture and network flow diagrams.
+
+Upload Evidence
+
+Mockingbird-Architecture.pdf
+Mockingbird-Network-Flow.pdf
+
+Assign to Pillars: tick Thinks, Designs, Delivers, Controls. Each answer below names these pillars, as the form asks.
+
+Ownership
+
+Thinks: I moved from being a consumer of service virtualisation to building the platform, after seeing project teams wait on a small SV team using expensive licensed tools. I set the vision, wrote the requirements and a 7-phase delivery plan. Designs: I designed the architecture - a React portal, 10 back-end services, an SQS job pipeline, and a stub engine on Spring Boot and WireMock sized for 10,000+ requests per second. Delivers: I led the build end to end using an AI-assisted engineering approach with documented standards, decision logs and reviews, delivering six of seven phases (66 commits since June 2026). Controls: I enforced a definition of done with over 1,300 automated tests, end-to-end browser tests, coded error handling and a bug log.
+
+Impact (fill in the placeholders)
+
+Delivers: Mockingbird turns days of manual stub building into a self-service flow - upload a spec, click deploy, and get a live stub URL in minutes. It removes the dependency on CA LISA and IBM RTW, whose licences cost over 100,000 pounds a year, using only open-source components. [N] projects / [N] teams have used it so far, with [N] stubs deployed. Thinks: because stubs are stored permanently and the server is temporary, teams suspend stubs between releases to save around 200 pounds a month each, then redeploy in about 4 minutes with no re-upload. It also generates JMeter and LoadRunner scripts from the same stubs, so performance testers no longer hand-write them. Controls: live dashboards and PDF, Excel and PowerPoint reports give management clear visibility.
+
+Complexity
+
+Designs: the platform had to accept many messy real-world inputs - raw HTTP captures, Postman, OpenAPI, SOAP, Excel templates, Kafka and IBM MQ - and turn each into a reliable stub. Migrating CA LISA captures was the hardest part: some services have thousands of variants at the same URL, so I designed a lookup-table engine that picks the right response from request content. Thinks: performance was a hard requirement, so I chose an embedded WireMock on Java 21 virtual threads to reach 10,000+ requests per second, rather than the slower standalone option. Controls: I worked within bank constraints - no privileged build containers (Kaniko), dependencies only from Artifactory, UK data residency, and HTTPS with mutual TLS per stub. Delivers: I kept every change backward compatible with versioned APIs and add-only database changes.

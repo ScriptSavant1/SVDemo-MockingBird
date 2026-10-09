@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockingbird Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  :root { --bg: #f4f6fb; --ink: #0f1729; --ink2: #475069; --ink3: #6b7489; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: Inter, "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1680px; margin: 0 auto; padding: 40px 40px 56px; }
+  header h1 { font-size: 38px; letter-spacing: -.03em; margin: 0; font-weight: 800; }
+  header h1 span { background: linear-gradient(92deg, #0284c7, #6d28d9); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  header p { font-size: 17px; color: var(--ink2); margin: 8px 0 0; max-width: 95ch; }
+  .stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; margin: 26px 0 30px; }
+  .stat { background: #fff; border: 1px solid #e4e7ee; border-radius: 16px; padding: 16px 18px; box-shadow: 0 8px 24px -14px rgba(15,23,41,.18); }
+  .stat b { display: block; font-size: 25px; letter-spacing: -.02em; }
+  .stat span { font-size: 13px; color: var(--ink3); }
+  figure { margin: 0 0 34px; background: #fff; border: 1px solid #e4e7ee; border-radius: 22px; padding: 18px; box-shadow: 0 18px 40px -22px rgba(15,23,41,.25); }
+  figure svg { display: block; width: 100%; height: auto; }
+  figcaption { font-size: 14px; color: var(--ink2); padding: 12px 8px 2px; }
+  figcaption b { color: var(--ink); }
+  @media (max-width: 900px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .wrap { padding: 20px 16px; } }
+  @media print { body { background: #fff; } figure { box-shadow: none; break-inside: avoid; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><span>Mockingbird</span> — architecture</h1>
+    <p>A self-service service-virtualisation platform. Teams upload an API spec; Mockingbird generates high-throughput stubs, deploys them to their own EC2 in minutes, and replaces licensed tools such as CA LISA and IBM Rational Test Workbench with open source.</p>
+  </header>
+
+  <div class="stats">
+    <div class="stat"><b>10 formats</b><span>raw HTTP, Postman, OpenAPI, SOAP, XLSX, CA LISA, Kafka, MQ…</span></div>
+    <div class="stat"><b>10 services</b><span>Python FastAPI + Node.js Fastify, React portal</span></div>
+    <div class="stat"><b>10,000+ TPS</b><span>per stub — Spring Boot + WireMock, Java 21</span></div>
+    <div class="stat"><b>~4 min</b><span>to redeploy a suspended stub, no re-upload</span></div>
+    <div class="stat"><b>£0 licences</b><span>all open source, replacing £100K+/year tools</span></div>
+    <div class="stat"><b>1,300+ tests</b><span>pytest, Vitest and Playwright end-to-end</span></div>
+  </div>
+
+  <!-- ═════════════════════ FIGURE 1 — SYSTEM ARCHITECTURE ═════════════════════ -->
+  <figure id="fig-system">
+    <svg viewBox="0 0 1600 1000" role="img" aria-label="Mockingbird system architecture: teams bring API specs, legacy CA LISA captures or a plain-English description; the React portal calls ten back-end services; an SQS job pipeline parses, generates, deploys and reports; stubs are stored permanently in PostgreSQL and S3; each project gets a live Spring Boot plus WireMock stub on its own EC2, plus load-test scripts and reports." font-family="Inter, Segoe UI, sans-serif">
+      <defs>
+        <linearGradient id="gA" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff7ed"/><stop offset="1" stop-color="#ffedd5"/></linearGradient>
+        <linearGradient id="gB" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#eef2ff"/><stop offset="1" stop-color="#e0e7ff"/></linearGradient>
+        <linearGradient id="gC" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f0f9ff"/><stop offset="1" stop-color="#e0f2fe"/></linearGradient>
+        <linearGradient id="gHead" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#0284c7"/><stop offset="1" stop-color="#6d28d9"/></linearGradient>
+        <linearGradient id="gStub" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0c4a6e"/><stop offset="1" stop-color="#1e1b4b"/></linearGradient>
+        <filter id="sh" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#0f1729" flood-opacity=".10"/></filter>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#334155"/></marker>
+        <marker id="arO" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#ea580c"/></marker>
+        <marker id="arI" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#4338ca"/></marker>
+        <marker id="arS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#0284c7"/></marker>
+        <marker id="arG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#059669"/></marker>
+      </defs>
+
+      <!-- ═══ ZONE A — INPUTS ═══ -->
+      <rect x="20" y="20" width="340" height="860" rx="24" fill="url(#gA)" stroke="#fed7aa"/>
+      <rect x="40" y="38" width="196" height="30" rx="15" fill="#ea580c"/>
+      <text x="138" y="58" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">WHAT TEAMS BRING</text>
+
+      <g filter="url(#sh)"><rect x="40" y="90" width="300" height="92" rx="14" fill="#fff"/></g>
+      <rect x="58" y="110" width="44" height="44" rx="12" fill="#ffedd5"/>
+      <circle cx="74" cy="126" r="6" fill="none" stroke="#ea580c" stroke-width="2"/><path d="M64 146c0-6 4.5-9 10-9s10 3 10 9" fill="none" stroke="#ea580c" stroke-width="2"/>
+      <circle cx="89" cy="129" r="4.5" fill="none" stroke="#ea580c" stroke-width="1.8"/><path d="M86 146c0-4 1.5-7 3-7s6 2 6 7" fill="none" stroke="#ea580c" stroke-width="1.8"/>
+      <text x="116" y="120" font-size="15.5" font-weight="700" fill="#0f1729">Project &amp; SV teams</text>
+      <text x="116" y="140" font-size="12.5" fill="#475069">upload, deploy, monitor</text>
+      <text x="116" y="160" font-size="11.5" fill="#9a3412">Admin · SV team · Owner · Viewer</text>
+
+      <g filter="url(#sh)"><rect x="40" y="198" width="300" height="244" rx="14" fill="#fff"/></g>
+      <rect x="40" y="198" width="6" height="244" rx="3" fill="#ea580c"/>
+      <text x="60" y="226" font-size="15.5" font-weight="700" fill="#0f1729">API specs — auto-detected</text>
+      <g font-size="12" font-weight="600" fill="#9a3412">
+        <rect x="60" y="244" width="270" height="28" rx="8" fill="#fff7ed" stroke="#fdba74"/><text x="72" y="263">Raw HTTP request/response .txt</text>
+        <rect x="270" y="249" width="54" height="18" rx="9" fill="#ea580c"/><text x="297" y="262" text-anchor="middle" font-size="9.5" fill="#fff">PRIMARY</text>
+        <rect x="60" y="280" width="58" height="28" rx="8" fill="#fff7ed" stroke="#fed7aa"/><text x="89" y="299" text-anchor="middle">JSON</text>
+        <rect x="126" y="280" width="104" height="28" rx="8" fill="#fff7ed" stroke="#fed7aa"/><text x="178" y="299" text-anchor="middle">Postman v2.1</text>
+        <rect x="238" y="280" width="92" height="28" rx="8" fill="#fff7ed" stroke="#fed7aa"/><text x="284" y="299" text-anchor="middle">OpenAPI</text>
+        <rect x="60" y="316" width="126" height="28" rx="8" fill="#fff7ed" stroke="#fed7aa"/><text x="123" y="335" text-anchor="middle">SOAP + WSDL</text>
+        <rect x="194" y="316" width="136" height="28" rx="8" fill="#fff7ed" stroke="#fed7aa"/><text x="262" y="335" text-anchor="middle">XLSX templates</text>
+        <rect x="60" y="352" width="70" height="28" rx="8" fill="#fff7ed" stroke="#fed7aa"/><text x="95" y="371" text-anchor="middle">Kafka</text>
+        <rect x="138" y="352" width="84" height="28" rx="8" fill="#fff7ed" stroke="#fed7aa"/><text x="180" y="371" text-anchor="middle">IBM MQ</text>
+        <rect x="230" y="352" width="100" height="28" rx="8" fill="#fff7ed" stroke="#fed7aa"/><text x="280" y="371" text-anchor="middle">AsyncAPI</text>
+      </g>
+      <text x="60" y="404" font-size="12" fill="#475069">Format detected from the file content</text>
+      <text x="60" y="424" font-size="12" fill="#475069">ZIP and batch upload supported</text>
+
+      <g filter="url(#sh)"><rect x="40" y="458" width="300" height="118" rx="14" fill="#fff"/></g>
+      <rect x="40" y="458" width="6" height="118" rx="3" fill="#dc2626"/>
+      <text x="60" y="486" font-size="15" font-weight="700" fill="#0f1729">CA LISA / IBM RTW captures</text>
+      <text x="60" y="507" font-size="12.5" fill="#475069">migrates existing virtual services</text>
+      <text x="60" y="526" font-size="12.5" fill="#475069">off licensed tools</text>
+      <text x="60" y="556" font-size="12" font-weight="600" fill="#b91c1c">lookup tables for 1000s of variants</text>
+
+      <g filter="url(#sh)"><rect x="40" y="592" width="300" height="100" rx="14" fill="#fff"/></g>
+      <rect x="58" y="614" width="44" height="44" rx="12" fill="url(#gHead)"/>
+      <path d="M80 622l3 8 8 3-8 3-3 8-3-8-8-3 8-3z" fill="#fff"/>
+      <text x="116" y="624" font-size="15" font-weight="700" fill="#0f1729">Plain English</text>
+      <text x="116" y="644" font-size="12.5" fill="#475069">"a payments API that…"</text>
+      <text x="116" y="664" font-size="12.5" fill="#475069">Claude drafts the spec</text>
+
+      <!-- input bus -->
+      <path d="M340 130 H 416" stroke="#ea580c" stroke-width="2.4" fill="none" marker-end="url(#arO)"/>
+      <path d="M380 130 V 642" stroke="#ea580c" stroke-width="2.4" fill="none"/>
+      <path d="M340 320 H 380 M340 517 H 380 M340 642 H 380" stroke="#ea580c" stroke-width="2.4" fill="none"/>
+      <rect x="350" y="404" width="60" height="22" rx="11" fill="#fff" stroke="#fdba74"/>
+      <text x="380" y="419" text-anchor="middle" font-size="11.5" font-weight="700" fill="#c2410c">upload</text>
+
+      <!-- ═══ ZONE B — PLATFORM ═══ -->
+      <rect x="400" y="20" width="780" height="860" rx="24" fill="url(#gB)" stroke="#c7d2fe"/>
+      <rect x="420" y="38" width="244" height="30" rx="15" fill="url(#gHead)"/>
+      <text x="542" y="58" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">MOCKINGBIRD PLATFORM</text>
+      <text x="1160" y="58" text-anchor="end" font-size="12" fill="#6b7489">Python FastAPI · Node.js Fastify · React</text>
+
+      <!-- portal -->
+      <g filter="url(#sh)"><rect x="420" y="90" width="740" height="96" rx="14" fill="#fff"/></g>
+      <rect x="438" y="104" width="40" height="40" rx="10" fill="url(#gHead)"/>
+      <rect x="447" y="114" width="22" height="20" rx="3" fill="none" stroke="#fff" stroke-width="2"/><path d="M447 120h22" stroke="#fff" stroke-width="2"/>
+      <text x="492" y="118" font-size="16" font-weight="700" fill="#0f1729">Self-service portal</text>
+      <text x="492" y="138" font-size="12.5" fill="#475069">React 18 · TypeScript — calls every service over REST /api/v1 with a JWT</text>
+      <g font-size="11.5" font-weight="600" fill="#3730a3">
+        <rect x="492" y="152" width="62" height="22" rx="11" fill="#eef2ff"/><text x="523" y="167" text-anchor="middle">Upload</text>
+        <rect x="562" y="152" width="96" height="22" rx="11" fill="#eef2ff"/><text x="610" y="167" text-anchor="middle">Job progress</text>
+        <rect x="666" y="152" width="64" height="22" rx="11" fill="#eef2ff"/><text x="698" y="167" text-anchor="middle">Deploy</text>
+        <rect x="738" y="152" width="72" height="22" rx="11" fill="#eef2ff"/><text x="774" y="167" text-anchor="middle">Live TPS</text>
+        <rect x="818" y="152" width="72" height="22" rx="11" fill="#eef2ff"/><text x="854" y="167" text-anchor="middle">Reports</text>
+        <rect x="898" y="152" width="96" height="22" rx="11" fill="#eef2ff"/><text x="946" y="167" text-anchor="middle">AI generate</text>
+        <rect x="1002" y="152" width="62" height="22" rx="11" fill="#eef2ff"/><text x="1033" y="167" text-anchor="middle">Admin</text>
+      </g>
+      <g stroke="#4338ca" stroke-width="2"><path d="M477 186 V 210" marker-end="url(#arI)"/><path d="M602 186 V 210" marker-end="url(#arI)"/><path d="M727 186 V 210" marker-end="url(#arI)"/><path d="M852 186 V 210" marker-end="url(#arI)"/><path d="M977 186 V 210" marker-end="url(#arI)"/><path d="M1102 186 V 210" marker-end="url(#arI)"/></g>
+
+      <!-- services -->
+      <g filter="url(#sh)">
+        <rect x="420" y="214" width="115" height="116" rx="12" fill="#fff"/><rect x="545" y="214" width="115" height="116" rx="12" fill="#fff"/>
+        <rect x="670" y="214" width="115" height="116" rx="12" fill="#fff"/><rect x="795" y="214" width="115" height="116" rx="12" fill="#fff"/>
+        <rect x="920" y="214" width="115" height="116" rx="12" fill="#fff"/><rect x="1045" y="214" width="115" height="116" rx="12" fill="#fff"/>
+      </g>
+      <g><rect x="420" y="214" width="115" height="4" fill="#059669"/><rect x="545" y="214" width="115" height="4" fill="#4338ca"/><rect x="670" y="214" width="115" height="4" fill="#ea580c"/><rect x="795" y="214" width="115" height="4" fill="#7c3aed"/><rect x="920" y="214" width="115" height="4" fill="#0284c7"/><rect x="1045" y="214" width="115" height="4" fill="#059669"/></g>
+      <g font-size="13" font-weight="700" fill="#0f1729"><text x="432" y="240">Auth</text><text x="557" y="240">Projects</text><text x="682" y="240">Ingestion</text><text x="807" y="240">AI assist</text><text x="932" y="240">Live metrics</text><text x="1057" y="240">Notify</text></g>
+      <g font-size="10.5" font-weight="600"><text x="432" y="256" fill="#059669">Node · Fastify</text><text x="557" y="256" fill="#4338ca">Python · FastAPI</text><text x="682" y="256" fill="#ea580c">Python · FastAPI</text><text x="807" y="256" fill="#7c3aed">Python · FastAPI</text><text x="932" y="256" fill="#0284c7">Python · FastAPI</text><text x="1057" y="256" fill="#059669">Node · Fastify</text></g>
+      <g font-size="11" fill="#475069">
+        <text x="432" y="278">local + LDAP login</text><text x="432" y="294">JWT, sessions</text><text x="432" y="310">roles, audit</text>
+        <text x="557" y="278">projects, stubs</text><text x="557" y="294">jobs, lifecycle</text><text x="557" y="310">audit log</text>
+        <text x="682" y="278">upload, detect</text><text x="682" y="294">store in S3</text><text x="682" y="310">NFT script ZIP</text>
+        <text x="807" y="278">Claude API</text><text x="807" y="294">English → spec</text><text x="807" y="310">rate-limited</text>
+        <text x="932" y="278">scrapes each stub</text><text x="932" y="294">TPS history</text><text x="932" y="310">WebSocket feed</text>
+        <text x="1057" y="278">email</text><text x="1057" y="294">Slack</text><text x="1057" y="310">MS Teams</text>
+      </g>
+
+      <!-- pipeline -->
+      <text x="540" y="366" font-size="12.5" font-weight="700" fill="#4338ca" letter-spacing=".06em">ASYNC JOB PIPELINE · AWS SQS</text>
+      <path d="M727 330 V 344 H 505 V 372" stroke="#ea580c" stroke-width="2.2" fill="none" marker-end="url(#arO)"/>
+      <rect x="760" y="334" width="76" height="20" rx="10" fill="#fff" stroke="#fdba74"/><text x="798" y="348" text-anchor="middle" font-size="11" font-weight="700" fill="#c2410c">parse job</text>
+
+      <g filter="url(#sh)">
+        <rect x="420" y="376" width="170" height="146" rx="14" fill="#fff"/><rect x="630" y="376" width="170" height="146" rx="14" fill="#fff"/>
+        <rect x="840" y="376" width="170" height="146" rx="14" fill="#fff"/><rect x="1040" y="376" width="120" height="146" rx="14" fill="#fff"/>
+      </g>
+      <rect x="420" y="376" width="170" height="30" rx="14" fill="#4338ca"/><rect x="420" y="392" width="170" height="14" fill="#4338ca"/>
+      <rect x="630" y="376" width="170" height="30" rx="14" fill="#4f46e5"/><rect x="630" y="392" width="170" height="14" fill="#4f46e5"/>
+      <rect x="840" y="376" width="170" height="30" rx="14" fill="#6d28d9"/><rect x="840" y="392" width="170" height="14" fill="#6d28d9"/>
+      <rect x="1040" y="376" width="120" height="30" rx="14" fill="#0284c7"/><rect x="1040" y="392" width="120" height="14" fill="#0284c7"/>
+      <g font-size="13" font-weight="700" fill="#fff" text-anchor="middle"><text x="505" y="396">1 · Parse</text><text x="715" y="396">2 · Generate</text><text x="925" y="396">3 · Deploy</text><text x="1100" y="396">Report</text></g>
+      <g font-size="11.5" fill="#475069">
+        <text x="434" y="428">reads every format</text><text x="434" y="445">stateful scenarios</text><text x="434" y="462">faults and delays</text><text x="434" y="479">dynamic data</text><text x="434" y="496">CA LISA lookup tables</text>
+        <text x="644" y="428">WireMock mappings</text><text x="644" y="445">Spring Boot project</text><text x="644" y="462">Java 21 stub engine</text><text x="644" y="479">HTTPS / mTLS config</text><text x="644" y="496">Docker build files</text>
+        <text x="854" y="428">GitLab CI build</text><text x="854" y="445">(Kaniko image)</text><text x="854" y="462">Terraform → EC2</text><text x="854" y="479">suspend and</text><text x="854" y="496">redeploy</text>
+        <text x="1054" y="428">PDF</text><text x="1054" y="445">Excel</text><text x="1054" y="462">PowerPoint</text><text x="1054" y="485">on request</text>
+      </g>
+      <g stroke="#334155" stroke-width="2"><path d="M590 449 H 626" marker-end="url(#ar)"/><path d="M800 449 H 836" marker-end="url(#ar)"/></g>
+      <g font-size="9.5" font-weight="700" fill="#fff" text-anchor="middle"><rect x="594" y="431" width="28" height="16" rx="5" fill="#f59e0b"/><text x="608" y="443">SQS</text><rect x="804" y="431" width="28" height="16" rx="5" fill="#f59e0b"/><text x="818" y="443">SQS</text></g>
+      <text x="1025" y="512" text-anchor="middle" font-size="10" fill="#6b7489">DLQ</text>
+
+      <!-- pipeline → stores -->
+      <path d="M715 522 V 586" stroke="#334155" stroke-width="2.2" marker-end="url(#ar)"/>
+      <rect x="726" y="544" width="156" height="22" rx="11" fill="#fff" stroke="#cbd5e1"/><text x="804" y="559" text-anchor="middle" font-size="11.5" font-weight="700" fill="#334155">stubs saved permanently</text>
+
+      <!-- stores -->
+      <g filter="url(#sh)">
+        <rect x="420" y="590" width="140" height="100" rx="12" fill="#fff"/><rect x="570" y="590" width="140" height="100" rx="12" fill="#fff"/>
+        <rect x="720" y="590" width="140" height="100" rx="12" fill="#fff"/><rect x="870" y="590" width="140" height="100" rx="12" fill="#fff"/>
+      </g>
+      <rect x="1020" y="590" width="140" height="100" rx="12" fill="#fff" fill-opacity=".6" stroke="#94a3b8" stroke-dasharray="5 4"/>
+      <g stroke-width="1.6">
+        <g transform="translate(434 606)" fill="#dbeafe" stroke="#1d4ed8"><ellipse cx="12" cy="4" rx="12" ry="4"/><path d="M0 4v18c0 2.2 5.4 4 12 4s12-1.8 12-4V4"/></g>
+        <g transform="translate(584 606)" fill="#dcfce7" stroke="#15803d"><ellipse cx="12" cy="4" rx="12" ry="4"/><path d="M0 4v18c0 2.2 5.4 4 12 4s12-1.8 12-4V4"/></g>
+        <g transform="translate(734 606)" fill="#fee2e2" stroke="#b91c1c"><ellipse cx="12" cy="4" rx="12" ry="4"/><path d="M0 4v18c0 2.2 5.4 4 12 4s12-1.8 12-4V4"/></g>
+        <g transform="translate(884 606)" fill="#e0f2fe" stroke="#0369a1"><ellipse cx="12" cy="4" rx="12" ry="4"/><path d="M0 4v18c0 2.2 5.4 4 12 4s12-1.8 12-4V4"/></g>
+        <g transform="translate(1034 606)" fill="#f1f5f9" stroke="#64748b"><rect x="2" y="10" width="20" height="16" rx="3"/><path d="M6 10V6a6 6 0 0 1 12 0v4" fill="none"/></g>
+      </g>
+      <g font-size="13" font-weight="700" fill="#0f1729"><text x="466" y="624">PostgreSQL</text><text x="616" y="624">AWS S3</text><text x="766" y="624">Redis</text><text x="916" y="624">Timestream</text><text x="1066" y="624" fill="#475069">Vault</text></g>
+      <g font-size="11" fill="#475069">
+        <text x="434" y="652">projects, stubs,</text><text x="434" y="668">users, audit</text>
+        <text x="584" y="652">specs, packages,</text><text x="584" y="668">reports</text>
+        <text x="734" y="652">sessions,</text><text x="734" y="668">live pub/sub</text>
+        <text x="884" y="652">TPS and latency</text><text x="884" y="668">history</text>
+        <text x="1034" y="652">secrets</text>
+      </g>
+      <rect x="1034" y="660" width="54" height="18" rx="9" fill="#fef3c7"/><text x="1061" y="673" text-anchor="middle" font-size="10" font-weight="700" fill="#92400e">PLANNED</text>
+
+      <!-- lifecycle -->
+      <g filter="url(#sh)"><rect x="420" y="710" width="740" height="150" rx="14" fill="#fff"/></g>
+      <text x="440" y="738" font-size="15" font-weight="700" fill="#0f1729">Stub lifecycle — the EC2 is temporary, the stubs are permanent</text>
+      <g font-size="12" font-weight="700" text-anchor="middle">
+        <rect x="440" y="756" width="90" height="34" rx="17" fill="#f1f5f9" stroke="#cbd5e1"/><text x="485" y="777" fill="#334155">DRAFT</text>
+        <rect x="560" y="756" width="90" height="34" rx="17" fill="#eef2ff" stroke="#c7d2fe"/><text x="605" y="777" fill="#3730a3">READY</text>
+        <rect x="680" y="756" width="120" height="34" rx="17" fill="#ede9fe" stroke="#c4b5fd"/><text x="740" y="777" fill="#5b21b6">DEPLOYING</text>
+        <rect x="830" y="756" width="80" height="34" rx="17" fill="#059669"/><text x="870" y="777" fill="#fff">LIVE</text>
+        <rect x="940" y="756" width="130" height="34" rx="17" fill="#e2e8f0" stroke="#94a3b8"/><text x="1005" y="777" fill="#334155">SUSPENDED</text>
+      </g>
+      <g stroke="#334155" stroke-width="2"><path d="M530 773 H 556" marker-end="url(#ar)"/><path d="M650 773 H 676" marker-end="url(#ar)"/><path d="M800 773 H 826" marker-end="url(#ar)"/><path d="M910 773 H 936" marker-end="url(#ar)"/></g>
+      <path d="M1005 790 V 810 H 870 V 794" stroke="#059669" stroke-width="2.2" fill="none" marker-end="url(#arG)"/>
+      <text x="937" y="828" text-anchor="middle" font-size="12" font-weight="700" fill="#047857">redeploy · ~4 min · no re-upload</text>
+      <text x="440" y="850" font-size="12" fill="#475069">Suspending terminates the EC2 to save cost; every stub stays in PostgreSQL + S3.</text>
+
+      <!-- ═══ ZONE C — OUTPUTS ═══ -->
+      <rect x="1220" y="20" width="360" height="860" rx="24" fill="url(#gC)" stroke="#bae6fd"/>
+      <rect x="1240" y="38" width="190" height="30" rx="15" fill="#0284c7"/>
+      <text x="1335" y="58" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">WHAT TEAMS GET</text>
+
+      <g filter="url(#sh)"><rect x="1240" y="90" width="320" height="250" rx="16" fill="url(#gStub)"/></g>
+      <text x="1260" y="122" font-size="16" font-weight="700" fill="#fff">Live stub per project</text>
+      <text x="1260" y="142" font-size="12.5" fill="#bae6fd">own AWS EC2 · c6i.2xlarge</text>
+      <g font-size="12.5" fill="#e0f2fe"><text x="1260" y="172">• Spring Boot + embedded WireMock</text><text x="1260" y="192">• Java 21 virtual threads</text><text x="1260" y="212">• HTTPS / mutual TLS via Nginx</text><text x="1260" y="232">• static, dynamic, stateful, faults</text></g>
+      <text x="1260" y="284" font-size="34" font-weight="800" fill="#fff" letter-spacing="-.02em">10,000+</text>
+      <text x="1260" y="306" font-size="12.5" fill="#bae6fd">requests per second per stub</text>
+      <text x="1260" y="326" font-size="12" font-weight="600" fill="#7dd3fc">URL + API key returned to the team</text>
+
+      <g filter="url(#sh)"><rect x="1240" y="356" width="320" height="86" rx="14" fill="#fff"/></g>
+      <text x="1260" y="382" font-size="15" font-weight="700" fill="#0f1729">Messaging stubs</text>
+      <text x="1260" y="401" font-size="12.5" fill="#475069">Kafka · IBM MQ · Microcks (AsyncAPI)</text>
+      <rect x="1260" y="412" width="178" height="20" rx="10" fill="#fef3c7"/><text x="1349" y="426" text-anchor="middle" font-size="10.5" font-weight="700" fill="#92400e">BUILT · PORTAL SELECTOR NEXT</text>
+
+      <g filter="url(#sh)"><rect x="1240" y="458" width="320" height="96" rx="14" fill="#fff"/></g>
+      <rect x="1240" y="458" width="6" height="96" rx="3" fill="#7c3aed"/>
+      <text x="1260" y="486" font-size="15" font-weight="700" fill="#0f1729">Load-test scripts</text>
+      <text x="1260" y="506" font-size="12.5" fill="#475069">JMeter .jmx + LoadRunner DevWeb,</text>
+      <text x="1260" y="525" font-size="12.5" fill="#475069">generated from the same stubs</text>
+      <text x="1260" y="544" font-size="11.5" font-weight="600" fill="#6d28d9">one ZIP, downloaded from the portal</text>
+
+      <g filter="url(#sh)"><rect x="1240" y="570" width="320" height="96" rx="14" fill="#fff"/></g>
+      <rect x="1240" y="570" width="6" height="96" rx="3" fill="#0284c7"/>
+      <text x="1260" y="598" font-size="15" font-weight="700" fill="#0f1729">Reports &amp; live metrics</text>
+      <text x="1260" y="618" font-size="12.5" fill="#475069">live TPS dashboard · PDF ·</text>
+      <text x="1260" y="637" font-size="12.5" fill="#475069">Excel · PowerPoint</text>
+      <text x="1260" y="656" font-size="11.5" font-weight="600" fill="#0369a1">for engineers and management</text>
+
+      <g filter="url(#sh)"><rect x="1240" y="690" width="320" height="170" rx="14" fill="#fff"/></g>
+      <rect x="1240" y="690" width="6" height="170" rx="3" fill="#ea580c"/>
+      <g transform="translate(1260 706)"><circle cx="18" cy="18" r="18" fill="#ffedd5"/><circle cx="18" cy="18" r="10" fill="none" stroke="#ea580c" stroke-width="1.8"/><path d="M8 18h20M18 8c-4 3-4 17 0 20M18 8c4 3 4 17 0 20" fill="none" stroke="#ea580c" stroke-width="1.5"/></g>
+      <text x="1306" y="722" font-size="15" font-weight="700" fill="#0f1729">Applications under test</text>
+      <text x="1306" y="740" font-size="12" fill="#c2410c" font-weight="600">call the stub URL ↑</text>
+      <g font-size="12.5" fill="#475069"><text x="1260" y="770">The stub stands in for a real downstream</text><text x="1260" y="789">system, so testing is never blocked by</text><text x="1260" y="808">dependencies that are unavailable,</text><text x="1260" y="827">unfinished or costly to use.</text></g>
+      <path d="M1560 775 H 1570 V 215 H 1564" stroke="#ea580c" stroke-width="2.4" fill="none" marker-end="url(#arO)"/>
+
+      <!-- ═══ cross-zone arrows ═══ -->
+      <path d="M925 376 V 352 H 1192 V 215 H 1236" stroke="#6d28d9" stroke-width="2.6" fill="none" marker-end="url(#ar)"/>
+      <rect x="1158" y="262" width="68" height="38" rx="10" fill="#fff" stroke="#c4b5fd"/>
+      <text x="1192" y="278" text-anchor="middle" font-size="11.5" font-weight="700" fill="#6d28d9">deploy</text>
+      <text x="1192" y="293" text-anchor="middle" font-size="11" fill="#475069">~4 min</text>
+      <path d="M1160 449 H 1205 V 618 H 1236" stroke="#0284c7" stroke-width="2.4" fill="none" marker-end="url(#arS)"/>
+      <path d="M727 330 V 340" stroke="none"/>
+
+      <!-- engineering band -->
+      <rect x="20" y="906" width="1560" height="80" rx="18" fill="#0f1729"/>
+      <g font-size="13" fill="#e2e8f0">
+        <text x="48" y="940" font-weight="800" fill="#fff" letter-spacing=".06em">ENGINEERING</text>
+        <text x="48" y="962" fill="#94a3b8">built and verified</text>
+        <circle cx="216" cy="937" r="4" fill="#34d399"/><text x="228" y="942">1,300+ automated tests</text>
+        <circle cx="420" cy="937" r="4" fill="#34d399"/><text x="432" y="942">Playwright end-to-end</text>
+        <circle cx="610" cy="937" r="4" fill="#818cf8"/><text x="622" y="942">Coded, consistent API errors</text>
+        <circle cx="846" cy="937" r="4" fill="#a78bfa"/><text x="858" y="942">Terraform + GitLab CI (Kaniko)</text>
+        <circle cx="1100" cy="937" r="4" fill="#fbbf24"/><text x="1112" y="942">£0 licence cost — all open source</text>
+        <text x="216" y="968" fill="#94a3b8" font-size="12">Next: SAML single sign-on · production Vault · Splunk and AppDynamics wiring · deploy into client AWS accounts</text>
+      </g>
+    </svg>
+    <figcaption><b>Figure 1 — System architecture.</b> Teams bring a spec, a legacy CA LISA capture or a plain-English description (left). The portal and ten back-end services (centre) parse, generate and deploy through an SQS job pipeline, and keep every stub permanently in PostgreSQL and S3. Each project gets its own high-throughput stub on EC2, plus load-test scripts and reports (right).</figcaption>
+  </figure>
+</div>
+</body>
+</html>
